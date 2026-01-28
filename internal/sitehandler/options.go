@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"io/fs"
 
-	"linnemanlabs/internal/content"
-	"linnemanlabs/internal/log"
+	"github.com/keithlinneman/linnemanlabs-web/internal/content"
+	"github.com/keithlinneman/linnemanlabs-web/internal/log"
 )
 
 type SnapshotProvider interface {

@@ -9,8 +9,8 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
-	"linnemanlabs/internal/log"
-	"linnemanlabs/internal/xerrors"
+	"github.com/keithlinneman/linnemanlabs-web/internal/log"
+	"github.com/keithlinneman/linnemanlabs-web/internal/xerrors"
 )
 
 func Recover(base log.Logger) func(next http.Handler) http.Handler {

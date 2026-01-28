@@ -8,7 +8,7 @@ import (
 	"os"
 	"strconv"
 
-	"linnemanlabs/internal/log"
+	"github.com/keithlinneman/linnemanlabs-web/internal/log"
 )
 
 type App struct {

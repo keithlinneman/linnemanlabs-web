@@ -3,7 +3,7 @@ package version_test
 import (
 	"testing"
 
-	v "linnemanlabs/internal/version"
+	v "github.com/keithlinneman/linnemanlabs-web/internal/version"
 )
 
 func TestVCSDirtyTriState(t *testing.T) {

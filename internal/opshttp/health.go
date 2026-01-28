@@ -3,7 +3,7 @@ package opshttp
 import (
 	"net/http"
 
-	"linnemanlabs/internal/probe"
+	"github.com/keithlinneman/linnemanlabs-web/internal/probe"
 )
 
 // HealthzHandler: 200 OK when probe passes, 503 otherwise (with reason)

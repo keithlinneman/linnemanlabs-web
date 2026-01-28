@@ -2,7 +2,7 @@
   "schema": "phxi.appcfg.v1",
 
   "app": "linnemanlabs",
-  "version_pkg": "linnemanlabs/internal/version",
+  "version_pkg": "github.com/keithlinneman/linnemanlabs-web/internal/version",
 
   "defaults": {
     "platforms": ["linux/amd64", "linux/arm64"],

@@ -16,7 +16,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
-	"linnemanlabs/internal/log"
+	"github.com/keithlinneman/linnemanlabs-web/internal/log"
 )
 
 // responseWriter wraps http.ResponseWriter to capture status and bytes written

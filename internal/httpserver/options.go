@@ -3,8 +3,8 @@ package httpserver
 import (
 	"net/http"
 
-	"linnemanlabs/internal/log"
-	"linnemanlabs/internal/probe"
+	"github.com/keithlinneman/linnemanlabs-web/internal/log"
+	"github.com/keithlinneman/linnemanlabs-web/internal/probe"
 )
 
 type Options struct {

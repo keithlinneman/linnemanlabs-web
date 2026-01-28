@@ -1,4 +1,4 @@
-module linnemanlabs
+module github.com/keithlinneman/linnemanlabs-web
 
 go 1.24.11
 

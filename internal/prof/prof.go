@@ -6,8 +6,8 @@ import (
 
 	"github.com/grafana/pyroscope-go"
 
-	"linnemanlabs/internal/log"
-	"linnemanlabs/internal/xerrors"
+	"github.com/keithlinneman/linnemanlabs-web/internal/log"
+	"github.com/keithlinneman/linnemanlabs-web/internal/xerrors"
 )
 
 type Options struct {

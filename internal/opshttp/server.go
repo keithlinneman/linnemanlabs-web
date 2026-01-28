@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"linnemanlabs/internal/log"
-	"linnemanlabs/internal/xerrors"
+	"github.com/keithlinneman/linnemanlabs-web/internal/log"
+	"github.com/keithlinneman/linnemanlabs-web/internal/xerrors"
 )
 
 // Start admin HTTP server with /metrics, /healthz, /readyz, pprof debug endpoints

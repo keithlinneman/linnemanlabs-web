@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/trace"
-	//"linnemanlabs/internal/xerrors"
+	//"github.com/keithlinneman/linnemanlabs-web/internal/xerrors"
 )
 
 type slogLogger struct {

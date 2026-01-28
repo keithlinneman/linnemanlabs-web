@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync/atomic"
 
-	"linnemanlabs/internal/xerrors"
+	"github.com/keithlinneman/linnemanlabs-web/internal/xerrors"
 )
 
 // Probe is evaluated at request time

@@ -3,7 +3,7 @@ package opshttp
 import (
 	"net/http"
 
-	"linnemanlabs/internal/probe"
+	"github.com/keithlinneman/linnemanlabs-web/internal/probe"
 )
 
 type Options struct {

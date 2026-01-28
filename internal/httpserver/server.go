@@ -15,10 +15,10 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
-	//"linnemanlabs/internal/log"
-	"linnemanlabs/internal/httpmw"
-	//"linnemanlabs/internal/metrics"
-	"linnemanlabs/internal/xerrors"
+	//"github.com/keithlinneman/linnemanlabs-web/internal/log"
+	"github.com/keithlinneman/linnemanlabs-web/internal/httpmw"
+	//"github.com/keithlinneman/linnemanlabs-web/internal/metrics"
+	"github.com/keithlinneman/linnemanlabs-web/internal/xerrors"
 )
 
 type RouteRegistrar interface {

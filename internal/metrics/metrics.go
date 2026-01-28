@@ -10,7 +10,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	"linnemanlabs/internal/version"
+	"github.com/keithlinneman/linnemanlabs-web/internal/version"
 )
 
 // ReqDBStatsFromContextFunc is injected at wiring-time in main() so the metrics package doesn't need to import postgres.
