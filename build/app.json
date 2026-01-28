@@ -32,14 +32,8 @@
   },
 
   "aws": {
-    "profiles": {
-      "base": "build-prod",
-      "s3":   "build-prod",
-      "ssm":  "linnemanlabs-prod",
-      "kms_signer": "build-prod-signer"
-    },
     "ssm_env_param": "/platform/env/name",
-    "ssm_cosign_signer_param_template": "/platform/signing/{env}/cosign/signer"
+    "ssm_cosign_signer_param": "/app/linnemanlabs/signing/cosign/signer"
   },
 
   "predicates": {
