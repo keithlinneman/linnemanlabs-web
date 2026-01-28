@@ -1,0 +1,58 @@
+{
+  "schema": "phxi.appcfg.v1",
+
+  "app": "linnemanlabs",
+  "version_pkg": "linnemanlabs/internal/version",
+
+  "defaults": {
+    "platforms": ["linux/amd64", "linux/arm64"],
+    "components": ["web"]
+  },
+
+  "oci": {
+    "registry": "130677209948.dkr.ecr.us-east-2.amazonaws.com",
+    "repository_prefix": "linnemanlabs",
+    "artifact_types": {
+      "binary": "application/vnd.phxi.binary.v1",
+      "index":  "application/vnd.phxi.binary.index.v1"
+    }
+  },
+
+  "components": {
+    "web": {
+      "go_package": "./cmd/web",
+      "repository": "linnemanlabs/web",
+      "artifact_type": "application/vnd.phxi.binary.v1"
+    }
+  },
+
+  "deploy": {
+    "s3_bucket": "phxi-build-prod-use2-deployment-artifacts",
+    "ssm_release_param": "/app/linnemanlabs/_shared/deploy/primary/release/id"
+  },
+
+  "aws": {
+    "profiles": {
+      "base": "build-prod",
+      "s3":   "build-prod",
+      "ssm":  "linnemanlabs-prod",
+      "kms_signer": "build-prod-signer"
+    },
+    "ssm_env_param": "/platform/env/name",
+    "ssm_cosign_signer_param_template": "/platform/signing/{env}/cosign/signer"
+  },
+
+  "predicates": {
+    "sbom_spdx": "https://spdx.dev/Document",
+    "sbom_cdx":  "https://cyclonedx.org/schema",
+
+    "vuln_trivy":       "https://phxi.net/attestations/trivy/vuln/v1",
+    "vuln_grype":       "https://phxi.net/attestations/grype/vuln/v1",
+    "vuln_govulncheck": "https://phxi.net/attestations/govulncheck/vuln/v1",
+
+    "license_report": "https://phxi.net/attestations/licenses/v1",
+
+    "release_descriptor": "https://phxi.net/attestations/release/v1",
+    "inventory_descriptor": "https://phxi.net/attestations/inventory/v1"
+  }
+}

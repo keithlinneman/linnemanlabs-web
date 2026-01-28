@@ -1,0 +1,413 @@
+package main
+
+import (
+	"context"
+	"flag"
+	"fmt"
+	"os"
+	"os/signal"
+	"strconv"
+	"syscall"
+	"time"
+
+	"linnemanlabs/internal/cfg"
+	"linnemanlabs/internal/content"
+	"linnemanlabs/internal/healthhttp"
+	"linnemanlabs/internal/opshttp"
+	"linnemanlabs/internal/sitehandler"
+	"linnemanlabs/internal/sitehttp"
+	"linnemanlabs/internal/webassets"
+
+	"linnemanlabs/internal/httpserver"
+	"linnemanlabs/internal/log"
+	"linnemanlabs/internal/metrics"
+	"linnemanlabs/internal/otelx"
+	"linnemanlabs/internal/probe"
+	"linnemanlabs/internal/prof"
+	v "linnemanlabs/internal/version"
+	// "linnemanlabs/internal/xerrors"
+)
+
+func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	// Handle cmd line flags
+	var (
+		flagLogJSON bool
+		setLogJSON  bool
+
+		flagLogLevel string
+		setLogLevel  bool
+
+		flagHTTPPort int
+		setHTTPPort  bool
+
+		flagAdminPort int
+		setAdminPort  bool
+
+		flagEnablePprof bool
+		setEnablePprof  bool
+
+		flagEnablePyroscope bool
+		setEnablePyroscope  bool
+
+		flagEnableTracing bool
+		setEnableTracing  bool
+
+		flagTraceSample float64
+		setTraceSample  bool
+
+		flagPyroServer string
+		setPyroServer  bool
+
+		flagPyroTenantID string
+		setPyroTenantID  bool
+
+		flagOTLPEndpoint string
+		setOTLPEndpoint  bool
+
+		flagStacktraceLevel string
+		setStacktraceLevel  bool
+
+		flagIncludeErrorLinks bool
+		setIncludeErrorLinks  bool
+
+		flagMaxErrorLinks int
+		setMaxErrorLinks  bool
+
+		flagShowVersion bool
+	)
+	flag.Func("log-level", "debug|info|warn|error", func(s string) error {
+		flagLogLevel, setLogLevel = s, true
+		return nil
+	})
+	flag.Func("admin-port", "listen TCP port (1..65535)", func(s string) error {
+		n, err := strconv.Atoi(s)
+		if err != nil {
+			return err
+		}
+		flagAdminPort, setAdminPort = n, true
+		return nil
+	})
+	flag.Func("http-port", "listen TCP port (1..65535)", func(s string) error {
+		n, err := strconv.Atoi(s)
+		if err != nil {
+			return err
+		}
+		flagHTTPPort, setHTTPPort = n, true
+		return nil
+	})
+	flag.Func("trace-sample", "trace sampling ratio (0..1)", func(s string) error {
+		n, err := strconv.ParseFloat(s, 64)
+		if err != nil {
+			return err
+		}
+		flagTraceSample, setTraceSample = n, true
+		return nil
+	})
+	flag.Func("stacktrace-level", "debug|info|warn|error", func(s string) error {
+		flagStacktraceLevel, setStacktraceLevel = s, true
+		return nil
+	})
+	flag.Func("pyro-server", "pyroscope server url to push to", func(s string) error {
+		flagPyroServer, setPyroServer = s, true
+		return nil
+	})
+	flag.Func("pyro-tenant", "tenant (x-scope-orgid) to use for pyro-server", func(s string) error {
+		flagPyroTenantID, setPyroTenantID = s, true
+		return nil
+	})
+	flag.Func("otlp-endpoint", "OTLP endpoint to push to (gRPC) (host:port)", func(s string) error {
+		flagOTLPEndpoint, setOTLPEndpoint = s, true
+		return nil
+	})
+	flag.Func("max-error-links", "max error chain depth (1..64)", func(s string) error {
+		n, err := strconv.Atoi(s)
+		if err != nil {
+			return err
+		}
+		flagMaxErrorLinks, setMaxErrorLinks = n, true
+		return nil
+	})
+	flag.BoolVar(&flagIncludeErrorLinks, "include-error-links", true, "Include error links in log messages")
+	flag.BoolVar(&flagLogJSON, "log-json", true, "JSON logs (true) or logfmt (false)")
+	flag.BoolVar(&flagEnablePprof, "enable-pprof", true, "Enable Pprof profiling (on admin port only)")
+	flag.BoolVar(&flagEnableTracing, "enable-tracing", false, "Enable OTLP tracing and push to otlp-endpoint")
+	flag.BoolVar(&flagEnablePyroscope, "enable-pyroscope", false, "Enable pushing Pyroscope data to server set in -pyro-server")
+	flag.BoolVar(&flagShowVersion, "V", false, "Print version+build information and exit")
+	flag.Parse()
+	if flagShowVersion {
+		vi := v.Get()
+		fmt.Printf(
+			"linnemanlabs web %s (commit=%s, commit_date=%s, build_id=%s, build_date=%s, go=%s, dirty=%v)\n",
+			vi.Version, vi.Commit, vi.CommitDate, vi.BuildId, vi.BuildDate, vi.GoVersion,
+			vi.VCSDirty != nil && *vi.VCSDirty,
+		)
+		os.Exit(0)
+	}
+	flag.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "include-error-links":
+			setIncludeErrorLinks = true
+		case "log-json":
+			setLogJSON = true
+		case "enable-pprof":
+			setEnablePprof = true
+		case "enable-pyroscope":
+			setEnablePyroscope = true
+		case "enable-tracing":
+			setEnableTracing = true
+		}
+	})
+
+	// Setup configuration
+	conf := cfg.Defaults()
+	conf = cfg.FromEnv(conf, "LMLABS_")
+	conf = cfg.Apply(conf, cfg.Overrides{
+		LogJSON:           ptrIf(setLogJSON, flagLogJSON),
+		LogLevel:          ptrIf(setLogLevel, flagLogLevel),
+		HTTPPort:          ptrIf(setHTTPPort, flagHTTPPort),
+		AdminPort:         ptrIf(setAdminPort, flagAdminPort),
+		EnablePprof:       ptrIf(setEnablePprof, flagEnablePprof),
+		EnablePyroscope:   ptrIf(setEnablePyroscope, flagEnablePyroscope),
+		EnableTracing:     ptrIf(setEnableTracing, flagEnableTracing),
+		PyroServer:        ptrIf(setPyroServer, flagPyroServer),
+		PyroTenantID:      ptrIf(setPyroTenantID, flagPyroTenantID),
+		OTLPEndpoint:      ptrIf(setOTLPEndpoint, flagOTLPEndpoint),
+		TraceSample:       ptrIf(setTraceSample, flagTraceSample),
+		StacktraceLevel:   ptrIf(setStacktraceLevel, flagStacktraceLevel),
+		IncludeErrorLinks: ptrIf(setIncludeErrorLinks, flagIncludeErrorLinks),
+		MaxErrorLinks:     ptrIf(setMaxErrorLinks, flagMaxErrorLinks),
+	})
+	if err := cfg.Validate(conf); err != nil {
+		fmt.Fprintln(os.Stderr, "config error: ", err)
+		os.Exit(1)
+	}
+
+	// Setup logging
+	lvl, err := log.ParseLevel(conf.LogLevel)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "invalid log level %s: %v\n", conf.LogLevel, err)
+		os.Exit(1)
+	}
+	lg, err := log.New(log.Options{
+		App:               "linnemanlabs",
+		Version:           v.Version,
+		Commit:            v.Commit,
+		BuildId:           v.BuildId,
+		Level:             lvl,
+		JsonFormat:        conf.LogJSON,
+		MaxErrorLinks:     conf.MaxErrorLinks,
+		IncludeErrorLinks: conf.IncludeErrorLinks,
+	})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "logger init error:", err)
+		os.Exit(1)
+	}
+	// defer lg.Sync()
+	L := lg.With("component", "web")
+	ctx = log.WithContext(ctx, L)
+
+	// Get build/version info
+	vi := v.Get()
+	L.Info(ctx, "initializing application",
+		"version", vi.Version,
+		"commit", vi.Commit,
+		"commit_date", vi.CommitDate,
+		"build_id", vi.BuildId,
+		"build_date", vi.BuildDate,
+		"go_version", vi.GoVersion,
+		"vcs_dirty", vi.VCSDirty,
+		"http_port", conf.HTTPPort,
+		"admin_port", conf.AdminPort,
+		"enable_pprof", conf.EnablePprof,
+		"enable_pyroscope", conf.EnablePyroscope,
+		"enable_tracing", conf.EnableTracing,
+		"otlp_endpoint", conf.OTLPEndpoint,
+		"pyro_server", conf.PyroServer,
+		"pyro_tenant", conf.PyroTenantID,
+		"trace_sample", conf.TraceSample,
+		"include_error_links", conf.IncludeErrorLinks,
+		"max_error_links", conf.MaxErrorLinks,
+	)
+
+	// Setup pyroscope profiling
+	stopProf, err := prof.Start(ctx, prof.Options{
+		Enabled:       conf.EnablePyroscope,
+		AppName:       "linnemanlabs.web",
+		AuthToken:     "",
+		ServerAddress: conf.PyroServer,
+		TenantID:      conf.PyroTenantID,
+		Tags: map[string]string{
+			"app":       "linnemanlabs",
+			"component": "web",
+			"env":       "prod",
+			"region":    "us-east-2",
+			"version":   vi.Version,
+			"commit":    vi.Commit,
+			"build_id":  vi.BuildId,
+			"source":    "go-agent",
+		},
+	})
+	if err != nil {
+		L.Error(ctx, err, "pyroscope start failed", "pyro_server", conf.PyroServer)
+	}
+	defer func() { stopProf() }()
+
+	// Setup otel for tracing
+	shutdownOTEL, err := otelx.Init(ctx, otelx.Options{
+		Enabled:   conf.EnableTracing,
+		Endpoint:  conf.OTLPEndpoint,
+		Insecure:  true,
+		Sample:    conf.TraceSample,
+		Service:   "linnemanlabs",
+		Component: "web",
+		Version:   vi.Version,
+	})
+	if err != nil {
+		L.Error(ctx, err, "otel init failed")
+	}
+	defer func() { _ = shutdownOTEL(context.Background()) }()
+
+	// Setup metrics / admin listener
+	var m *metrics.ServerMetrics = metrics.New()
+	m.SetBuildInfoFromVersion("linnemanlabs", "web", vi)
+
+	// setup toggle for server shutdown
+	var gate probe.ShutdownGate
+	readiness := probe.Multi(
+		gate.Probe(),
+		probe.Func(func(ctx context.Context) error {
+			// do db checks, etc here
+			// nil = ok, err = reason
+			return nil
+		}),
+	)
+
+	// start ops http server
+	opsHTTPStop, err := opshttp.Start(ctx, L, opshttp.Options{
+		Port:         conf.AdminPort,
+		Metrics:      m.Handler(),
+		EnablePprof:  conf.EnablePprof,
+		Health:       probe.Static(true, ""),
+		Readiness:    readiness,
+		UseRecoverMW: true,
+	})
+	if err != nil {
+		L.Error(ctx, err, "failed to start ops http listener")
+		os.Exit(1)
+	}
+	defer func() { _ = opsHTTPStop(context.Background()) }()
+
+	// create application health/readiness checks
+	checker := healthhttp.StaticChecker{} // AppChecker later when db is implemented
+	healthAPI := healthhttp.NewAPI(checker)
+
+	// setup content manager that will manage what content we serve
+	/*
+		contentMgr := content.NewManager(content.Options{
+			Logger:     L,
+			FallbackFS: fallbackFS,
+			SeedFS:     seedFS,
+			HaveSeed:   haveSeed,
+		})
+	*/
+
+	// initialize http content
+	// setup maintenance fallback fs
+	fallbackFS := webassets.FallbackFS()
+
+	// setup seed fs to serve initial content to pass to content manger
+	seedFS, haveSeed := webassets.SeedSiteFS()
+
+	// setup content manager that will manage what content we serve
+	contentMgr := content.NewManager()
+
+	// load initial seed content if available
+	if haveSeed {
+		contentMgr.Set(content.Snapshot{
+			FS: seedFS,
+			Meta: content.Meta{
+				Source:  content.SourceSeed,
+				Version: "initial-seed",
+			},
+		})
+		L.Info(ctx, "loaded initial seed site content into content manager")
+	} else {
+		L.Info(ctx, "no seed site content available to load into content manager")
+	}
+
+	// setup site handler that serves site content
+	siteHandler, err := sitehandler.New(sitehandler.Options{
+		Logger:     L,
+		Content:    contentMgr,
+		FallbackFS: fallbackFS,
+	})
+	if err != nil {
+		L.Error(ctx, err, "failed to create site handler")
+		os.Exit(1)
+	}
+
+	// register site handler routes
+	siteRoutes := sitehttp.New(siteHandler)
+
+	siteHTTPStop, err := httpserver.Start(
+		ctx,
+		httpserver.Options{
+			Port:         conf.HTTPPort,
+			Health:       probe.Static(true, ""),
+			Readiness:    readiness,
+			UseRecoverMW: true,
+			MetricsMW:    m.Middleware,
+			Logger:       L,
+		},
+		healthAPI,
+		siteRoutes,
+	)
+
+	if err != nil {
+		L.Error(ctx, err, "failed to start site http listener port")
+		os.Exit(1)
+	}
+	defer func() { _ = siteHTTPStop(context.Background()) }()
+
+	// block until signal so we dont exit
+	sigCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	// wait for ctrl+c / sigterm
+	<-sigCtx.Done()
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	L.Info(context.Background(), "shutdown signal received")
+
+	// fail health checks to drain connections
+	// we may want to have a force/clean mechanism to allow this to be set for 30s before actually shutting downy to allow load balancers to notice and drain connections
+	gate.Set("draining")
+
+	if err := siteHTTPStop(shutdownCtx); err != nil {
+		L.Error(context.Background(), err, "app http server shutdown")
+	}
+
+	if err := opsHTTPStop(shutdownCtx); err != nil {
+		L.Error(context.Background(), err, "ops http server shutdown")
+	}
+
+	if err := shutdownOTEL(shutdownCtx); err != nil {
+		L.Error(context.Background(), err, "otel shutdown")
+	}
+
+	stopProf()
+
+	L.Info(context.Background(), "shutdown complete")
+	os.Exit(0)
+}
+
+func ptrIf[T any](changed bool, v T) *T {
+	if changed {
+		return &v
+	}
+	return nil
+}

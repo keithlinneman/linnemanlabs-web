@@ -1,0 +1,61 @@
+// internal/httpmw/recover.go
+
+package httpmw
+
+import (
+	"net/http"
+	"runtime/debug"
+
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+
+	"linnemanlabs/internal/log"
+	"linnemanlabs/internal/xerrors"
+)
+
+func Recover(base log.Logger) func(next http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			defer func() {
+				if rec := recover(); rec != nil {
+					ctx := r.Context()
+
+					// Preserve underlying panic error type when possible.
+					var recErr error
+					if err, ok := rec.(error); ok {
+						recErr = xerrors.Wrap(err, "httpserver panic")
+					} else {
+						recErr = xerrors.Newf("httpserver panic: %v", rec)
+					}
+
+					// Enrich base logger
+					L := base.With(
+						"panic", rec,
+						"http_method", r.Method,
+						"http_path", r.URL.Path,
+						"http_query", r.URL.Query(),
+						"remote_addr", r.RemoteAddr,
+						"user_agent", r.UserAgent(),
+					)
+
+					// Full goroutine stack at time of panic.
+					panicStack := debug.Stack()
+
+					// Record into OTEL span.
+					if span := trace.SpanFromContext(ctx); span != nil && span.IsRecording() {
+						span.RecordError(recErr)
+						span.SetStatus(codes.Error, "panic")
+					}
+
+					L.Error(ctx, recErr, "httpserver panic recovered",
+						"panic_stack", string(panicStack),
+					)
+
+					http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+				}
+			}()
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
