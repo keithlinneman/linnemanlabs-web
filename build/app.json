@@ -10,7 +10,7 @@
   },
 
   "oci": {
-    "registry": "130677209948.dkr.ecr.us-east-2.amazonaws.com",
+    "registry": "682033464915.dkr.ecr.us-east-2.amazonaws.com",
     "repository_prefix": "linnemanlabs",
     "artifact_types": {
       "binary": "application/vnd.phxi.binary.v1",
