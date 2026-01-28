@@ -33,7 +33,7 @@
 
   "aws": {
     "ssm_env_param": "/platform/env/name",
-    "ssm_cosign_signer_param": "/app/linnemanlabs/signing/cosign/signer"
+    "ssm_cosign_signer_param": "arn:aws:ssm:us-east-2:130677209948:parameter/app/linnemanlabs/signing/cosign/signer"
   },
 
   "predicates": {
