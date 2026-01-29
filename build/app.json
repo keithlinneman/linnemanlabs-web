@@ -1,7 +1,7 @@
 {
   "schema": "phxi.appcfg.v1",
 
-  "app": "linnemanlabs",
+  "app": "linnemanlabs-web",
   "version_pkg": "github.com/keithlinneman/linnemanlabs-web/internal/version",
 
   "defaults": {
