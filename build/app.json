@@ -6,12 +6,12 @@
 
   "defaults": {
     "platforms": ["linux/amd64", "linux/arm64"],
-    "components": ["web"]
+    "components": ["server"]
   },
 
   "oci": {
     "registry": "682033464915.dkr.ecr.us-east-2.amazonaws.com",
-    "repository_prefix": "linnemanlabs",
+    "repository_prefix": "linnemanlabs-web",
     "artifact_types": {
       "binary": "application/vnd.phxi.binary.v1",
       "index":  "application/vnd.phxi.binary.index.v1"
@@ -19,9 +19,9 @@
   },
 
   "components": {
-    "web": {
-      "go_package": "./cmd/web",
-      "repository": "linnemanlabs/web",
+    "server": {
+      "go_package": "./cmd/server",
+      "repository": "linnemanlabs-web/server",
       "artifact_type": "application/vnd.phxi.binary.v1"
     }
   },
