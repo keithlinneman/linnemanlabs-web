@@ -28,7 +28,7 @@
 
   "deploy": {
     "s3_bucket": "phxi-build-prod-use2-deployment-artifacts",
-    "ssm_release_param": "/app/linnemanlabs/_shared/deploy/primary/release/id"
+    "ssm_release_param": "/app/linnemanlabs/_shared/deploy/stable/release/id"
   },
 
   "aws": {
