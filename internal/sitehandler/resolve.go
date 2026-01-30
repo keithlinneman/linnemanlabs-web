@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// resolvePath maps a URL path to a file within an FS.
+// resolvePath maps a URL path to a file within an FS
 //
 // Returns:
 // - file: relative file path within FS (no leading slash)

@@ -301,7 +301,7 @@ func main() {
 	defer func() { _ = opsHTTPStop(context.Background()) }()
 
 	// create application health/readiness checks
-	checker := healthhttp.StaticChecker{} // AppChecker later when db is implemented
+	checker := healthhttp.StaticChecker{}
 	healthAPI := healthhttp.NewAPI(checker)
 
 	// setup content manager that will manage what content we serve

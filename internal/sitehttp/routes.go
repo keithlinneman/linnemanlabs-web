@@ -14,11 +14,8 @@ func New(site http.Handler) *Routes {
 	return &Routes{Site: site}
 }
 
-// todo revisit understanding this
-// RegisterRoutes should be passed LAST so it becomes the final fallback.
+// RegisterRoutes final fallback for all unmatched routes
 func (rt *Routes) RegisterRoutes(r chi.Router) {
-	// Use NotFound rather than a wildcard route so we don't interfere with
-	// health/control routes registered by other registrars.
 	r.NotFound(rt.Site.ServeHTTP)
 	r.MethodNotAllowed(rt.Site.ServeHTTP)
 }

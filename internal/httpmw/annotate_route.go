@@ -8,7 +8,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// AnnotateHTTPRoute sets OTel http.route + span name using Chi's RoutePattern.
+// AnnotateHTTPRoute sets OTel http.route + span name using RoutePattern from chi
 func AnnotateHTTPRoute(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		next.ServeHTTP(w, r)

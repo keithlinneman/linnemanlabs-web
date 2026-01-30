@@ -211,7 +211,7 @@ func AccessLog() func(http.Handler) http.Handler {
 			// child span that captures time blocked on writing the response to the client
 			rw.finishWriteSpan()
 
-			// after handler: pull latest context (with user/tenant/route attached)
+			// after handler: pull latest context (with route/etc attached)
 			ctx := r.Context()
 
 			L := log.FromContext(ctx)
@@ -223,7 +223,8 @@ func AccessLog() func(http.Handler) http.Handler {
 			ext := strings.ToLower(path.Ext(r.URL.Path))
 			switch ext {
 			case ".css", ".js", ".png", ".jpg", ".jpeg", ".webp", ".svg", ".ico", ".woff", ".woff2", ".map":
-				return // skip logging, will ship these to clickhouse or s3 separately soon
+				// skip logging static assets, will ship these to clickhouse or s3 separately soon
+				return
 			}
 
 			duration := time.Since(start)

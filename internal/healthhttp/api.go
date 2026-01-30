@@ -7,27 +7,27 @@ import (
 	"github.com/go-chi/chi/v5"
 )
 
-// Checker defines the health interface your app implements.
+// Checker defines the health interface
 type Checker interface {
 	Healthy(ctx context.Context) bool
 	Ready(ctx context.Context) bool
 }
 
-// API implements httpserver.RouteRegistrar for health endpoints.
+// API implements httpserver.RouteRegistrar for health endpoints
 type API struct {
 	Checker Checker
 }
 
-// NewAPI constructs a health API.
+// NewAPI constructs a health API
 func NewAPI(checker Checker) *API {
 	return &API{
 		Checker: checker,
 	}
 }
 
-// RegisterRoutes attaches /-/ping, /-/healthy, /-/ready to the main chi router.
+// RegisterRoutes attaches /-/ping, /-/healthy, /-/ready to the main chi router
 func (api *API) RegisterRoutes(r chi.Router) {
-	// super-dumb liveness: "is the process up and answering?"
+	// simple liveness check
 	r.Method(http.MethodGet, "/-/ping",
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
@@ -35,7 +35,7 @@ func (api *API) RegisterRoutes(r chi.Router) {
 		}),
 	)
 
-	// more semantic "is the app healthy?"
+	// is app healthy?
 	r.Method(http.MethodGet, "/-/healthy",
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
@@ -49,7 +49,7 @@ func (api *API) RegisterRoutes(r chi.Router) {
 		}),
 	)
 
-	// "can we actually serve traffic?" (DB up, queues ok, etc).
+	// can we serve traffic?
 	r.Method(http.MethodGet, "/-/ready",
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()

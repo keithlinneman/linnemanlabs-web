@@ -67,7 +67,7 @@ func NewHandler(opts Options, regs ...RouteRegistrar) http.Handler {
 	// Middleware (outermost first in wrapping order)
 	var h http.Handler = r
 
-	// Request-scoped logging (inner so it sees trace_id, principal, tenant, etc)
+	// Request-scoped logging (inner so it sees trace_id, etc)
 	h = httpmw.WithLogger(opts.Logger)(h)
 
 	// Metrics middleware for prometheus instrumentation
@@ -81,7 +81,7 @@ func NewHandler(opts Options, regs ...RouteRegistrar) http.Handler {
 	// Decide which requests get traced
 	shouldTrace := func(p string) bool {
 		// dont trace favicon/robots.txt
-		if p == "/favicon.ico" || p == "/robots.txt" {
+		if p == "/favicon.ico" || p == "/favicon.svg" || p == "/robots.txt" {
 			return false
 		}
 		// dont trace health checks (may re-visit in the future to sample at a really low rate)
