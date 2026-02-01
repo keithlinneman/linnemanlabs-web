@@ -55,6 +55,9 @@ func main() {
 		flagEnableTracing bool
 		setEnableTracing  bool
 
+		flagEnableContentUpdates bool
+		setEnableContentUpdates  bool
+
 		flagTraceSample float64
 		setTraceSample  bool
 
@@ -75,6 +78,15 @@ func main() {
 
 		flagMaxErrorLinks int
 		setMaxErrorLinks  bool
+
+		flagContentSSMParam string
+		setContentSSMParam  bool
+
+		flagContentS3Bucket string
+		setContentS3Bucket  bool
+
+		flagContentS3Prefix string
+		setContentS3Prefix  bool
 
 		flagShowVersion bool
 	)
@@ -130,11 +142,24 @@ func main() {
 		flagMaxErrorLinks, setMaxErrorLinks = n, true
 		return nil
 	})
+	flag.Func("content-ssm-param", "ssm parameter name to get content bundle hash from", func(s string) error {
+		flagContentSSMParam, setContentSSMParam = s, true
+		return nil
+	})
+	flag.Func("content-s3-bucket", "s3 bucket name to get content bundle from", func(s string) error {
+		flagContentS3Bucket, setContentS3Bucket = s, true
+		return nil
+	})
+	flag.Func("content-s3-prefix", "s3 prefix (key) to get content bundle from", func(s string) error {
+		flagContentS3Prefix, setContentS3Prefix = s, true
+		return nil
+	})
 	flag.BoolVar(&flagIncludeErrorLinks, "include-error-links", true, "Include error links in log messages")
 	flag.BoolVar(&flagLogJSON, "log-json", true, "JSON logs (true) or logfmt (false)")
 	flag.BoolVar(&flagEnablePprof, "enable-pprof", true, "Enable Pprof profiling (on admin port only)")
 	flag.BoolVar(&flagEnableTracing, "enable-tracing", false, "Enable OTLP tracing and push to otlp-endpoint")
 	flag.BoolVar(&flagEnablePyroscope, "enable-pyroscope", false, "Enable pushing Pyroscope data to server set in -pyro-server")
+	flag.BoolVar(&flagEnableContentUpdates, "enable-content-updates", true, "Enable refreshing content bundles from S3/SSM")
 	flag.BoolVar(&flagShowVersion, "V", false, "Print version+build information and exit")
 	flag.Parse()
 	if flagShowVersion {
@@ -158,6 +183,8 @@ func main() {
 			setEnablePyroscope = true
 		case "enable-tracing":
 			setEnableTracing = true
+		case "enable-content-updates":
+			setEnableContentUpdates = true
 		}
 	})
 
@@ -165,20 +192,24 @@ func main() {
 	conf := cfg.Defaults()
 	conf = cfg.FromEnv(conf, "LMLABS_")
 	conf = cfg.Apply(conf, cfg.Overrides{
-		LogJSON:           ptrIf(setLogJSON, flagLogJSON),
-		LogLevel:          ptrIf(setLogLevel, flagLogLevel),
-		HTTPPort:          ptrIf(setHTTPPort, flagHTTPPort),
-		AdminPort:         ptrIf(setAdminPort, flagAdminPort),
-		EnablePprof:       ptrIf(setEnablePprof, flagEnablePprof),
-		EnablePyroscope:   ptrIf(setEnablePyroscope, flagEnablePyroscope),
-		EnableTracing:     ptrIf(setEnableTracing, flagEnableTracing),
-		PyroServer:        ptrIf(setPyroServer, flagPyroServer),
-		PyroTenantID:      ptrIf(setPyroTenantID, flagPyroTenantID),
-		OTLPEndpoint:      ptrIf(setOTLPEndpoint, flagOTLPEndpoint),
-		TraceSample:       ptrIf(setTraceSample, flagTraceSample),
-		StacktraceLevel:   ptrIf(setStacktraceLevel, flagStacktraceLevel),
-		IncludeErrorLinks: ptrIf(setIncludeErrorLinks, flagIncludeErrorLinks),
-		MaxErrorLinks:     ptrIf(setMaxErrorLinks, flagMaxErrorLinks),
+		LogJSON:              ptrIf(setLogJSON, flagLogJSON),
+		LogLevel:             ptrIf(setLogLevel, flagLogLevel),
+		HTTPPort:             ptrIf(setHTTPPort, flagHTTPPort),
+		AdminPort:            ptrIf(setAdminPort, flagAdminPort),
+		EnablePprof:          ptrIf(setEnablePprof, flagEnablePprof),
+		EnablePyroscope:      ptrIf(setEnablePyroscope, flagEnablePyroscope),
+		EnableTracing:        ptrIf(setEnableTracing, flagEnableTracing),
+		EnableContentUpdates: ptrIf(setEnableContentUpdates, flagEnableContentUpdates),
+		PyroServer:           ptrIf(setPyroServer, flagPyroServer),
+		PyroTenantID:         ptrIf(setPyroTenantID, flagPyroTenantID),
+		OTLPEndpoint:         ptrIf(setOTLPEndpoint, flagOTLPEndpoint),
+		TraceSample:          ptrIf(setTraceSample, flagTraceSample),
+		StacktraceLevel:      ptrIf(setStacktraceLevel, flagStacktraceLevel),
+		IncludeErrorLinks:    ptrIf(setIncludeErrorLinks, flagIncludeErrorLinks),
+		MaxErrorLinks:        ptrIf(setMaxErrorLinks, flagMaxErrorLinks),
+		ContentSSMParam:      ptrIf(setContentSSMParam, flagContentSSMParam),
+		ContentS3Bucket:      ptrIf(setContentS3Bucket, flagContentS3Bucket),
+		ContentS3Prefix:      ptrIf(setContentS3Prefix, flagContentS3Prefix),
 	})
 	if err := cfg.Validate(conf); err != nil {
 		fmt.Fprintln(os.Stderr, "config error: ", err)
@@ -224,12 +255,16 @@ func main() {
 		"enable_pprof", conf.EnablePprof,
 		"enable_pyroscope", conf.EnablePyroscope,
 		"enable_tracing", conf.EnableTracing,
+		"enable_content_updates", conf.EnableContentUpdates,
 		"otlp_endpoint", conf.OTLPEndpoint,
 		"pyro_server", conf.PyroServer,
 		"pyro_tenant", conf.PyroTenantID,
 		"trace_sample", conf.TraceSample,
 		"include_error_links", conf.IncludeErrorLinks,
 		"max_error_links", conf.MaxErrorLinks,
+		"content_ssm_param", conf.ContentSSMParam,
+		"content_s3_bucket", conf.ContentS3Bucket,
+		"content_s3_prefix", conf.ContentS3Prefix,
 	)
 
 	// Setup pyroscope profiling
@@ -336,6 +371,23 @@ func main() {
 		L.Info(ctx, "loaded initial seed site content into content manager")
 	} else {
 		L.Info(ctx, "no seed site content available to load into content manager")
+	}
+
+	// setup content bundle loader
+	loader, err := content.NewLoader(ctx, content.LoaderOptions{
+		Logger:   L,
+		SSMParam: conf.ContentSSMParam,
+		S3Bucket: conf.ContentS3Bucket,
+		S3Prefix: conf.ContentS3Prefix,
+	})
+	if err != nil {
+		L.Error(ctx, err, "failed to create content loader")
+	} else {
+		if err := loader.LoadIntoManager(ctx, contentMgr); err != nil {
+			L.Error(ctx, err, "failed to load content bundle, falling back to seed")
+		} else {
+			L.Info(ctx, "loaded content bundle from S3")
+		}
 	}
 
 	// setup site handler that serves site content
