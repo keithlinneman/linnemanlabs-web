@@ -9,6 +9,7 @@ const (
 	SourceSeed    Source = "seed"
 	SourceDisk    Source = "disk"
 	SourceTUF     Source = "tuf"
+	SourceS3      Source = "s3"
 )
 
 type Signature struct {

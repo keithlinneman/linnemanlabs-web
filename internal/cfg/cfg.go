@@ -12,38 +12,46 @@ import (
 )
 
 type App struct {
-	LogJSON           bool
-	LogLevel          string
-	HTTPPort          int
-	AdminPort         int
-	EnablePprof       bool
-	EnablePyroscope   bool
-	EnableTracing     bool
-	PyroServer        string
-	PyroTenantID      string
-	OTLPEndpoint      string
-	TraceSample       float64
-	StacktraceLevel   string
-	IncludeErrorLinks bool
-	MaxErrorLinks     int
+	LogJSON              bool
+	LogLevel             string
+	HTTPPort             int
+	AdminPort            int
+	EnablePprof          bool
+	EnablePyroscope      bool
+	EnableTracing        bool
+	EnableContentUpdates bool
+	PyroServer           string
+	PyroTenantID         string
+	OTLPEndpoint         string
+	TraceSample          float64
+	StacktraceLevel      string
+	IncludeErrorLinks    bool
+	MaxErrorLinks        int
+	ContentSSMParam      string
+	ContentS3Bucket      string
+	ContentS3Prefix      string
 }
 
 func Defaults() App {
 	return App{
-		LogJSON:           true,
-		LogLevel:          "info",
-		HTTPPort:          8080,
-		AdminPort:         9000,
-		EnablePprof:       true,
-		EnablePyroscope:   false,
-		EnableTracing:     false,
-		OTLPEndpoint:      "",
-		TraceSample:       0.1,
-		PyroServer:        "",
-		PyroTenantID:      "",
-		StacktraceLevel:   "error",
-		IncludeErrorLinks: true,
-		MaxErrorLinks:     8,
+		LogJSON:              true,
+		LogLevel:             "info",
+		HTTPPort:             8080,
+		AdminPort:            9000,
+		EnablePprof:          true,
+		EnablePyroscope:      false,
+		EnableTracing:        false,
+		EnableContentUpdates: true,
+		OTLPEndpoint:         "",
+		TraceSample:          0.1,
+		PyroServer:           "",
+		PyroTenantID:         "",
+		StacktraceLevel:      "error",
+		IncludeErrorLinks:    true,
+		MaxErrorLinks:        8,
+		ContentSSMParam:      "/app/linnemanlabs-web/server/content/stable/release/id",
+		ContentS3Bucket:      "phxi-build-prod-use2-deployment-artifacts",
+		ContentS3Prefix:      "apps/linnemanlabs-web/server/content/bundles",
 	}
 }
 
@@ -66,6 +74,11 @@ func FromEnv(base App, prefix string) App {
 	if v := os.Getenv(prefix + "ENABLE_TRACING"); v != "" {
 		if b, err := strconv.ParseBool(v); err == nil {
 			base.EnableTracing = b
+		}
+	}
+	if v := os.Getenv(prefix + "ENABLE_CONTENT_UPDATES"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			base.EnableContentUpdates = b
 		}
 	}
 	if v := os.Getenv(prefix + "PYRO_SERVER"); v != "" {
@@ -108,24 +121,37 @@ func FromEnv(base App, prefix string) App {
 			base.MaxErrorLinks = n
 		}
 	}
+	if v := os.Getenv(prefix + "CONTENT_SSM_PARAM"); v != "" {
+		base.ContentSSMParam = v
+	}
+	if v := os.Getenv(prefix + "CONTENT_S3_BUCKET"); v != "" {
+		base.ContentS3Bucket = v
+	}
+	if v := os.Getenv(prefix + "CONTENT_S3_PREFIX"); v != "" {
+		base.ContentS3Prefix = v
+	}
 	return base
 }
 
 type Overrides struct {
-	LogJSON           *bool
-	LogLevel          *string
-	StacktraceLevel   *string
-	HTTPPort          *int
-	AdminPort         *int
-	EnablePprof       *bool
-	EnablePyroscope   *bool
-	EnableTracing     *bool
-	PyroServer        *string
-	PyroTenantID      *string
-	OTLPEndpoint      *string
-	TraceSample       *float64
-	IncludeErrorLinks *bool
-	MaxErrorLinks     *int
+	LogJSON              *bool
+	LogLevel             *string
+	StacktraceLevel      *string
+	HTTPPort             *int
+	AdminPort            *int
+	EnablePprof          *bool
+	EnablePyroscope      *bool
+	EnableTracing        *bool
+	EnableContentUpdates *bool
+	PyroServer           *string
+	PyroTenantID         *string
+	OTLPEndpoint         *string
+	TraceSample          *float64
+	IncludeErrorLinks    *bool
+	MaxErrorLinks        *int
+	ContentSSMParam      *string
+	ContentS3Bucket      *string
+	ContentS3Prefix      *string
 }
 
 func Apply(base App, o Overrides) App {
@@ -146,6 +172,9 @@ func Apply(base App, o Overrides) App {
 	}
 	if o.EnableTracing != nil {
 		base.EnableTracing = *o.EnableTracing
+	}
+	if o.EnableContentUpdates != nil {
+		base.EnableContentUpdates = *o.EnableContentUpdates
 	}
 	if o.OTLPEndpoint != nil {
 		base.OTLPEndpoint = *o.OTLPEndpoint
@@ -170,6 +199,15 @@ func Apply(base App, o Overrides) App {
 	}
 	if o.MaxErrorLinks != nil {
 		base.MaxErrorLinks = *o.MaxErrorLinks
+	}
+	if o.ContentSSMParam != nil {
+		base.ContentSSMParam = *o.ContentSSMParam
+	}
+	if o.ContentS3Bucket != nil {
+		base.ContentS3Bucket = *o.ContentS3Bucket
+	}
+	if o.ContentS3Prefix != nil {
+		base.ContentS3Prefix = *o.ContentS3Prefix
 	}
 	return base
 }
@@ -232,6 +270,19 @@ func Validate(c App) error {
 	if c.IncludeErrorLinks {
 		if c.MaxErrorLinks < 1 || c.MaxErrorLinks > 64 {
 			errs = append(errs, fmt.Errorf("MAX_ERROR_LINKS must be 1..64 (got %d)", c.MaxErrorLinks))
+		}
+	}
+
+	if c.EnableContentUpdates {
+		// Content config
+		if c.ContentSSMParam == "" {
+			errs = append(errs, fmt.Errorf("CONTENT_SSM_PARAM is required"))
+		}
+		if c.ContentS3Bucket == "" {
+			errs = append(errs, fmt.Errorf("CONTENT_S3_BUCKET is required"))
+		}
+		if c.ContentS3Prefix == "" {
+			errs = append(errs, fmt.Errorf("CONTENT_S3_PREFIX is required"))
 		}
 	}
 
