@@ -77,6 +77,10 @@ func extractTarGz(src, dst string) error {
 				return err
 			}
 
+		// handle volume labels (ignore but dont error on unsupported type)
+		case 'V':
+			continue
+
 		// no need for symlinks currently
 		// case tar.TypeSymlink:
 		// 	// validate symlink target doesnt escape
