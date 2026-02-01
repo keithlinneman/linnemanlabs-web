@@ -1,0 +1,31 @@
+name: Build App
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/keithlinneman/build-system@sha256:de8b7f331e8ad40316cf4e9036e8d8d7f4494b50320ffec005b4e397dbb26179
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::682033464915:role/app-linnemanlabs-web-build
+          aws-region: us-east-2
+
+      - name: Build and release
+        run: |
+          /build-system/build.sh \
+            --repo . \
+            --ref ${{ github.sha }} \
+            --track stable
+
