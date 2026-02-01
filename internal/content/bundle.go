@@ -62,18 +62,18 @@ func extractTarGz(src, dst string) error {
 		switch hdr.Typeflag {
 		// handle directories
 		case tar.TypeDir:
-			if err := os.MkdirAll(target, 0755); err != nil {
+			if err := os.MkdirAll(target, 0750); err != nil {
 				return xerrors.Wrapf(err, "mkdir %s", target)
 			}
 
 		// handle regular files
 		case tar.TypeReg:
 			// ensure parent directory exists
-			if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+			if err := os.MkdirAll(filepath.Dir(target), 0750); err != nil {
 				return xerrors.Wrapf(err, "mkdir parent of %s", target)
 			}
 
-			if err := writeFile(target, tr, hdr.FileInfo().Mode()); err != nil {
+			if err := writeFile(target, tr, 0640); err != nil {
 				return err
 			}
 
@@ -100,7 +100,7 @@ func extractTarGz(src, dst string) error {
 
 		default:
 			// reject other types (symlinks, hard links, devices, fifos, etc).. need to replace tar with something simpler
-			continue
+			return xerrors.Newf("unsupported file type in archive: %s (type %c)", hdr.Name, hdr.Typeflag)
 		}
 	}
 
