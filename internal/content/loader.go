@@ -162,6 +162,8 @@ func (l *Loader) Load(ctx context.Context) (*Snapshot, error) {
 
 // LoadHash fetches a specific bundle by hash and returns a Snapshot
 func (l *Loader) LoadHash(ctx context.Context, hash string) (*Snapshot, error) {
+	loadedAt := time.Now().UTC()
+
 	// Download the bundle
 	bundlePath, err := l.Download(ctx, hash)
 	if err != nil {
@@ -199,14 +201,47 @@ func (l *Loader) LoadHash(ctx context.Context, hash string) (*Snapshot, error) {
 		"dest", extractDir,
 	)
 
+	// Create the filesystem for the extracted content
+	contentFS := os.DirFS(extractDir)
+
+	// Attempt to load provenance.json
+	var provenance *Provenance
+	prov, err := LoadProvenance(contentFS)
+	if err != nil {
+		// Log warning but dont fail for now - in future will have this mean we fallback to previous snapshot
+		l.logger.Warn(ctx, "failed to load provenance.json, continuing without provenance data",
+			"hash", hash,
+			"error", err,
+		)
+	} else {
+		provenance = prov
+		l.logger.Info(ctx, "loaded content provenance",
+			"version", provenance.Version,
+			"content_hash", provenance.ContentHash,
+			"total_files", provenance.Summary.TotalFiles,
+			"commit", provenance.Source.CommitShort,
+		)
+	}
+
 	return &Snapshot{
-		FS: os.DirFS(extractDir),
+		FS: contentFS,
 		Meta: Meta{
 			SHA256:     hash,
 			Source:     SourceS3,
-			VerifiedAt: time.Now(),
+			VerifiedAt: time.Now().UTC(),
+			Version:    provenanceVersion(provenance),
 		},
+		Provenance: provenance,
+		LoadedAt:   loadedAt,
 	}, nil
+}
+
+// provenanceVersion extracts version from provenance or returns empty string
+func provenanceVersion(p *Provenance) string {
+	if p == nil {
+		return ""
+	}
+	return p.Version
 }
 
 // LoadIntoManager fetches the current release and updates the content manager
