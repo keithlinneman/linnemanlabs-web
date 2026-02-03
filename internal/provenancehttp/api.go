@@ -10,6 +10,7 @@ import (
 
 	"github.com/keithlinneman/linnemanlabs-web/internal/content"
 	"github.com/keithlinneman/linnemanlabs-web/internal/log"
+	v "github.com/keithlinneman/linnemanlabs-web/internal/version"
 )
 
 // SnapshotProvider defines the interface for getting content snapshots
@@ -36,6 +37,7 @@ func NewAPI(content SnapshotProvider, logger log.Logger) *API {
 
 // RegisterRoutes attaches provenance endpoints to the router
 func (api *API) RegisterRoutes(r chi.Router) {
+	r.Get("/api/provenance/app", api.HandleAppProvenance)
 	r.Get("/api/provenance/content", api.HandleContentProvenance)
 	r.Get("/api/provenance/content/summary", api.HandleContentSummary)
 }
@@ -145,6 +147,11 @@ func (api *API) HandleContentSummary(w http.ResponseWriter, r *http.Request) {
 	)
 
 	api.writeJSON(ctx, w, http.StatusOK, resp)
+}
+
+// HandleAppProvenance serves the application build provenance
+func (api *API) HandleAppProvenance(w http.ResponseWriter, r *http.Request) {
+	api.writeJSON(r.Context(), w, http.StatusOK, v.Get())
 }
 
 func (api *API) writeJSON(ctx context.Context, w http.ResponseWriter, status int, v any) {
