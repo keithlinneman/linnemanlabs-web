@@ -11,9 +11,10 @@ var (
 	BuildId    string
 	GoVersion  string
 	VCSDirty   *bool
-)
 
-var (
+	// github user that initiated the build by triggering the workflow
+	BuildActor string
+
 	// source repo
 	Repository string
 
@@ -48,6 +49,7 @@ type Info struct {
 	VCSDirty   *bool  `json:"vcs_dirty,omitempty"`
 
 	Repository      string `json:"repository,omitempty"`
+	BuildActor      string `json:"build_actor,omitempty"`
 	BuildSystem     string `json:"build_system,omitempty"`
 	BuilderIdentity string `json:"builder_identity,omitempty"`
 	BuildRunID      string `json:"build_run_id,omitempty"`
@@ -69,6 +71,7 @@ func Get() Info {
 		VCSDirty:   VCSDirty,
 
 		Repository:      Repository,
+		BuildActor:      BuildActor,
 		BuildSystem:     BuildSystem,
 		BuilderIdentity: BuilderIdentity,
 		BuildRunID:      BuildRunID,
