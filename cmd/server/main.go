@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net"
 	"os"
 	"os/signal"
 	"strconv"
@@ -432,6 +433,21 @@ func main() {
 		os.Exit(1)
 	}
 	defer func() { _ = siteHTTPStop(context.Background()) }()
+
+	// notify systemd that we started successfully
+	addr := os.Getenv("NOTIFY_SOCKET")
+	if addr == "" {
+		L.Info(ctx, "NOTIFY_SOCKET not set, skipping systemd notify")
+		return
+	}
+	conn, err := net.Dial("unixgram", addr)
+	if err != nil {
+		L.Warn(ctx, "systemd notify failed: dial failed: %w", "notify_socket", addr, err)
+		return
+	}
+	conn.Write([]byte("READY=1"))
+	conn.Close()
+	L.Info(ctx, "sent systemd READY notification")
 
 	// block until signal so we dont exit
 	sigCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
