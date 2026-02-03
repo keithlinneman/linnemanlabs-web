@@ -2,6 +2,7 @@ package version
 
 import "runtime/debug"
 
+// set via -ldflags at build time
 var (
 	Version    = "dev"
 	Commit     = "none"
@@ -12,6 +13,31 @@ var (
 	VCSDirty   *bool
 )
 
+var (
+	// source repo
+	Repository string
+
+	// "github-actions", "local", etc
+	BuildSystem string
+
+	// iam role or github oidc subject depending if local or ci build
+	BuilderIdentity string
+
+	// github runner metadata, empty for local builds
+	BuildRunID  string
+	BuildRunURL string
+
+	// key that attestations are tied to
+	ReleaseId string
+
+	// where we fetch attestations at runtime
+	EvidenceBucket string
+	EvidencePrefix string
+
+	// reference to cosign key used to sign artifacts
+	CosignKeyRef string
+)
+
 type Info struct {
 	Version    string `json:"version"`
 	Commit     string `json:"commit"`
@@ -20,6 +46,16 @@ type Info struct {
 	BuildId    string `json:"build_id"`
 	GoVersion  string `json:"go_version"`
 	VCSDirty   *bool  `json:"vcs_dirty,omitempty"`
+
+	Repository      string `json:"repository,omitempty"`
+	BuildSystem     string `json:"build_system,omitempty"`
+	BuilderIdentity string `json:"builder_identity,omitempty"`
+	BuildRunID      string `json:"build_run_id,omitempty"`
+	BuildRunURL     string `json:"build_run_url,omitempty"`
+	ReleaseId       string `json:"release_id,omitempty"`
+	EvidenceBucket  string `json:"evidence_bucket,omitempty"`
+	EvidencePrefix  string `json:"evidence_prefix,omitempty"`
+	CosignKeyRef    string `json:"cosign_key_ref,omitempty"`
 }
 
 func Get() Info {
@@ -31,6 +67,16 @@ func Get() Info {
 		BuildId:    BuildId,
 		GoVersion:  GoVersion,
 		VCSDirty:   VCSDirty,
+
+		Repository:      Repository,
+		BuildSystem:     BuildSystem,
+		BuilderIdentity: BuilderIdentity,
+		BuildRunID:      BuildRunID,
+		BuildRunURL:     BuildRunURL,
+		ReleaseId:       ReleaseId,
+		EvidenceBucket:  EvidenceBucket,
+		EvidencePrefix:  EvidencePrefix,
+		CosignKeyRef:    CosignKeyRef,
 	}
 
 	if bi, ok := debug.ReadBuildInfo(); ok {
@@ -63,5 +109,18 @@ func Get() Info {
 		}
 	}
 
+	// if not set by ldflags in ci then assume local build
+	if out.BuildSystem == "" {
+		if out.Version == "dev" {
+			out.BuildSystem = "local"
+		}
+	}
+
 	return out
+}
+
+// HasProvenance returns whether this binary has ci injected provenance
+// used for conditional attestation fetching at startup
+func (i Info) HasProvenance() bool {
+	return i.ReleaseId != "" && i.EvidenceBucket != ""
 }
