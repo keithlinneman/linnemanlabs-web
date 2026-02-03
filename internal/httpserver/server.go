@@ -78,6 +78,11 @@ func NewHandler(opts Options, regs ...RouteRegistrar) http.Handler {
 	// add trace-id headers to any requests with a recording trace
 	h = httpmw.TraceResponseHeaders("X-Trace-Id", "X-Span-Id")(h)
 
+	// Add content version/hash headers
+	if opts.ContentInfo != nil {
+		h = httpmw.ContentHeaders(opts.ContentInfo)(h)
+	}
+
 	// Decide which requests get traced
 	shouldTrace := func(p string) bool {
 		// dont trace favicon/robots.txt

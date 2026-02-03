@@ -14,6 +14,7 @@ import (
 	"github.com/keithlinneman/linnemanlabs-web/internal/content"
 	"github.com/keithlinneman/linnemanlabs-web/internal/healthhttp"
 	"github.com/keithlinneman/linnemanlabs-web/internal/opshttp"
+	"github.com/keithlinneman/linnemanlabs-web/internal/provenancehttp"
 	"github.com/keithlinneman/linnemanlabs-web/internal/sitehandler"
 	"github.com/keithlinneman/linnemanlabs-web/internal/sitehttp"
 	"github.com/keithlinneman/linnemanlabs-web/internal/webassets"
@@ -386,7 +387,10 @@ func main() {
 		if err := loader.LoadIntoManager(ctx, contentMgr); err != nil {
 			L.Error(ctx, err, "failed to load content bundle, falling back to seed")
 		} else {
-			L.Info(ctx, "loaded content bundle from S3")
+			L.Info(ctx, "loaded content bundle from S3",
+				"content_version", contentMgr.ContentVersion(),
+				"content_hash", contentMgr.ContentHash(),
+			)
 		}
 	}
 
@@ -404,6 +408,9 @@ func main() {
 	// register site handler routes
 	siteRoutes := sitehttp.New(siteHandler)
 
+	// setup provenance API
+	provenanceAPI := provenancehttp.NewAPI(contentMgr, L)
+
 	siteHTTPStop, err := httpserver.Start(
 		ctx,
 		httpserver.Options{
@@ -413,8 +420,10 @@ func main() {
 			UseRecoverMW: true,
 			MetricsMW:    m.Middleware,
 			Logger:       L,
+			ContentInfo:  contentMgr, // Pass content manager for headers
 		},
 		healthAPI,
+		provenanceAPI, // Register provenance API routes
 		siteRoutes,
 	)
 
