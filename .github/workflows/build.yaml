@@ -31,4 +31,3 @@ jobs:
             --repo . \
             --ref ${{ github.sha }} \
             --track stable
-

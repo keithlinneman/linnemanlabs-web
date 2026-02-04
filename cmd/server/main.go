@@ -416,15 +416,17 @@ func main() {
 			} else {
 				evidenceStore.Set(bundle)
 				L.Info(ctx, "loaded build evidence",
-					"release_id", vi.ReleaseId,
-					"artifact_count", len(bundle.Artifacts),
-					"artifact_names", bundle.Names(),
+					"summary", bundle.LoadSummary(),
+					"categories", bundle.Summary(),
+					"inventory_hash", bundle.InventoryHash[:12],
 				)
 			}
 		}
 	} else {
 		L.Info(ctx, "no build provenance (local build), skipping evidence fetch")
 	}
+	// setup provenance API
+	provenanceAPI := provenancehttp.NewAPI(contentMgr, evidenceStore, L)
 
 	// setup site handler that serves site content
 	siteHandler, err := sitehandler.New(sitehandler.Options{
@@ -439,9 +441,6 @@ func main() {
 
 	// register site handler routes
 	siteRoutes := sitehttp.New(siteHandler)
-
-	// setup provenance API
-	provenanceAPI := provenancehttp.NewAPI(contentMgr, evidenceStore, L)
 
 	// start site http server
 	siteHTTPStop, err := httpserver.Start(
