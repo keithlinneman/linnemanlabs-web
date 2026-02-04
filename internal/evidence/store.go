@@ -1,8 +1,10 @@
 package evidence
 
-import "sync/atomic"
+import (
+	"sync/atomic"
+)
 
-// Store holds the evidence bundle for the running binary, safe for concurrent access
+// Store holds the evidence bundle and is thread-safe via atomic pointer
 type Store struct {
 	active atomic.Pointer[Bundle]
 }
@@ -14,31 +16,35 @@ func NewStore() *Store {
 
 // Set stores a new evidence bundle
 func (s *Store) Set(b *Bundle) {
-	if b != nil {
-		b.buildIndex()
-	}
 	s.active.Store(b)
 }
 
 // Get returns the current evidence bundle
-// Returns (nil, false) if no evidence has been loaded
 func (s *Store) Get() (*Bundle, bool) {
 	b := s.active.Load()
 	return b, b != nil
 }
 
-// Artifact returns a specific artifact by name from the current bundle
-func (s *Store) Artifact(name string) (*Artifact, bool) {
+// HasEvidence returns whether evidence is loaded with at least one file
+func (s *Store) HasEvidence() bool {
+	b := s.active.Load()
+	return b != nil && len(b.Files) > 0
+}
+
+// File looks up a fetched evidence file by inventory path
+func (s *Store) File(path string) (*EvidenceFile, bool) {
 	b := s.active.Load()
 	if b == nil {
 		return nil, false
 	}
-	a := b.Artifact(name)
-	return a, a != nil
+	return b.File(path)
 }
 
-// HasEvidence returns whether any evidence artifacts are loaded
-func (s *Store) HasEvidence() bool {
+// FileRef looks up a file reference by path (metadata only)
+func (s *Store) FileRef(path string) (*EvidenceFileRef, bool) {
 	b := s.active.Load()
-	return b != nil && len(b.Artifacts) > 0
+	if b == nil {
+		return nil, false
+	}
+	return b.FileRef(path)
 }

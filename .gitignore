@@ -19,3 +19,5 @@ go.work.sum
 
 # Editor/IDE
 .vscode/
+
+/server

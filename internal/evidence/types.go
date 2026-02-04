@@ -1,73 +1,190 @@
 package evidence
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
-// Artifact represents a single attestation or evidence file
-type Artifact struct {
-	// Name is the filename relative to the release prefix (e.g. "sbom.spdx.json")
-	Name string `json:"name"`
+type ReleaseManifest struct {
+	Schema    string    `json:"schema"`
+	App       string    `json:"app"`
+	Version   string    `json:"version"`
+	BuildID   string    `json:"build_id"`
+	ReleaseID string    `json:"release_id"`
+	Track     string    `json:"track"`
+	CreatedAt time.Time `json:"created_at"`
+	Epoch     int64     `json:"epoch"`
+	Component string    `json:"component"`
 
-	// S3Key is the full S3 object key this was fetched from
-	S3Key string `json:"s3_key,omitempty"`
+	Source  ReleaseSource  `json:"source"`
+	Builder ReleaseBuilder `json:"builder"`
 
-	// RawJSON holds the raw file content; omitted from JSON manifest responses
-	RawJSON []byte `json:"-"`
+	Files        map[string]FileRef `json:"files"`
+	Distribution Distribution       `json:"distribution"`
+	OCI          ReleaseOCI         `json:"oci"`
+	Artifacts    []ReleaseArtifact  `json:"artifacts"`
 
-	// Size in bytes
-	Size int64 `json:"size"`
-
-	// ContentType from S3 object metadata, if available
-	ContentType string `json:"content_type,omitempty"`
-
-	// FetchedAt is when this artifact was downloaded
-	FetchedAt time.Time `json:"fetched_at"`
+	// Policy is stored as raw JSON
+	Policy json.RawMessage `json:"policy,omitempty"`
 }
 
-// Bundle holds all evidence artifacts for a specific release
+// ReleaseSource is the git source info from release.json
+type ReleaseSource struct {
+	Repo           string    `json:"repo"`
+	ResolvedBranch string    `json:"resolved_branch"`
+	Ref            string    `json:"ref"`
+	Detached       bool      `json:"detached"`
+	Commit         string    `json:"commit"`
+	CommitShort    string    `json:"commit_short"`
+	CommitDate     time.Time `json:"commit_date"`
+	Dirty          bool      `json:"dirty"`
+}
+
+// ReleaseBuilder is the build system source info
+type ReleaseBuilder struct {
+	Repo        string    `json:"repo"`
+	Branch      string    `json:"branch"`
+	Commit      string    `json:"commit"`
+	CommitShort string    `json:"commit_short"`
+	CommitDate  time.Time `json:"commit_date"`
+	Dirty       bool      `json:"dirty"`
+}
+
+// FileRef references a file within the release with integrity info
+type FileRef struct {
+	Path   string            `json:"path"`
+	Hashes map[string]string `json:"hashes"`
+	Size   int64             `json:"size"`
+}
+
+// Distribution describes where release artifacts are stored
+type Distribution struct {
+	Provider string            `json:"provider"`
+	Bucket   string            `json:"bucket"`
+	Region   string            `json:"region"`
+	URI      string            `json:"uri"`
+	Prefix   string            `json:"prefix"`
+	Objects  map[string]string `json:"objects"`
+}
+
+// ReleaseOCI describes the OCI index for the release
+type ReleaseOCI struct {
+	Repository   string `json:"repository"`
+	Tag          string `json:"tag"`
+	TagRef       string `json:"tag_ref"`
+	Digest       string `json:"digest"`
+	DigestRef    string `json:"digest_ref"`
+	MediaType    string `json:"mediaType"`
+	ArtifactType string `json:"artifactType"`
+	Size         int64  `json:"size"`
+	PushedAt     string `json:"pushed_at"`
+}
+
+// ReleaseArtifact is a per-platform binary from release.json
+type ReleaseArtifact struct {
+	OS     string    `json:"os"`
+	Arch   string    `json:"arch"`
+	Binary BinaryRef `json:"binary"`
+}
+
+// BinaryRef references a binary with integrity info
+type BinaryRef struct {
+	Path   string `json:"path"`
+	SHA256 string `json:"sha256"`
+	Size   int64  `json:"size"`
+}
+
+// EvidenceFileRef is a flattened reference to any evidence file in the inventory
+type EvidenceFileRef struct {
+	Path   string `json:"path"`
+	SHA256 string `json:"sha256"`
+	Size   int64  `json:"size"`
+
+	// Classification for UI grouping and filtering
+	Scope    string `json:"scope"`              // "source" or "artifact"
+	Category string `json:"category"`           // "sbom", "scan", "license"
+	Kind     string `json:"kind"`               // "report" or "attestation"
+	Platform string `json:"platform,omitempty"` // "linux/arm64" or "linux/amd64"
+}
+
+// EvidenceFile is an evidence file that has been fetched and hash-verified
+type EvidenceFile struct {
+	Ref  *EvidenceFileRef
+	Data []byte
+}
+
+// Bundle holds all evidence for a release eager loaded at startup
 type Bundle struct {
-	// ReleaseID this evidence belongs to
-	ReleaseID string `json:"release_id"`
+	// parsed release.json
+	Release *ReleaseManifest
 
-	// Bucket the evidence was fetched from
-	Bucket string `json:"bucket"`
+	// raw bytes for serving as-is
+	ReleaseRaw   []byte
+	InventoryRaw []byte
 
-	// Prefix within the bucket (includes release ID)
-	Prefix string `json:"prefix"`
+	// verified hash of fetched inventory.json
+	InventoryHash string
 
-	// Artifacts is the list of fetched evidence files
-	Artifacts []Artifact `json:"artifacts"`
+	// flat index: inventory path -> file reference
+	FileIndex map[string]*EvidenceFileRef
 
-	// FetchedAt is when the bundle was loaded
-	FetchedAt time.Time `json:"fetched_at"`
+	// fetched evidence files: inventory path -> verified bytes
+	Files map[string]*EvidenceFile
 
-	// index for lookup by name
-	byName map[string]*Artifact
+	// where this bundle was loaded from
+	Bucket        string
+	ReleasePrefix string
+
+	// when the bundle was loaded
+	FetchedAt time.Time
 }
 
-// Artifact returns a specific artifact by name, or nil if not found
-func (b *Bundle) Artifact(name string) *Artifact {
-	if b == nil || b.byName == nil {
-		return nil
+// File looks up a fetched evidence file by its inventory path
+func (b *Bundle) File(path string) (*EvidenceFile, bool) {
+	if b == nil || b.Files == nil {
+		return nil, false
 	}
-	return b.byName[name]
+	f, ok := b.Files[path]
+	return f, ok
 }
 
-// Names returns all artifact names in the bundle
-func (b *Bundle) Names() []string {
+// FileRef looks up a file reference by path (metadata only, no content)
+func (b *Bundle) FileRef(path string) (*EvidenceFileRef, bool) {
+	if b == nil || b.FileIndex == nil {
+		return nil, false
+	}
+	ref, ok := b.FileIndex[path]
+	return ref, ok
+}
+
+// FileRefs returns file references filtered by scope and/or category
+// empty string means "any"
+func (b *Bundle) FileRefs(scope, category string) []*EvidenceFileRef {
 	if b == nil {
 		return nil
 	}
-	names := make([]string, len(b.Artifacts))
-	for i, a := range b.Artifacts {
-		names[i] = a.Name
+	out := make([]*EvidenceFileRef, 0, 16)
+	for _, ref := range b.FileIndex {
+		if scope != "" && ref.Scope != scope {
+			continue
+		}
+		if category != "" && ref.Category != category {
+			continue
+		}
+		out = append(out, ref)
 	}
-	return names
+	return out
 }
 
-// buildIndex populates the byName lookup map
-func (b *Bundle) buildIndex() {
-	b.byName = make(map[string]*Artifact, len(b.Artifacts))
-	for i := range b.Artifacts {
-		b.byName[b.Artifacts[i].Name] = &b.Artifacts[i]
+// Summary returns file counts keyed by "scope.category.kind"
+func (b *Bundle) Summary() map[string]int {
+	if b == nil || b.FileIndex == nil {
+		return nil
 	}
+	counts := make(map[string]int, 8)
+	for _, ref := range b.FileIndex {
+		key := ref.Scope + "." + ref.Category + "." + ref.Kind
+		counts[key]++
+	}
+	return counts
 }

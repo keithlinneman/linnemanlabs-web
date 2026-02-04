@@ -2,9 +2,13 @@ package evidence
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
 	"io"
-	"path"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -16,11 +20,17 @@ import (
 )
 
 const (
-	// max size of a single evidence file (bytes)
-	MaxArtifactSize = 5 * 1024 * 1024
+	// maximum size of release.json or inventory.json (bytes)
+	MaxManifestSize = 2 * 1024 * 1024
+
+	// maximum size of a single evidence file (bytes)
+	MaxEvidenceFileSize = 5 * 1024 * 1024
 
 	// max number of artifacts to fetch per release
-	MaxArtifacts = 50
+	MaxArtifacts = 150
+
+	// fetchWorkers is the number of parallel S3 fetches for evidence files
+	fetchWorkers = 10
 )
 
 // LoaderOptions configures the evidence loader.
@@ -77,8 +87,8 @@ func NewLoader(ctx context.Context, opts LoaderOptions) (*Loader, error) {
 	}, nil
 }
 
-// s3Prefix returns the full S3 key prefix for listing evidence objects
-func (l *Loader) s3Prefix() string {
+// releasePrefix returns the full S3 key prefix for listing evidence objects
+func (l *Loader) releasePrefix() string {
 	parts := []string{}
 	if l.opts.Prefix != "" {
 		parts = append(parts, strings.TrimSuffix(l.opts.Prefix, "/"))
@@ -89,116 +99,198 @@ func (l *Loader) s3Prefix() string {
 
 // Load discovers and fetches all evidence artifacts for the configured release
 func (l *Loader) Load(ctx context.Context) (*Bundle, error) {
-	prefix := l.s3Prefix()
+	prefix := l.releasePrefix()
+	start := time.Now()
 
+	releaseKey := prefix + "release.json"
 	l.logger.Info(ctx, "discovering evidence artifacts",
 		"bucket", l.opts.Bucket,
 		"prefix", prefix,
 		"release_id", l.opts.ReleaseID,
+		"key", releaseKey,
 	)
 
-	// list objects under the release prefix
-	keys, err := l.listKeys(ctx, prefix)
+	releaseRaw, err := l.fetchS3(ctx, releaseKey, MaxManifestSize)
 	if err != nil {
-		return nil, err
+		return nil, xerrors.Wrap(err, "evidence fetch release.json")
 	}
 
-	if len(keys) == 0 {
-		l.logger.Info(ctx, "no evidence artifacts found",
-			"bucket", l.opts.Bucket,
-			"prefix", prefix,
-		)
-		return &Bundle{
-			ReleaseID: l.opts.ReleaseID,
-			Bucket:    l.opts.Bucket,
-			Prefix:    prefix,
-			Artifacts: nil,
-			FetchedAt: time.Now().UTC(),
-		}, nil
+	var release ReleaseManifest
+	if err := json.Unmarshal(releaseRaw, &release); err != nil {
+		return nil, xerrors.Wrap(err, "parse release.json")
 	}
 
-	if len(keys) > MaxArtifacts {
-		l.logger.Warn(ctx, "too many evidence artifacts, truncating",
-			"found", len(keys),
-			"max", MaxArtifacts,
-		)
-		keys = keys[:MaxArtifacts]
+	// ensure release.json release_id matches what we were told to fetch
+	if release.ReleaseID != l.opts.ReleaseID {
+		return nil, xerrors.Newf(
+			"release.json release_id mismatch: expected %s, got %s",
+			l.opts.ReleaseID, release.ReleaseID)
 	}
 
-	l.logger.Info(ctx, "fetching evidence artifacts",
-		"count", len(keys),
-		"bucket", l.opts.Bucket,
+	l.logger.Info(ctx, "parsed release manifest",
+		"release_id", release.ReleaseID,
+		"version", release.Version,
+		"component", release.Component,
 	)
 
-	// fetch each artifact individually; failures are warned but don't block others
-	var artifacts []Artifact
-	for _, key := range keys {
-		art, err := l.fetchArtifact(ctx, key, prefix)
-		if err != nil {
-			l.logger.Warn(ctx, "failed to fetch evidence artifact, skipping",
-				"key", key,
-				"error", err,
+	// fetch and verify inventory.json
+	invRef, ok := release.Files["inventory"]
+	if !ok {
+		return nil, xerrors.New("release.json has no files.inventory entry")
+	}
+	expectedInvHash := invRef.Hashes["sha256"]
+	if expectedInvHash == "" {
+		return nil, xerrors.New("release.json inventory entry has no sha256 hash")
+	}
+
+	invKey := prefix + invRef.Path
+
+	l.logger.Info(ctx, "fetching inventory",
+		"key", invKey,
+		"expected_hash", expectedInvHash[:12],
+	)
+
+	inventoryRaw, err := l.fetchS3(ctx, invKey, MaxManifestSize)
+	if err != nil {
+		return nil, xerrors.Wrap(err, "fetch inventory.json")
+	}
+
+	actualInvHash := sha256hex(inventoryRaw)
+	if actualInvHash != expectedInvHash {
+		return nil, xerrors.Newf("inventory.json hash mismatch: expected %s, got %s",
+			expectedInvHash, actualInvHash)
+	}
+
+	l.logger.Info(ctx, "inventory hash verified",
+		"hash", actualInvHash[:12],
+		"size", len(inventoryRaw),
+	)
+
+	// build file index from inventory
+	fileIndex, err := BuildFileIndex(inventoryRaw)
+	if err != nil {
+		return nil, xerrors.Wrap(err, "build file index from inventory")
+	}
+
+	l.logger.Info(ctx, "built evidence file index",
+		"total_files", len(fileIndex),
+	)
+
+	// fetch all evidence files in parallel
+	files, fetched, skipped, totalBytes := l.fetchAllFiles(ctx, prefix, fileIndex)
+
+	elapsed := time.Since(start)
+
+	l.logger.Info(ctx, "evidence loading complete",
+		"fetched", fetched,
+		"skipped", skipped,
+		"total_bytes", totalBytes,
+		"duration", elapsed.String(),
+	)
+
+	return &Bundle{
+		Release:       &release,
+		ReleaseRaw:    releaseRaw,
+		InventoryRaw:  inventoryRaw,
+		InventoryHash: actualInvHash,
+		FileIndex:     fileIndex,
+		Files:         files,
+		Bucket:        l.opts.Bucket,
+		ReleasePrefix: prefix,
+		FetchedAt:     time.Now().UTC(),
+	}, nil
+}
+
+// fetchResult holds the result of a single file fetch.
+type fetchResult struct {
+	path string
+	file *EvidenceFile
+	err  string // empty on success
+}
+
+// fetchAllFiles downloads all evidence files using a bounded worker pool.
+func (l *Loader) fetchAllFiles(ctx context.Context, prefix string, index map[string]*EvidenceFileRef) (
+	files map[string]*EvidenceFile, fetched, skipped int, totalBytes int64,
+) {
+	files = make(map[string]*EvidenceFile, len(index))
+
+	// build work queue
+	type workItem struct {
+		path string
+		ref  *EvidenceFileRef
+	}
+	work := make([]workItem, 0, len(index))
+	for path, ref := range index {
+		work = append(work, workItem{path: path, ref: ref})
+	}
+
+	// Fan out to workers, collect results
+	results := make(chan fetchResult, len(work))
+	var wg sync.WaitGroup
+
+	// channel limits concurrent S3 requests
+	sem := make(chan struct{}, fetchWorkers)
+
+	for _, w := range work {
+		wg.Add(1)
+		go func(wi workItem) {
+			defer wg.Done()
+
+			// Acquire semaphore slot
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			data, err := l.fetchS3(ctx, prefix+wi.path, MaxEvidenceFileSize)
+			if err != nil {
+				results <- fetchResult{path: wi.path, err: err.Error()}
+				return
+			}
+
+			// verify hash
+			if wi.ref.SHA256 != "" {
+				actual := sha256hex(data)
+				if actual != wi.ref.SHA256 {
+					results <- fetchResult{
+						path: wi.path,
+						err:  fmt.Sprintf("hash mismatch: expected %s, got %s", wi.ref.SHA256[:12], actual[:12]),
+					}
+					return
+				}
+			}
+
+			results <- fetchResult{
+				path: wi.path,
+				file: &EvidenceFile{Ref: wi.ref, Data: data},
+			}
+		}(w)
+	}
+
+	// close results channel after all workers finish
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// collect results (runs on caller goroutine, no mutex needed)
+	for r := range results {
+		if r.err != "" {
+			l.logger.Warn(ctx, "failed to fetch evidence file, skipping",
+				"path", r.path,
+				"error", r.err,
 			)
+			skipped++
 			continue
 		}
-		artifacts = append(artifacts, *art)
+		files[r.path] = r.file
+		fetched++
+		totalBytes += int64(len(r.file.Data))
 	}
 
-	bundle := &Bundle{
-		ReleaseID: l.opts.ReleaseID,
-		Bucket:    l.opts.Bucket,
-		Prefix:    prefix,
-		Artifacts: artifacts,
-		FetchedAt: time.Now().UTC(),
-	}
-	bundle.buildIndex()
-
-	l.logger.Info(ctx, "loaded evidence bundle",
-		"release_id", l.opts.ReleaseID,
-		"artifact_count", len(artifacts),
-		"artifact_names", bundle.Names(),
-	)
-
-	return bundle, nil
+	return files, fetched, skipped, totalBytes
 }
 
-// listKeys lists all object keys under the given S3 prefix
-func (l *Loader) listKeys(ctx context.Context, prefix string) ([]string, error) {
-	var keys []string
-
-	paginator := s3.NewListObjectsV2Paginator(l.s3Client, &s3.ListObjectsV2Input{
-		Bucket: aws.String(l.opts.Bucket),
-		Prefix: aws.String(prefix),
-	})
-
-	for paginator.HasMorePages() {
-		page, err := paginator.NextPage(ctx)
-		if err != nil {
-			return nil, xerrors.Wrapf(err, "list s3://%s/%s", l.opts.Bucket, prefix)
-		}
-		for _, obj := range page.Contents {
-			if obj.Key == nil {
-				continue
-			}
-			key := *obj.Key
-			// skip directories
-			if strings.HasSuffix(key, "/") {
-				continue
-			}
-			keys = append(keys, key)
-		}
-
-		// safety cap
-		if len(keys) > MaxArtifacts {
-			break
-		}
-	}
-
-	return keys, nil
-}
-
-// fetchArtifact downloads a single evidence file from S3
-func (l *Loader) fetchArtifact(ctx context.Context, key, prefix string) (*Artifact, error) {
+// fetchS3 downloads an S3 object with a size limit
+func (l *Loader) fetchS3(ctx context.Context, key string, maxSize int64) ([]byte, error) {
 	out, err := l.s3Client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(l.opts.Bucket),
 		Key:    aws.String(key),
@@ -208,35 +300,30 @@ func (l *Loader) fetchArtifact(ctx context.Context, key, prefix string) (*Artifa
 	}
 	defer out.Body.Close()
 
-	// read with size limit for safety
-	lr := io.LimitReader(out.Body, MaxArtifactSize+1)
+	lr := io.LimitReader(out.Body, maxSize+1)
 	data, err := io.ReadAll(lr)
 	if err != nil {
 		return nil, xerrors.Wrapf(err, "read s3://%s/%s", l.opts.Bucket, key)
 	}
-	if int64(len(data)) > MaxArtifactSize {
-		return nil, xerrors.Newf("artifact too large: s3://%s/%s (%d bytes, max %d)",
-			l.opts.Bucket, key, len(data), MaxArtifactSize)
+	if int64(len(data)) > maxSize {
+		return nil, xerrors.Newf("s3://%s/%s exceeds size limit (%d bytes, max %d)",
+			l.opts.Bucket, key, len(data), maxSize)
 	}
 
-	// derive artifact name by stripping the release prefix
-	// e.g. "apps/.../attestations/rel-123/sbom.spdx.json" -> "sbom.spdx.json"
-	name := strings.TrimPrefix(key, prefix)
-	if name == "" {
-		name = path.Base(key)
-	}
+	return data, nil
+}
 
-	var contentType string
-	if out.ContentType != nil {
-		contentType = *out.ContentType
-	}
+func sha256hex(data []byte) string {
+	h := sha256.Sum256(data)
+	return hex.EncodeToString(h[:])
+}
 
-	return &Artifact{
-		Name:        name,
-		S3Key:       key,
-		RawJSON:     data,
-		Size:        int64(len(data)),
-		ContentType: contentType,
-		FetchedAt:   time.Now().UTC(),
-	}, nil
+// LoadSummary returns a one-line summary for logging
+func (b *Bundle) LoadSummary() string {
+	if b == nil {
+		return "no evidence loaded"
+	}
+	return fmt.Sprintf("release=%s version=%s files=%d/%d",
+		b.Release.ReleaseID, b.Release.Version,
+		len(b.Files), len(b.FileIndex))
 }
