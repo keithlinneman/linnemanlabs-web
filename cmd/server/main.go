@@ -226,7 +226,7 @@ func main() {
 		os.Exit(1)
 	}
 	lg, err := log.New(log.Options{
-		App:               "linnemanlabs",
+		App:               "linnemanlabs-web",
 		Version:           v.Version,
 		Commit:            v.Commit,
 		BuildId:           v.BuildId,
@@ -240,7 +240,7 @@ func main() {
 		os.Exit(1)
 	}
 	// defer lg.Sync()
-	L := lg.With("component", "web")
+	L := lg.With("component", "server")
 	ctx = log.WithContext(ctx, L)
 
 	// Get build/version info
@@ -273,13 +273,14 @@ func main() {
 	// Setup pyroscope profiling
 	stopProf, err := prof.Start(ctx, prof.Options{
 		Enabled:       conf.EnablePyroscope,
-		AppName:       "linnemanlabs.web",
+		AppName:       "linnemanlabs-web",
 		AuthToken:     "",
 		ServerAddress: conf.PyroServer,
 		TenantID:      conf.PyroTenantID,
+		// todo - shouldnt be hardcoding these especially region
 		Tags: map[string]string{
-			"app":       "linnemanlabs",
-			"component": "web",
+			"app":       "linnemanlabs-web",
+			"component": "server",
 			"env":       "prod",
 			"region":    "us-east-2",
 			"version":   vi.Version,
@@ -299,8 +300,8 @@ func main() {
 		Endpoint:  conf.OTLPEndpoint,
 		Insecure:  true,
 		Sample:    conf.TraceSample,
-		Service:   "linnemanlabs",
-		Component: "web",
+		Service:   "linnemanlabs-web",
+		Component: "server",
 		Version:   vi.Version,
 	})
 	if err != nil {
@@ -310,7 +311,7 @@ func main() {
 
 	// Setup metrics / admin listener
 	var m *metrics.ServerMetrics = metrics.New()
-	m.SetBuildInfoFromVersion("linnemanlabs", "web", vi)
+	m.SetBuildInfoFromVersion("linnemanlabs-web", "server", vi)
 
 	// setup toggle for server shutdown
 	var gate probe.ShutdownGate
