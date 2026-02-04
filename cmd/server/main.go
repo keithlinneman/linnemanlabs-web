@@ -13,6 +13,7 @@ import (
 
 	"github.com/keithlinneman/linnemanlabs-web/internal/cfg"
 	"github.com/keithlinneman/linnemanlabs-web/internal/content"
+	"github.com/keithlinneman/linnemanlabs-web/internal/evidence"
 	"github.com/keithlinneman/linnemanlabs-web/internal/healthhttp"
 	"github.com/keithlinneman/linnemanlabs-web/internal/opshttp"
 	"github.com/keithlinneman/linnemanlabs-web/internal/provenancehttp"
@@ -395,6 +396,35 @@ func main() {
 		}
 	}
 
+	// setup evidence loading (fetch build attestations from S3 at startup)
+	var evidenceStore *evidence.Store
+	if vi.HasProvenance() {
+		evidenceStore = evidence.NewStore()
+		evidenceLoader, err := evidence.NewLoader(ctx, evidence.LoaderOptions{
+			Logger:    L,
+			Bucket:    vi.EvidenceBucket,
+			Prefix:    vi.EvidencePrefix,
+			ReleaseID: vi.ReleaseId,
+		})
+		if err != nil {
+			L.Warn(ctx, "failed to create evidence loader", "error", err)
+		} else {
+			bundle, err := evidenceLoader.Load(ctx)
+			if err != nil {
+				L.Warn(ctx, "failed to load evidence, continuing without", "error", err)
+			} else {
+				evidenceStore.Set(bundle)
+				L.Info(ctx, "loaded build evidence",
+					"release_id", vi.ReleaseId,
+					"artifact_count", len(bundle.Artifacts),
+					"artifact_names", bundle.Names(),
+				)
+			}
+		}
+	} else {
+		L.Info(ctx, "no build provenance (local build), skipping evidence fetch")
+	}
+
 	// setup site handler that serves site content
 	siteHandler, err := sitehandler.New(sitehandler.Options{
 		Logger:     L,
@@ -410,8 +440,9 @@ func main() {
 	siteRoutes := sitehttp.New(siteHandler)
 
 	// setup provenance API
-	provenanceAPI := provenancehttp.NewAPI(contentMgr, L)
+	provenanceAPI := provenancehttp.NewAPI(contentMgr, evidenceStore, L)
 
+	// start site http server
 	siteHTTPStop, err := httpserver.Start(
 		ctx,
 		httpserver.Options{
