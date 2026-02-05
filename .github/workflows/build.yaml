@@ -16,6 +16,9 @@ jobs:
       image: ghcr.io/keithlinneman/build-system@sha256:36a2f1334808020bb4c16797b4e3934f0b33844ad1afa801ec553ae032e3ae29
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Configure git safe directory
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
