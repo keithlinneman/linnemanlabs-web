@@ -13,7 +13,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/keithlinneman/build-system@sha256:36a2f1334808020bb4c16797b4e3934f0b33844ad1afa801ec553ae032e3ae29
+      image: ghcr.io/keithlinneman/build-system@sha256:da59fc20e4a5bf1ca72952cdeaf072c3ee8158b01ce2edf9f8d179d7aecb8a56
     steps:
       - uses: actions/checkout@v4
         with:
