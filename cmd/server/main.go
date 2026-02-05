@@ -414,8 +414,10 @@ func main() {
 			if err != nil {
 				L.Warn(ctx, "failed to load evidence, continuing without", "error", err)
 			} else {
+				bundle = evidence.FilterBundleByPlatform(bundle, evidence.RuntimePlatform())
 				evidenceStore.Set(bundle)
 				L.Info(ctx, "loaded build evidence",
+					"platform", evidence.RuntimePlatform(),
 					"summary", bundle.LoadSummary(),
 					"categories", bundle.Summary(),
 					"inventory_hash", bundle.InventoryHash[:12],
