@@ -146,6 +146,7 @@ func (l *Loader) Load(ctx context.Context) (*Bundle, error) {
 	invKey := prefix + invRef.Path
 
 	l.logger.Info(ctx, "fetching inventory",
+		"bucket", l.opts.Bucket,
 		"key", invKey,
 		"expected_hash", expectedInvHash[:12],
 	)
