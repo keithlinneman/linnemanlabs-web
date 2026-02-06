@@ -24,20 +24,25 @@ type ReleaseManifest struct {
 	OCI          ReleaseOCI         `json:"oci"`
 	Artifacts    []ReleaseArtifact  `json:"artifacts"`
 
-	// Policy is stored as raw JSON
+	// Parsed summary block from build system
+	Summary *ReleaseSummary `json:"summary,omitempty"`
+
+	// Policy is stored as raw JSON (nested structure with overrides)
 	Policy json.RawMessage `json:"policy,omitempty"`
 }
 
 // ReleaseSource is the git source info from release.json
 type ReleaseSource struct {
-	Repo           string    `json:"repo"`
-	ResolvedBranch string    `json:"resolved_branch"`
-	Ref            string    `json:"ref"`
-	Detached       bool      `json:"detached"`
-	Commit         string    `json:"commit"`
-	CommitShort    string    `json:"commit_short"`
-	CommitDate     time.Time `json:"commit_date"`
-	Dirty          bool      `json:"dirty"`
+	Repo            string    `json:"repo"`
+	ResolvedBranch  string    `json:"resolved_branch"`
+	Ref             string    `json:"ref"`
+	Detached        bool      `json:"detached"`
+	Commit          string    `json:"commit"`
+	CommitShort     string    `json:"commit_short"`
+	CommitDate      time.Time `json:"commit_date"`
+	BaseTag         string    `json:"base_tag,omitempty"`
+	CommitsSinceTag *int      `json:"commits_since_tag,omitempty"`
+	Dirty           bool      `json:"dirty"`
 }
 
 // ReleaseBuilder is the build system source info
@@ -92,6 +97,90 @@ type BinaryRef struct {
 	Path   string `json:"path"`
 	SHA256 string `json:"sha256"`
 	Size   int64  `json:"size"`
+}
+
+// ReleaseSummary is the top-level summary block from release.json
+type ReleaseSummary struct {
+	Schema      string `json:"schema"`
+	GeneratedAt string `json:"generated_at"`
+
+	Vulnerabilities  *VulnSummary          `json:"vulnerabilities,omitempty"`
+	SBOM             *SBOMSummary          `json:"sbom,omitempty"`
+	Licenses         *LicenseSummary       `json:"licenses,omitempty"`
+	Signing          *SigningSummary       `json:"signing,omitempty"`
+	SLSA             *SLSASummary          `json:"slsa,omitempty"`
+	EvidenceComplete *EvidenceCompleteness `json:"evidence_completeness,omitempty"`
+}
+
+// VulnSummary is the deduplicated vulnerability overview
+type VulnSummary struct {
+	ScannersUsed  []string                   `json:"scanners_used"`
+	ScannedAt     string                     `json:"scanned_at"`
+	Scope         string                     `json:"scope"`
+	Deduplication string                     `json:"deduplication"`
+	Counts        VulnCounts                 `json:"counts"`
+	Total         int                        `json:"total"`
+	ByScanner     map[string]json.RawMessage `json:"by_scanner,omitempty"`
+	WorstSeverity string                     `json:"worst_severity"`
+	GateThreshold string                     `json:"gate_threshold"`
+	GateResult    string                     `json:"gate_result"`
+}
+
+// VulnCounts is the deduplicated severity breakdown
+type VulnCounts struct {
+	Critical   int `json:"critical"`
+	High       int `json:"high"`
+	Medium     int `json:"medium"`
+	Low        int `json:"low"`
+	Negligible int `json:"negligible"`
+	Unknown    int `json:"unknown"`
+}
+
+// SBOMSummary is the SBOM generation overview
+type SBOMSummary struct {
+	Generators           []string `json:"generators"`
+	FormatsProduced      []string `json:"formats_produced"`
+	SourcePackageCount   int      `json:"source_package_count"`
+	ArtifactPackageCount int      `json:"artifact_package_count"`
+	GeneratedAt          string   `json:"generated_at"`
+}
+
+// LicenseSummary is the license compliance overview
+type LicenseSummary struct {
+	Compliant           bool     `json:"compliant"`
+	UniqueLicenses      []string `json:"unique_licenses"`
+	DeniedFound         []string `json:"denied_found"`
+	WithoutLicenseCount int      `json:"without_license_count"`
+}
+
+// SigningSummary is the signing status overview
+type SigningSummary struct {
+	Method            string `json:"method"`
+	KeyRef            string `json:"key_ref"`
+	ArtifactsAttested bool   `json:"artifacts_attested"`
+	IndexAttested     bool   `json:"index_attested"`
+	InventorySigned   bool   `json:"inventory_signed"`
+	ReleaseSigned     bool   `json:"release_signed"`
+}
+
+// SLSASummary is the SLSA provenance status (future use)
+type SLSASummary struct {
+	ProvenanceGenerated bool   `json:"provenance_generated"`
+	Level               int    `json:"level,omitempty"`
+	BuilderID           string `json:"builder_id,omitempty"`
+	BuildType           string `json:"build_type,omitempty"`
+	Note                string `json:"note,omitempty"`
+}
+
+// EvidenceCompleteness indicates which evidence categories were produced
+type EvidenceCompleteness struct {
+	SBOMSource           bool `json:"sbom_source"`
+	SBOMArtifacts        bool `json:"sbom_artifacts"`
+	ScanSource           bool `json:"scan_source"`
+	ScanArtifacts        bool `json:"scan_artifacts"`
+	LicenseSource        bool `json:"license_source"`
+	LicenseArtifacts     bool `json:"license_artifacts"`
+	AttestationsAttached bool `json:"attestations_attached"`
 }
 
 // EvidenceFileRef is a flattened reference to any evidence file in the inventory

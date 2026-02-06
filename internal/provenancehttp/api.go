@@ -42,8 +42,11 @@ func NewAPI(content SnapshotProvider, evidenceStore *evidence.Store, logger log.
 
 // RegisterRoutes attaches provenance endpoints to the router
 func (api *API) RegisterRoutes(r chi.Router) {
-	// App build provenance
+	// App build provenance (full)
 	r.Get("/api/provenance/app", api.HandleAppProvenance)
+
+	// App build summary (frontend-optimized)
+	r.Get("/api/provenance/app/summary", api.HandleAppSummary)
 
 	// Content bundle provenance
 	r.Get("/api/provenance/content", api.HandleContentProvenance)
@@ -125,6 +128,113 @@ type EvidenceManifestResponse struct {
 	Links map[string]string `json:"_links,omitempty"`
 }
 
+// AppSummaryResponse is the lightweight app build summary for frontend consumption
+// All data is projected from the build system's release.json
+type AppSummaryResponse struct {
+	HasEvidence bool   `json:"has_evidence"`
+	Error       string `json:"error,omitempty"`
+
+	Version   string    `json:"version,omitempty"`
+	BuildID   string    `json:"build_id,omitempty"`
+	Track     string    `json:"track,omitempty"`
+	CreatedAt time.Time `json:"created_at,omitempty"`
+	FetchedAt time.Time `json:"fetched_at,omitempty"`
+
+	Source  *AppSummarySource  `json:"source,omitempty"`
+	Builder *AppSummaryBuilder `json:"builder,omitempty"`
+
+	Vulnerabilities *AppSummaryVulns      `json:"vulnerabilities,omitempty"`
+	SBOM            *AppSummarySBOM       `json:"sbom,omitempty"`
+	Licenses        *AppSummaryLicenses   `json:"licenses,omitempty"`
+	Signing         *AppSummarySigning    `json:"signing,omitempty"`
+	SLSA            *AppSummarySLSA       `json:"slsa,omitempty"`
+	Evidence        *AppSummaryEvidence   `json:"evidence,omitempty"`
+	Components      []AppSummaryComponent `json:"components,omitempty"`
+
+	// Links to detailed endpoints for drill-down
+	Links map[string]string `json:"_links,omitempty"`
+}
+
+type AppSummarySource struct {
+	Repository  string    `json:"repository"`
+	Commit      string    `json:"commit"`
+	CommitShort string    `json:"commit_short"`
+	CommitDate  time.Time `json:"commit_date"`
+	Branch      string    `json:"branch,omitempty"`
+	Tag         string    `json:"tag,omitempty"`
+	Dirty       bool      `json:"dirty"`
+}
+
+type AppSummaryBuilder struct {
+	Repository  string `json:"repository"`
+	CommitShort string `json:"commit_short"`
+	Dirty       bool   `json:"dirty"`
+}
+
+type AppSummaryVulns struct {
+	Counts        evidence.VulnCounts `json:"counts"`
+	Total         int                 `json:"total"`
+	WorstSeverity string              `json:"worst_severity"`
+	GateThreshold string              `json:"gate_threshold"`
+	GateResult    string              `json:"gate_result"`
+	ScannersUsed  []string            `json:"scanners_used"`
+	ScannedAt     string              `json:"scanned_at"`
+}
+
+type AppSummarySBOM struct {
+	Generators           []string `json:"generators"`
+	FormatsProduced      []string `json:"formats_produced"`
+	SourcePackageCount   int      `json:"source_package_count"`
+	ArtifactPackageCount int      `json:"artifact_package_count"`
+}
+
+type AppSummaryLicenses struct {
+	Compliant           bool     `json:"compliant"`
+	UniqueLicenses      []string `json:"unique_licenses"`
+	DeniedFound         []string `json:"denied_found"`
+	WithoutLicenseCount int      `json:"without_license_count"`
+}
+
+type AppSummarySigning struct {
+	Method            string `json:"method"`
+	ArtifactsAttested bool   `json:"artifacts_attested"`
+	IndexAttested     bool   `json:"index_attested"`
+	InventorySigned   bool   `json:"inventory_signed"`
+	ReleaseSigned     bool   `json:"release_signed"`
+}
+
+type AppSummarySLSA struct {
+	ProvenanceGenerated bool   `json:"provenance_generated"`
+	Level               int    `json:"level,omitempty"`
+	Note                string `json:"note,omitempty"`
+}
+
+type AppSummaryEvidence struct {
+	FileCount    int                            `json:"file_count"`
+	Categories   map[string]int                 `json:"categories,omitempty"`
+	Completeness *evidence.EvidenceCompleteness `json:"completeness,omitempty"`
+}
+
+type AppSummaryComponent struct {
+	OS   string `json:"os"`
+	Arch string `json:"arch"`
+
+	Binary *AppSummaryBinary `json:"binary,omitempty"`
+	OCI    *AppSummaryOCI    `json:"oci,omitempty"`
+}
+
+type AppSummaryBinary struct {
+	SHA256 string `json:"sha256"`
+	Size   int64  `json:"size"`
+}
+
+type AppSummaryOCI struct {
+	Repository string `json:"repository"`
+	Tag        string `json:"tag"`
+	Digest     string `json:"digest"`
+	PushedAt   string `json:"pushed_at,omitempty"`
+}
+
 // HandleAppProvenance serves application build provenance with evidence summary
 func (api *API) HandleAppProvenance(w http.ResponseWriter, r *http.Request) {
 	resp := AppProvenanceResponse{
@@ -145,6 +255,199 @@ func (api *API) HandleAppProvenance(w http.ResponseWriter, r *http.Request) {
 	}
 
 	api.writeJSON(r.Context(), w, http.StatusOK, resp)
+}
+
+// HandleAppSummary serves the lightweight app build summary for frontend consumption
+// This is a pure projection of release.json data
+func (api *API) HandleAppSummary(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	if api.evidence == nil {
+		api.writeJSON(ctx, w, http.StatusOK, AppSummaryResponse{
+			HasEvidence: false,
+			Error:       "evidence not configured (local build)",
+			Links:       appSummaryLinks(),
+		})
+		return
+	}
+
+	bundle, ok := api.evidence.Get()
+	if !ok {
+		api.writeJSON(ctx, w, http.StatusOK, AppSummaryResponse{
+			HasEvidence: false,
+			Error:       "no evidence loaded",
+			Links:       appSummaryLinks(),
+		})
+		return
+	}
+
+	rel := bundle.Release
+	resp := AppSummaryResponse{
+		HasEvidence: true,
+		Version:     rel.Version,
+		BuildID:     rel.BuildID,
+		Track:       rel.Track,
+		CreatedAt:   rel.CreatedAt,
+		FetchedAt:   bundle.FetchedAt,
+		Links:       appSummaryLinks(),
+	}
+
+	// Source
+	resp.Source = buildAppSummarySource(&rel.Source)
+
+	// Builder
+	resp.Builder = &AppSummaryBuilder{
+		Repository:  rel.Builder.Repo,
+		CommitShort: rel.Builder.CommitShort,
+		Dirty:       rel.Builder.Dirty,
+	}
+
+	// Project summary block (all from build system)
+	if s := rel.Summary; s != nil {
+		if v := s.Vulnerabilities; v != nil {
+			resp.Vulnerabilities = &AppSummaryVulns{
+				Counts:        v.Counts,
+				Total:         v.Total,
+				WorstSeverity: v.WorstSeverity,
+				GateThreshold: v.GateThreshold,
+				GateResult:    v.GateResult,
+				ScannersUsed:  v.ScannersUsed,
+				ScannedAt:     v.ScannedAt,
+			}
+		}
+
+		if sb := s.SBOM; sb != nil {
+			resp.SBOM = &AppSummarySBOM{
+				Generators:           sb.Generators,
+				FormatsProduced:      sb.FormatsProduced,
+				SourcePackageCount:   sb.SourcePackageCount,
+				ArtifactPackageCount: sb.ArtifactPackageCount,
+			}
+		}
+
+		if l := s.Licenses; l != nil {
+			resp.Licenses = &AppSummaryLicenses{
+				Compliant:           l.Compliant,
+				UniqueLicenses:      l.UniqueLicenses,
+				DeniedFound:         l.DeniedFound,
+				WithoutLicenseCount: l.WithoutLicenseCount,
+			}
+		}
+
+		if sg := s.Signing; sg != nil {
+			resp.Signing = &AppSummarySigning{
+				Method:            sg.Method,
+				ArtifactsAttested: sg.ArtifactsAttested,
+				IndexAttested:     sg.IndexAttested,
+				InventorySigned:   sg.InventorySigned,
+				ReleaseSigned:     sg.ReleaseSigned,
+			}
+		}
+
+		if sl := s.SLSA; sl != nil {
+			resp.SLSA = &AppSummarySLSA{
+				ProvenanceGenerated: sl.ProvenanceGenerated,
+				Level:               sl.Level,
+				Note:                sl.Note,
+			}
+		}
+
+		resp.Evidence = &AppSummaryEvidence{
+			FileCount:    len(bundle.Files),
+			Categories:   bundle.Summary(),
+			Completeness: s.EvidenceComplete,
+		}
+	} else {
+		// No summary block in release.json, still report evidence file counts
+		resp.Evidence = &AppSummaryEvidence{
+			FileCount:  len(bundle.Files),
+			Categories: bundle.Summary(),
+		}
+	}
+
+	// Components: merge per-platform artifacts with OCI info
+	resp.Components = buildAppSummaryComponents(rel)
+
+	api.logger.Debug(ctx, "served app summary",
+		"version", resp.Version,
+		"has_evidence", resp.HasEvidence,
+	)
+
+	api.writeJSON(ctx, w, http.StatusOK, resp)
+}
+
+// buildAppSummarySource projects ReleaseSource into the frontend-friendly shape.
+// handles the tag-build case where branch/ref may be "unknown".
+func buildAppSummarySource(src *evidence.ReleaseSource) *AppSummarySource {
+	if src == nil {
+		return nil
+	}
+
+	out := &AppSummarySource{
+		Repository:  src.Repo,
+		Commit:      src.Commit,
+		CommitShort: src.CommitShort,
+		CommitDate:  src.CommitDate,
+		Dirty:       src.Dirty,
+	}
+
+	// for tag builds, branch is often empty/unknown — use base_tag as the meaningful ref
+	if src.BaseTag != "" {
+		out.Tag = src.BaseTag
+	}
+
+	// only include branch if it's actually meaningful
+	branch := src.ResolvedBranch
+	if branch != "" && branch != "unknown" {
+		out.Branch = branch
+	}
+
+	return out
+}
+
+// buildAppSummaryComponents merges the per-platform artifacts with OCI info
+// OCI is shared across all platforms (it's a multi-arch index), so we attach
+// it to each component for frontend convenience.
+func buildAppSummaryComponents(rel *evidence.ReleaseManifest) []AppSummaryComponent {
+	if len(rel.Artifacts) == 0 {
+		return nil
+	}
+
+	// Build shared OCI reference (same index for all platforms)
+	var sharedOCI *AppSummaryOCI
+	if rel.OCI.Repository != "" {
+		sharedOCI = &AppSummaryOCI{
+			Repository: rel.OCI.Repository,
+			Tag:        rel.OCI.Tag,
+			Digest:     rel.OCI.Digest,
+			PushedAt:   rel.OCI.PushedAt,
+		}
+	}
+
+	out := make([]AppSummaryComponent, 0, len(rel.Artifacts))
+	for _, a := range rel.Artifacts {
+		c := AppSummaryComponent{
+			OS:   a.OS,
+			Arch: a.Arch,
+			Binary: &AppSummaryBinary{
+				SHA256: a.Binary.SHA256,
+				Size:   a.Binary.Size,
+			},
+			OCI: sharedOCI,
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
+func appSummaryLinks() map[string]string {
+	return map[string]string{
+		"full":      "/api/provenance/app",
+		"evidence":  "/api/provenance/evidence",
+		"release":   "/api/provenance/evidence/release.json",
+		"inventory": "/api/provenance/evidence/inventory.json",
+		"content":   "/api/provenance/content/summary",
+	}
 }
 
 // HandleContentProvenance serves the full content provenance data
