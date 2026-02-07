@@ -78,6 +78,12 @@ type AppProvenanceResponse struct {
 	// Evidence loading status and complete file index
 	Evidence *AppProvenanceEvidence `json:"evidence,omitempty"`
 
+	// Enriched license data with per-license counts (derived from evidence files)
+	Licenses *AppProvenanceLicenses `json:"licenses,omitempty"`
+
+	// Full package list with license status evaluated against build policy
+	Packages []evidence.PackageInfo `json:"packages,omitempty"`
+
 	// When evidence was loaded
 	FetchedAt time.Time `json:"fetched_at,omitempty"`
 
@@ -345,6 +351,17 @@ type AppSummaryAttestations struct {
 	LicenseAttested bool `json:"license_attested"`
 }
 
+// AppProvenanceLicenses is the enriched license section on the full endpoint.
+// Combines the summary from release.json with license_counts derived from
+// the actual license report evidence files.
+type AppProvenanceLicenses struct {
+	Compliant           bool           `json:"compliant"`
+	UniqueLicenses      []string       `json:"unique_licenses"`
+	LicenseCounts       map[string]int `json:"license_counts,omitempty"`
+	DeniedFound         []string       `json:"denied_found"`
+	WithoutLicenseCount int            `json:"without_license_count"`
+}
+
 // HandleAppProvenance serves the comprehensive app provenance: build info + full release
 // manifest + parsed policy + attestation details + complete evidence file index
 // This is the "give me everything" endpoint — the summary abbreviates from this
@@ -412,6 +429,15 @@ func (api *API) HandleAppProvenance(w http.ResponseWriter, r *http.Request) {
 		Categories:    bundle.Summary(),
 		InventoryHash: bundle.InventoryHash,
 		Files:         allFiles,
+	}
+
+	// License packages and enriched license summary from evidence files
+	licenses, packages := buildLicenseData(bundle, resp.Policy)
+	if licenses != nil {
+		resp.Licenses = licenses
+	}
+	if len(packages) > 0 {
+		resp.Packages = packages
 	}
 
 	api.writeJSON(r.Context(), w, http.StatusOK, resp)
@@ -894,4 +920,66 @@ func (api *API) writeJSON(ctx context.Context, w http.ResponseWriter, status int
 	if err := json.NewEncoder(w).Encode(v); err != nil {
 		api.logger.Warn(ctx, "failed to encode JSON response", "error", err)
 	}
+}
+
+// buildLicenseData finds license report evidence files in the bundle, parses
+// them, evaluates each package against the build policy, and returns the
+// enriched license section + sorted package list for the full endpoint.
+//
+// Prefers source-scope reports over artifact-scope since source represents
+// the direct dependency tree. Falls back to artifact if no source report exists.
+func buildLicenseData(bundle *evidence.Bundle, policy *evidence.ReleasePolicy) (*AppProvenanceLicenses, []evidence.PackageInfo) {
+	if bundle == nil {
+		return nil, nil
+	}
+
+	// Find license report files — prefer source scope
+	var reportData []byte
+	for _, scope := range []string{"source", "artifact"} {
+		refs := bundle.FileRefs(scope, "license")
+		for _, ref := range refs {
+			if ref.Kind != "report" {
+				continue
+			}
+			f, ok := bundle.File(ref.Path)
+			if !ok || f.Data == nil {
+				continue
+			}
+			reportData = f.Data
+			break
+		}
+		if reportData != nil {
+			break
+		}
+	}
+
+	if reportData == nil {
+		return nil, nil
+	}
+
+	report, err := evidence.ParseLicenseReport(reportData)
+	if err != nil || report == nil {
+		return nil, nil
+	}
+
+	// Evaluate each package against policy
+	eval := evidence.NewLicenseEvaluator(policy)
+	packages, licenseCounts := evidence.BuildPackageList(report, eval)
+
+	// Build the enriched licenses section
+	licenses := &AppProvenanceLicenses{
+		LicenseCounts: licenseCounts,
+	}
+
+	// Pull base data from release.json summary if available
+	if bundle.Release != nil && bundle.Release.Summary != nil {
+		if ls := bundle.Release.Summary.Licenses; ls != nil {
+			licenses.Compliant = ls.Compliant
+			licenses.UniqueLicenses = ls.UniqueLicenses
+			licenses.DeniedFound = ls.DeniedFound
+			licenses.WithoutLicenseCount = ls.WithoutLicenseCount
+		}
+	}
+
+	return licenses, packages
 }
