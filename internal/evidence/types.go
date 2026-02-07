@@ -183,6 +183,44 @@ type EvidenceCompleteness struct {
 	AttestationsAttached bool `json:"attestations_attached"`
 }
 
+// ReleasePolicy is a partial parse of the policy block for api responses
+type ReleasePolicy struct {
+	Enforcement string             `json:"enforcement"` // "warn" or "block"
+	Require     PolicyRequirements `json:"require"`
+	Vuln        PolicyVuln         `json:"vuln"`
+}
+
+// PolicyRequirements captures what the policy mandates
+type PolicyRequirements struct {
+	Signature bool `json:"signature"`
+	SBOM      bool `json:"sbom"`
+	VulnScan  bool `json:"vuln_scan"`
+	License   bool `json:"license"`
+}
+
+// PolicyVuln captures vulnerability gating rules
+type PolicyVuln struct {
+	BlockOn  []string `json:"block_on"` // ["critical", "high"]
+	AllowVEX bool     `json:"allow_vex"`
+}
+
+// ParsePolicy attempts to extract  policy from json
+// Returns nil if the policy block is absent or unparseable
+func ParsePolicy(raw json.RawMessage) *ReleasePolicy {
+	if len(raw) == 0 {
+		return nil
+	}
+	var p ReleasePolicy
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return nil
+	}
+	// if nothing meaningful was parsed, return nil
+	if p.Enforcement == "" {
+		return nil
+	}
+	return &p
+}
+
 // EvidenceFileRef is a flattened reference to any evidence file in the inventory
 type EvidenceFileRef struct {
 	Path   string `json:"path"`
@@ -276,4 +314,44 @@ func (b *Bundle) Summary() map[string]int {
 		counts[key]++
 	}
 	return counts
+}
+
+// AttestationCounts returns attestation statistics derived from the file index
+type AttestationCounts struct {
+	Total    int
+	Source   int
+	Artifact int
+
+	SBOMAttested    bool
+	ScanAttested    bool
+	LicenseAttested bool
+}
+
+// Attestations counts attestation files in the index by scope and category
+func (b *Bundle) Attestations() AttestationCounts {
+	var c AttestationCounts
+	if b == nil || b.FileIndex == nil {
+		return c
+	}
+	for _, ref := range b.FileIndex {
+		if ref.Kind != "attestation" {
+			continue
+		}
+		c.Total++
+		switch ref.Scope {
+		case "source":
+			c.Source++
+		case "artifact":
+			c.Artifact++
+		}
+		switch ref.Category {
+		case "sbom":
+			c.SBOMAttested = true
+		case "scan":
+			c.ScanAttested = true
+		case "license":
+			c.LicenseAttested = true
+		}
+	}
+	return c
 }

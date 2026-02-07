@@ -59,20 +59,54 @@ func (api *API) RegisterRoutes(r chi.Router) {
 	r.Get("/api/provenance/evidence/files/*", api.HandleEvidenceFile)
 }
 
-// AppProvenanceResponse wraps build info with evidence summary
+// AppProvenanceResponse is the comprehensive app provenance endpoint.
+// Returns everything: build info, full release manifest, parsed policy,
+// attestation details, and complete evidence file index.
+// The summary endpoint abbreviates from this.
 type AppProvenanceResponse struct {
-	Build    v.Info           `json:"build"`
-	Evidence *EvidenceSummary `json:"evidence,omitempty"`
+	Build v.Info `json:"build"`
+
+	// Full release manifest from the build system (nil for local builds)
+	Release *evidence.ReleaseManifest `json:"release,omitempty"`
+
+	// Parsed policy from release.json (extracted from raw JSON for convenience)
+	Policy *evidence.ReleasePolicy `json:"policy,omitempty"`
+
+	// Attestation details derived from the evidence file index
+	Attestations *AppProvenanceAttestations `json:"attestations,omitempty"`
+
+	// Evidence loading status and complete file index
+	Evidence *AppProvenanceEvidence `json:"evidence,omitempty"`
+
+	// When evidence was loaded
+	FetchedAt time.Time `json:"fetched_at,omitempty"`
+
+	// Links to related endpoints
+	Links map[string]string `json:"_links"`
 }
 
-// EvidenceSummary is the lightweight evidence indicator on the app provenance response
-type EvidenceSummary struct {
-	Available  bool           `json:"available"`
-	ReleaseID  string         `json:"release_id,omitempty"`
-	Version    string         `json:"version,omitempty"`
-	FileCount  int            `json:"file_count"`
-	Categories map[string]int `json:"categories,omitempty"`
-	FetchedAt  time.Time      `json:"fetched_at,omitempty"`
+// AppProvenanceAttestations is the attestation detail on the full endpoint
+// Richer than the summary — includes per-file references
+type AppProvenanceAttestations struct {
+	Total    int `json:"total"`
+	Source   int `json:"source"`
+	Artifact int `json:"artifact"`
+
+	SBOMAttested    bool `json:"sbom_attested"`
+	ScanAttested    bool `json:"scan_attested"`
+	LicenseAttested bool `json:"license_attested"`
+
+	// Full list of attestation files with metadata
+	Files []*evidence.EvidenceFileRef `json:"files,omitempty"`
+}
+
+// AppProvenanceEvidence is the full evidence status on the comprehensive endpoint
+type AppProvenanceEvidence struct {
+	Available     bool                        `json:"available"`
+	FileCount     int                         `json:"file_count"`
+	Categories    map[string]int              `json:"categories,omitempty"`
+	InventoryHash string                      `json:"inventory_hash,omitempty"`
+	Files         []*evidence.EvidenceFileRef `json:"files,omitempty"`
 }
 
 // ContentProvenanceResponse is the full content provenance response
@@ -143,13 +177,15 @@ type AppSummaryResponse struct {
 	Source  *AppSummarySource  `json:"source,omitempty"`
 	Builder *AppSummaryBuilder `json:"builder,omitempty"`
 
-	Vulnerabilities *AppSummaryVulns      `json:"vulnerabilities,omitempty"`
-	SBOM            *AppSummarySBOM       `json:"sbom,omitempty"`
-	Licenses        *AppSummaryLicenses   `json:"licenses,omitempty"`
-	Signing         *AppSummarySigning    `json:"signing,omitempty"`
-	SLSA            *AppSummarySLSA       `json:"slsa,omitempty"`
-	Evidence        *AppSummaryEvidence   `json:"evidence,omitempty"`
-	Components      []AppSummaryComponent `json:"components,omitempty"`
+	Vulnerabilities *AppSummaryVulns        `json:"vulnerabilities,omitempty"`
+	SBOM            *AppSummarySBOM         `json:"sbom,omitempty"`
+	Licenses        *AppSummaryLicenses     `json:"licenses,omitempty"`
+	Signing         *AppSummarySigning      `json:"signing,omitempty"`
+	SLSA            *AppSummarySLSA         `json:"slsa,omitempty"`
+	Policy          *AppSummaryPolicy       `json:"policy,omitempty"`
+	Attestations    *AppSummaryAttestations `json:"attestations,omitempty"`
+	Evidence        *AppSummaryEvidence     `json:"evidence,omitempty"`
+	Components      []AppSummaryComponent   `json:"components,omitempty"`
 
 	// Links to detailed endpoints for drill-down
 	Links map[string]string `json:"_links,omitempty"`
@@ -235,23 +271,104 @@ type AppSummaryOCI struct {
 	PushedAt   string `json:"pushed_at,omitempty"`
 }
 
-// HandleAppProvenance serves application build provenance with evidence summary
+// AppSummaryPolicy is a condensed view of the build policy that was enforced
+// Projected from release.json policy block
+type AppSummaryPolicy struct {
+	Enforcement string `json:"enforcement"` // "warn", "block"
+
+	// What the policy requires
+	RequireSignature bool `json:"require_signature"`
+	RequireSBOM      bool `json:"require_sbom"`
+	RequireVulnScan  bool `json:"require_vuln_scan"`
+	RequireLicense   bool `json:"require_license"`
+
+	// Vuln gating policy
+	VulnBlockOn  []string `json:"vuln_block_on,omitempty"`
+	VulnAllowVEX bool     `json:"vuln_allow_vex"`
+}
+
+// AppSummaryAttestations summarizes what attestations exist in the evidence bundle
+// Counts are derived from the inventory file index at load time
+type AppSummaryAttestations struct {
+	Total int `json:"total"`
+
+	// per-scope counts
+	SourceAttestations   int `json:"source_attestations"`
+	ArtifactAttestations int `json:"artifact_attestations"`
+
+	// whats attested (derived from evidence file classification)
+	SBOMAttested    bool `json:"sbom_attested"`
+	ScanAttested    bool `json:"scan_attested"`
+	LicenseAttested bool `json:"license_attested"`
+}
+
+// HandleAppProvenance serves the comprehensive app provenance: build info + full release
+// manifest + parsed policy + attestation details + complete evidence file index
+// This is the "give me everything" endpoint — the summary abbreviates from this
 func (api *API) HandleAppProvenance(w http.ResponseWriter, r *http.Request) {
 	resp := AppProvenanceResponse{
 		Build: v.Get(),
+		Links: map[string]string{
+			"summary":   "/api/provenance/app/summary",
+			"evidence":  "/api/provenance/evidence",
+			"release":   "/api/provenance/evidence/release.json",
+			"inventory": "/api/provenance/evidence/inventory.json",
+			"content":   "/api/provenance/content",
+		},
 	}
 
-	if api.evidence != nil {
-		if bundle, ok := api.evidence.Get(); ok {
-			resp.Evidence = &EvidenceSummary{
-				Available:  len(bundle.Files) > 0,
-				ReleaseID:  bundle.Release.ReleaseID,
-				Version:    bundle.Release.Version,
-				FileCount:  len(bundle.Files),
-				Categories: bundle.Summary(),
-				FetchedAt:  bundle.FetchedAt,
+	if api.evidence == nil {
+		api.writeJSON(r.Context(), w, http.StatusOK, resp)
+		return
+	}
+
+	bundle, ok := api.evidence.Get()
+	if !ok {
+		api.writeJSON(r.Context(), w, http.StatusOK, resp)
+		return
+	}
+
+	resp.Release = bundle.Release
+	resp.FetchedAt = bundle.FetchedAt
+
+	// Parse policy from raw JSON into structured form
+	if bundle.Release != nil {
+		resp.Policy = evidence.ParsePolicy(bundle.Release.Policy)
+	}
+
+	// Build attestation details from file index
+	ac := bundle.Attestations()
+	if ac.Total > 0 {
+		attestationFiles := make([]*evidence.EvidenceFileRef, 0, ac.Total)
+		for _, ref := range bundle.FileIndex {
+			if ref.Kind == "attestation" {
+				attestationFiles = append(attestationFiles, ref)
 			}
 		}
+
+		resp.Attestations = &AppProvenanceAttestations{
+			Total:           ac.Total,
+			Source:          ac.Source,
+			Artifact:        ac.Artifact,
+			SBOMAttested:    ac.SBOMAttested,
+			ScanAttested:    ac.ScanAttested,
+			LicenseAttested: ac.LicenseAttested,
+			Files:           attestationFiles,
+		}
+	}
+
+	// Full evidence file index
+	allFiles := make([]*evidence.EvidenceFileRef, 0, len(bundle.FileIndex))
+	for _, ref := range bundle.FileIndex {
+		allFiles = append(allFiles, ref)
+	}
+
+	resp.Evidence = &AppProvenanceEvidence{
+		Available:     len(bundle.Files) > 0,
+		FileCount:     len(bundle.Files),
+		Categories:    bundle.Summary(),
+		InventoryHash: bundle.InventoryHash,
+		Files:         allFiles,
 	}
 
 	api.writeJSON(r.Context(), w, http.StatusOK, resp)
@@ -362,6 +479,32 @@ func (api *API) HandleAppSummary(w http.ResponseWriter, r *http.Request) {
 		resp.Evidence = &AppSummaryEvidence{
 			FileCount:  len(bundle.Files),
 			Categories: bundle.Summary(),
+		}
+	}
+
+	// parse policy from raw json in the release manifest
+	if pol := evidence.ParsePolicy(rel.Policy); pol != nil {
+		resp.Policy = &AppSummaryPolicy{
+			Enforcement:      pol.Enforcement,
+			RequireSignature: pol.Require.Signature,
+			RequireSBOM:      pol.Require.SBOM,
+			RequireVulnScan:  pol.Require.VulnScan,
+			RequireLicense:   pol.Require.License,
+			VulnBlockOn:      pol.Vuln.BlockOn,
+			VulnAllowVEX:     pol.Vuln.AllowVEX,
+		}
+	}
+
+	// attestations derived from evidence file index, not release.json
+	ac := bundle.Attestations()
+	if ac.Total > 0 {
+		resp.Attestations = &AppSummaryAttestations{
+			Total:                ac.Total,
+			SourceAttestations:   ac.Source,
+			ArtifactAttestations: ac.Artifact,
+			SBOMAttested:         ac.SBOMAttested,
+			ScanAttested:         ac.ScanAttested,
+			LicenseAttested:      ac.LicenseAttested,
 		}
 	}
 
