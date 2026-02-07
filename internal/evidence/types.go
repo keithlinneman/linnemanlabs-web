@@ -183,29 +183,55 @@ type EvidenceCompleteness struct {
 	AttestationsAttached bool `json:"attestations_attached"`
 }
 
-// ReleasePolicy is a partial parse of the policy block for api responses
+// ReleasePolicy is a structured parse of the policy block from release.json
+// Matches the canonical shape emitted by the build system:
+//
+//	{ "enforcement": "warn",
+//	  "signing": { ... },
+//	  "evidence": { ... },
+//	  "vulnerability": { ... },
+//	  "license": { ... } }
+//
+// the raw JSON is kept on ReleaseManifest.Policy for passthrough on the
+// full endpoint; this parsed form is used for the summary endpoint
 type ReleasePolicy struct {
-	Enforcement string             `json:"enforcement"` // "warn" or "block"
-	Require     PolicyRequirements `json:"require"`
-	Vuln        PolicyVuln         `json:"vuln"`
+	Enforcement   string              `json:"enforcement"` // "warn" or "block"
+	Signing       PolicySigning       `json:"signing"`
+	Evidence      PolicyEvidence      `json:"evidence"`
+	Vulnerability PolicyVulnerability `json:"vulnerability"`
+	License       PolicyLicense       `json:"license"`
 }
 
-// PolicyRequirements captures what the policy mandates
-type PolicyRequirements struct {
-	Signature bool `json:"signature"`
-	SBOM      bool `json:"sbom"`
-	VulnScan  bool `json:"vuln_scan"`
-	License   bool `json:"license"`
+// PolicySigning describes what must be cryptographically signed
+type PolicySigning struct {
+	RequireInventorySignature bool `json:"require_inventory_signature"`
+	RequireSubjectSignatures  bool `json:"require_subject_signatures"`
 }
 
-// PolicyVuln captures vulnerability gating rules
-type PolicyVuln struct {
-	BlockOn  []string `json:"block_on"` // ["critical", "high"]
-	AllowVEX bool     `json:"allow_vex"`
+// PolicyEvidence describes what evidence artifacts the policy mandates
+type PolicyEvidence struct {
+	SBOMRequired         bool `json:"sbom_required"`
+	ScanRequired         bool `json:"scan_required"`
+	LicenseRequired      bool `json:"license_required"`
+	ProvenanceRequired   bool `json:"provenance_required"`
+	AttestationsRequired bool `json:"attestations_required"`
 }
 
-// ParsePolicy attempts to extract  policy from json
-// Returns nil if the policy block is absent or unparseable
+// PolicyVulnerability describes vulnerability gating rules.
+type PolicyVulnerability struct {
+	BlockOn    []string `json:"block_on"` // ["critical", "high"]
+	AllowIfVEX bool     `json:"allow_if_vex"`
+}
+
+// PolicyLicense describes license compliance rules
+type PolicyLicense struct {
+	Denied       []string `json:"denied"`
+	Allowed      []string `json:"allowed"`
+	AllowUnknown bool     `json:"allow_unknown"`
+}
+
+// ParsePolicy attempts to extract policy from json
+// returns nil if the policy block is absent or unparseable
 func ParsePolicy(raw json.RawMessage) *ReleasePolicy {
 	if len(raw) == 0 {
 		return nil

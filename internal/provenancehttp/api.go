@@ -162,17 +162,26 @@ type EvidenceManifestResponse struct {
 	Links map[string]string `json:"_links,omitempty"`
 }
 
-// AppSummaryResponse is the lightweight app build summary for frontend consumption
-// All data is projected from the build system's release.json
+// AppSummaryResponse is the app build summary for frontend consumption
+// includes build context, policy, attestation counts, per-scanner vuln breakdowns
 type AppSummaryResponse struct {
 	HasEvidence bool   `json:"has_evidence"`
 	Error       string `json:"error,omitempty"`
 
+	// Release identity
 	Version   string    `json:"version,omitempty"`
+	ReleaseID string    `json:"release_id,omitempty"`
 	BuildID   string    `json:"build_id,omitempty"`
 	Track     string    `json:"track,omitempty"`
 	CreatedAt time.Time `json:"created_at,omitempty"`
 	FetchedAt time.Time `json:"fetched_at,omitempty"`
+
+	// build context — who/how/where (from binary ldflags)
+	BuildActor      string `json:"build_actor,omitempty"`
+	BuildSystem     string `json:"build_system,omitempty"`
+	BuildRunURL     string `json:"build_run_url,omitempty"`
+	BuilderIdentity string `json:"builder_identity,omitempty"`
+	GoVersion       string `json:"go_version,omitempty"`
 
 	Source  *AppSummarySource  `json:"source,omitempty"`
 	Builder *AppSummaryBuilder `json:"builder,omitempty"`
@@ -202,9 +211,12 @@ type AppSummarySource struct {
 }
 
 type AppSummaryBuilder struct {
-	Repository  string `json:"repository"`
-	CommitShort string `json:"commit_short"`
-	Dirty       bool   `json:"dirty"`
+	Repository  string    `json:"repository"`
+	Branch      string    `json:"branch,omitempty"`
+	Commit      string    `json:"commit"`
+	CommitShort string    `json:"commit_short"`
+	CommitDate  time.Time `json:"commit_date"`
+	Dirty       bool      `json:"dirty"`
 }
 
 type AppSummaryVulns struct {
@@ -215,6 +227,13 @@ type AppSummaryVulns struct {
 	GateResult    string              `json:"gate_result"`
 	ScannersUsed  []string            `json:"scanners_used"`
 	ScannedAt     string              `json:"scanned_at"`
+
+	// per-scanner raw breakdown
+	ByScanner map[string]json.RawMessage `json:"by_scanner,omitempty"`
+
+	// what was scanned (source+artifacts) and how results were reconciled
+	Scope         string `json:"scope,omitempty"`
+	Deduplication string `json:"deduplication,omitempty"`
 }
 
 type AppSummarySBOM struct {
@@ -222,6 +241,7 @@ type AppSummarySBOM struct {
 	FormatsProduced      []string `json:"formats_produced"`
 	SourcePackageCount   int      `json:"source_package_count"`
 	ArtifactPackageCount int      `json:"artifact_package_count"`
+	GeneratedAt          string   `json:"generated_at,omitempty"`
 }
 
 type AppSummaryLicenses struct {
@@ -233,6 +253,7 @@ type AppSummaryLicenses struct {
 
 type AppSummarySigning struct {
 	Method            string `json:"method"`
+	KeyRef            string `json:"key_ref,omitempty"` // KMS alias — exactly which key signed
 	ArtifactsAttested bool   `json:"artifacts_attested"`
 	IndexAttested     bool   `json:"index_attested"`
 	InventorySigned   bool   `json:"inventory_signed"`
@@ -242,6 +263,8 @@ type AppSummarySigning struct {
 type AppSummarySLSA struct {
 	ProvenanceGenerated bool   `json:"provenance_generated"`
 	Level               int    `json:"level,omitempty"`
+	BuilderID           string `json:"builder_id,omitempty"`
+	BuildType           string `json:"build_type,omitempty"`
 	Note                string `json:"note,omitempty"`
 }
 
@@ -265,26 +288,46 @@ type AppSummaryBinary struct {
 }
 
 type AppSummaryOCI struct {
-	Repository string `json:"repository"`
-	Tag        string `json:"tag"`
-	Digest     string `json:"digest"`
-	PushedAt   string `json:"pushed_at,omitempty"`
+	Repository   string `json:"repository"`
+	Tag          string `json:"tag"`
+	Digest       string `json:"digest"`
+	DigestRef    string `json:"digest_ref,omitempty"`
+	MediaType    string `json:"media_type,omitempty"`
+	ArtifactType string `json:"artifact_type,omitempty"`
+	PushedAt     string `json:"pushed_at,omitempty"`
 }
 
-// AppSummaryPolicy is a condensed view of the build policy that was enforced
-// Projected from release.json policy block
+// AppSummaryPolicy is the structured build policy that was enforced
 type AppSummaryPolicy struct {
-	Enforcement string `json:"enforcement"` // "warn", "block"
+	Enforcement   string                   `json:"enforcement"`
+	Signing       AppSummaryPolicySigning  `json:"signing"`
+	Evidence      AppSummaryPolicyEvidence `json:"evidence"`
+	Vulnerability AppSummaryPolicyVuln     `json:"vulnerability"`
+	License       AppSummaryPolicyLicense  `json:"license"`
+}
 
-	// What the policy requires
-	RequireSignature bool `json:"require_signature"`
-	RequireSBOM      bool `json:"require_sbom"`
-	RequireVulnScan  bool `json:"require_vuln_scan"`
-	RequireLicense   bool `json:"require_license"`
+type AppSummaryPolicySigning struct {
+	RequireInventorySignature bool `json:"require_inventory_signature"`
+	RequireSubjectSignatures  bool `json:"require_subject_signatures"`
+}
 
-	// Vuln gating policy
-	VulnBlockOn  []string `json:"vuln_block_on,omitempty"`
-	VulnAllowVEX bool     `json:"vuln_allow_vex"`
+type AppSummaryPolicyEvidence struct {
+	SBOMRequired         bool `json:"sbom_required"`
+	ScanRequired         bool `json:"scan_required"`
+	LicenseRequired      bool `json:"license_required"`
+	ProvenanceRequired   bool `json:"provenance_required"`
+	AttestationsRequired bool `json:"attestations_required"`
+}
+
+type AppSummaryPolicyVuln struct {
+	BlockOn    []string `json:"block_on,omitempty"` // ["critical", "high"]
+	AllowIfVEX bool     `json:"allow_if_vex"`
+}
+
+type AppSummaryPolicyLicense struct {
+	Denied       []string `json:"denied,omitempty"`  // SPDX deny patterns
+	Allowed      []string `json:"allowed,omitempty"` // SPDX explicit allowlist
+	AllowUnknown bool     `json:"allow_unknown"`
 }
 
 // AppSummaryAttestations summarizes what attestations exist in the evidence bundle
@@ -375,7 +418,6 @@ func (api *API) HandleAppProvenance(w http.ResponseWriter, r *http.Request) {
 }
 
 // HandleAppSummary serves the lightweight app build summary for frontend consumption
-// This is a pure projection of release.json data
 func (api *API) HandleAppSummary(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -399,37 +441,53 @@ func (api *API) HandleAppSummary(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rel := bundle.Release
+	bi := v.Get()
+
 	resp := AppSummaryResponse{
 		HasEvidence: true,
 		Version:     rel.Version,
+		ReleaseID:   rel.ReleaseID,
 		BuildID:     rel.BuildID,
 		Track:       rel.Track,
 		CreatedAt:   rel.CreatedAt,
 		FetchedAt:   bundle.FetchedAt,
 		Links:       appSummaryLinks(),
+
+		// build context — who/how/where (from compile-time ldflags)
+		BuildActor:      bi.BuildActor,
+		BuildSystem:     bi.BuildSystem,
+		BuildRunURL:     bi.BuildRunURL,
+		BuilderIdentity: bi.BuilderIdentity,
+		GoVersion:       bi.GoVersion,
 	}
 
-	// Source
+	// source
 	resp.Source = buildAppSummarySource(&rel.Source)
 
-	// Builder
+	// builder
 	resp.Builder = &AppSummaryBuilder{
 		Repository:  rel.Builder.Repo,
+		Branch:      rel.Builder.Branch,
+		Commit:      rel.Builder.Commit,
 		CommitShort: rel.Builder.CommitShort,
+		CommitDate:  rel.Builder.CommitDate,
 		Dirty:       rel.Builder.Dirty,
 	}
 
-	// Project summary block (all from build system)
+	// project summary block
 	if s := rel.Summary; s != nil {
-		if v := s.Vulnerabilities; v != nil {
+		if sv := s.Vulnerabilities; sv != nil {
 			resp.Vulnerabilities = &AppSummaryVulns{
-				Counts:        v.Counts,
-				Total:         v.Total,
-				WorstSeverity: v.WorstSeverity,
-				GateThreshold: v.GateThreshold,
-				GateResult:    v.GateResult,
-				ScannersUsed:  v.ScannersUsed,
-				ScannedAt:     v.ScannedAt,
+				Counts:        sv.Counts,
+				Total:         sv.Total,
+				WorstSeverity: sv.WorstSeverity,
+				GateThreshold: sv.GateThreshold,
+				GateResult:    sv.GateResult,
+				ScannersUsed:  sv.ScannersUsed,
+				ScannedAt:     sv.ScannedAt,
+				ByScanner:     sv.ByScanner,
+				Scope:         sv.Scope,
+				Deduplication: sv.Deduplication,
 			}
 		}
 
@@ -439,6 +497,7 @@ func (api *API) HandleAppSummary(w http.ResponseWriter, r *http.Request) {
 				FormatsProduced:      sb.FormatsProduced,
 				SourcePackageCount:   sb.SourcePackageCount,
 				ArtifactPackageCount: sb.ArtifactPackageCount,
+				GeneratedAt:          sb.GeneratedAt,
 			}
 		}
 
@@ -454,6 +513,7 @@ func (api *API) HandleAppSummary(w http.ResponseWriter, r *http.Request) {
 		if sg := s.Signing; sg != nil {
 			resp.Signing = &AppSummarySigning{
 				Method:            sg.Method,
+				KeyRef:            sg.KeyRef,
 				ArtifactsAttested: sg.ArtifactsAttested,
 				IndexAttested:     sg.IndexAttested,
 				InventorySigned:   sg.InventorySigned,
@@ -465,6 +525,8 @@ func (api *API) HandleAppSummary(w http.ResponseWriter, r *http.Request) {
 			resp.SLSA = &AppSummarySLSA{
 				ProvenanceGenerated: sl.ProvenanceGenerated,
 				Level:               sl.Level,
+				BuilderID:           sl.BuilderID,
+				BuildType:           sl.BuildType,
 				Note:                sl.Note,
 			}
 		}
@@ -485,13 +547,27 @@ func (api *API) HandleAppSummary(w http.ResponseWriter, r *http.Request) {
 	// parse policy from raw json in the release manifest
 	if pol := evidence.ParsePolicy(rel.Policy); pol != nil {
 		resp.Policy = &AppSummaryPolicy{
-			Enforcement:      pol.Enforcement,
-			RequireSignature: pol.Require.Signature,
-			RequireSBOM:      pol.Require.SBOM,
-			RequireVulnScan:  pol.Require.VulnScan,
-			RequireLicense:   pol.Require.License,
-			VulnBlockOn:      pol.Vuln.BlockOn,
-			VulnAllowVEX:     pol.Vuln.AllowVEX,
+			Enforcement: pol.Enforcement,
+			Signing: AppSummaryPolicySigning{
+				RequireInventorySignature: pol.Signing.RequireInventorySignature,
+				RequireSubjectSignatures:  pol.Signing.RequireSubjectSignatures,
+			},
+			Evidence: AppSummaryPolicyEvidence{
+				SBOMRequired:         pol.Evidence.SBOMRequired,
+				ScanRequired:         pol.Evidence.ScanRequired,
+				LicenseRequired:      pol.Evidence.LicenseRequired,
+				ProvenanceRequired:   pol.Evidence.ProvenanceRequired,
+				AttestationsRequired: pol.Evidence.AttestationsRequired,
+			},
+			Vulnerability: AppSummaryPolicyVuln{
+				BlockOn:    pol.Vulnerability.BlockOn,
+				AllowIfVEX: pol.Vulnerability.AllowIfVEX,
+			},
+			License: AppSummaryPolicyLicense{
+				Denied:       pol.License.Denied,
+				Allowed:      pol.License.Allowed,
+				AllowUnknown: pol.License.AllowUnknown,
+			},
 		}
 	}
 
@@ -508,7 +584,7 @@ func (api *API) HandleAppSummary(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Components: merge per-platform artifacts with OCI info
+	// components: merge per-platform artifacts with oci info
 	resp.Components = buildAppSummaryComponents(rel)
 
 	api.logger.Debug(ctx, "served app summary",
@@ -519,8 +595,8 @@ func (api *API) HandleAppSummary(w http.ResponseWriter, r *http.Request) {
 	api.writeJSON(ctx, w, http.StatusOK, resp)
 }
 
-// buildAppSummarySource projects ReleaseSource into the frontend-friendly shape.
-// handles the tag-build case where branch/ref may be "unknown".
+// buildAppSummarySource projects ReleaseSource into the frontend-friendly shape
+// handles the tag-build case where branch/ref may be "unknown"
 func buildAppSummarySource(src *evidence.ReleaseSource) *AppSummarySource {
 	if src == nil {
 		return nil
@@ -539,7 +615,7 @@ func buildAppSummarySource(src *evidence.ReleaseSource) *AppSummarySource {
 		out.Tag = src.BaseTag
 	}
 
-	// only include branch if it's actually meaningful
+	// only include branch if its actually meaningful
 	branch := src.ResolvedBranch
 	if branch != "" && branch != "unknown" {
 		out.Branch = branch
@@ -548,9 +624,9 @@ func buildAppSummarySource(src *evidence.ReleaseSource) *AppSummarySource {
 	return out
 }
 
-// buildAppSummaryComponents merges the per-platform artifacts with OCI info
-// OCI is shared across all platforms (it's a multi-arch index), so we attach
-// it to each component for frontend convenience.
+// buildAppSummaryComponents merges the per-platform artifacts with oci info
+// oci is shared across all platforms (it's a multi-arch index), so we attach
+// it to each component for frontend convenience
 func buildAppSummaryComponents(rel *evidence.ReleaseManifest) []AppSummaryComponent {
 	if len(rel.Artifacts) == 0 {
 		return nil
@@ -560,10 +636,13 @@ func buildAppSummaryComponents(rel *evidence.ReleaseManifest) []AppSummaryCompon
 	var sharedOCI *AppSummaryOCI
 	if rel.OCI.Repository != "" {
 		sharedOCI = &AppSummaryOCI{
-			Repository: rel.OCI.Repository,
-			Tag:        rel.OCI.Tag,
-			Digest:     rel.OCI.Digest,
-			PushedAt:   rel.OCI.PushedAt,
+			Repository:   rel.OCI.Repository,
+			Tag:          rel.OCI.Tag,
+			Digest:       rel.OCI.Digest,
+			DigestRef:    rel.OCI.DigestRef,
+			MediaType:    rel.OCI.MediaType,
+			ArtifactType: rel.OCI.ArtifactType,
+			PushedAt:     rel.OCI.PushedAt,
 		}
 	}
 
