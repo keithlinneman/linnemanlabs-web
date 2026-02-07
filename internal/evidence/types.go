@@ -183,17 +183,8 @@ type EvidenceCompleteness struct {
 	AttestationsAttached bool `json:"attestations_attached"`
 }
 
-// ReleasePolicy is a structured parse of the policy block from release.json
-// Matches the canonical shape emitted by the build system:
-//
-//	{ "enforcement": "warn",
-//	  "signing": { ... },
-//	  "evidence": { ... },
-//	  "vulnerability": { ... },
-//	  "license": { ... } }
-//
-// the raw JSON is kept on ReleaseManifest.Policy for passthrough on the
-// full endpoint; this parsed form is used for the summary endpoint
+// full json is kept in ReleaseManifest.Policy for passthrough on the
+// full endpoint and this parsed form is used for the summary endpoint
 type ReleasePolicy struct {
 	Enforcement   string              `json:"enforcement"` // "warn" or "block"
 	Signing       PolicySigning       `json:"signing"`
@@ -230,21 +221,96 @@ type PolicyLicense struct {
 	AllowUnknown bool     `json:"allow_unknown"`
 }
 
-// ParsePolicy attempts to extract policy from json
-// returns nil if the policy block is absent or unparseable
+// policyRaw is the top-level policy block in release.json
+type policyRaw struct {
+	Defaults  policyDefaults  `json:"defaults"`
+	Overrides json.RawMessage `json:"overrides,omitempty"`
+}
+
+type policyDefaults struct {
+	Enforcement   string            `json:"enforcement"`
+	Signing       PolicySigning     `json:"signing"`
+	Evidence      policyEvidenceRaw `json:"evidence"`
+	Vulnerability policyVulnRaw     `json:"vulnerability"`
+	License       policyLicenseRaw  `json:"license"`
+}
+
+// evidence.sbom.required, evidence.scan.required, etc
+type policyEvidenceRaw struct {
+	SBOM       policyEvidenceEntry `json:"sbom"`
+	Scan       policyEvidenceEntry `json:"scan"`
+	License    policyEvidenceEntry `json:"license"`
+	Provenance policyEvidenceEntry `json:"provenance"`
+}
+
+type policyEvidenceEntry struct {
+	Required            bool `json:"required"`
+	AttestationRequired bool `json:"attestation_required"`
+}
+
+// vulnerability.gating.default.block_on, etc
+type policyVulnRaw struct {
+	Gating struct {
+		Default struct {
+			BlockOn    []string `json:"block_on"`
+			AllowIfVEX bool     `json:"allow_if_vex"`
+		} `json:"default"`
+	} `json:"gating"`
+}
+
+// license.deny.spdx_ids, license.allow.spdx_ids, etc
+type policyLicenseRaw struct {
+	Deny struct {
+		SPDXIDs []string `json:"spdx_ids"`
+	} `json:"deny"`
+	Allow struct {
+		SPDXIDs      []string `json:"spdx_ids"`
+		AllowUnknown bool     `json:"allow_unknown"`
+	} `json:"allow"`
+}
+
+// ParsePolicy extracts a summary-friendly ReleasePolicy from the raw policy
 func ParsePolicy(raw json.RawMessage) *ReleasePolicy {
 	if len(raw) == 0 {
 		return nil
 	}
-	var p ReleasePolicy
-	if err := json.Unmarshal(raw, &p); err != nil {
+
+	var pr policyRaw
+	if err := json.Unmarshal(raw, &pr); err != nil {
 		return nil
 	}
-	// if nothing meaningful was parsed, return nil
-	if p.Enforcement == "" {
+
+	d := pr.Defaults
+	if d.Enforcement == "" {
 		return nil
 	}
-	return &p
+
+	// any attestation_required flag set means attestations required overall
+	attestationsRequired := d.Evidence.SBOM.AttestationRequired ||
+		d.Evidence.Scan.AttestationRequired ||
+		d.Evidence.License.AttestationRequired ||
+		d.Evidence.Provenance.AttestationRequired
+
+	return &ReleasePolicy{
+		Enforcement: d.Enforcement,
+		Signing:     d.Signing,
+		Evidence: PolicyEvidence{
+			SBOMRequired:         d.Evidence.SBOM.Required,
+			ScanRequired:         d.Evidence.Scan.Required,
+			LicenseRequired:      d.Evidence.License.Required,
+			ProvenanceRequired:   d.Evidence.Provenance.Required,
+			AttestationsRequired: attestationsRequired,
+		},
+		Vulnerability: PolicyVulnerability{
+			BlockOn:    d.Vulnerability.Gating.Default.BlockOn,
+			AllowIfVEX: d.Vulnerability.Gating.Default.AllowIfVEX,
+		},
+		License: PolicyLicense{
+			Denied:       d.License.Deny.SPDXIDs,
+			Allowed:      d.License.Allow.SPDXIDs,
+			AllowUnknown: d.License.Allow.AllowUnknown,
+		},
+	}
 }
 
 // EvidenceFileRef is a flattened reference to any evidence file in the inventory
