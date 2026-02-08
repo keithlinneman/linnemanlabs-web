@@ -116,6 +116,7 @@ type ReleaseSummary struct {
 type VulnSummary struct {
 	ScannersUsed  []string                   `json:"scanners_used"`
 	ScannedAt     string                     `json:"scanned_at"`
+	Findings      []VulnFinding              `json:"findings,omitempty"`
 	Scope         string                     `json:"scope"`
 	Deduplication string                     `json:"deduplication"`
 	Counts        VulnCounts                 `json:"counts"`
@@ -269,48 +270,15 @@ type policyLicenseRaw struct {
 	} `json:"allow"`
 }
 
-// ParsePolicy extracts a summary-friendly ReleasePolicy from the raw policy
-func ParsePolicy(raw json.RawMessage) *ReleasePolicy {
-	if len(raw) == 0 {
-		return nil
-	}
-
-	var pr policyRaw
-	if err := json.Unmarshal(raw, &pr); err != nil {
-		return nil
-	}
-
-	d := pr.Defaults
-	if d.Enforcement == "" {
-		return nil
-	}
-
-	// any attestation_required flag set means attestations required overall
-	attestationsRequired := d.Evidence.SBOM.AttestationRequired ||
-		d.Evidence.Scan.AttestationRequired ||
-		d.Evidence.License.AttestationRequired ||
-		d.Evidence.Provenance.AttestationRequired
-
-	return &ReleasePolicy{
-		Enforcement: d.Enforcement,
-		Signing:     d.Signing,
-		Evidence: PolicyEvidence{
-			SBOMRequired:         d.Evidence.SBOM.Required,
-			ScanRequired:         d.Evidence.Scan.Required,
-			LicenseRequired:      d.Evidence.License.Required,
-			ProvenanceRequired:   d.Evidence.Provenance.Required,
-			AttestationsRequired: attestationsRequired,
-		},
-		Vulnerability: PolicyVulnerability{
-			BlockOn:    d.Vulnerability.Gating.Default.BlockOn,
-			AllowIfVEX: d.Vulnerability.Gating.Default.AllowIfVEX,
-		},
-		License: PolicyLicense{
-			Denied:       d.License.Deny.SPDXIDs,
-			Allowed:      d.License.Allow.SPDXIDs,
-			AllowUnknown: d.License.Allow.AllowUnknown,
-		},
-	}
+type VulnFinding struct {
+	ID               string   `json:"id"`
+	Severity         string   `json:"severity"`
+	Package          string   `json:"package"`
+	InstalledVersion string   `json:"installed_version"`
+	FixedVersion     string   `json:"fixed_version,omitempty"`
+	Title            string   `json:"title,omitempty"`
+	SourceURL        string   `json:"source_url,omitempty"`
+	Scanners         []string `json:"scanners"`
 }
 
 // EvidenceFileRef is a flattened reference to any evidence file in the inventory
@@ -446,4 +414,48 @@ func (b *Bundle) Attestations() AttestationCounts {
 		}
 	}
 	return c
+}
+
+// ParsePolicy extracts a summary-friendly ReleasePolicy from the raw policy
+func ParsePolicy(raw json.RawMessage) *ReleasePolicy {
+	if len(raw) == 0 {
+		return nil
+	}
+
+	var pr policyRaw
+	if err := json.Unmarshal(raw, &pr); err != nil {
+		return nil
+	}
+
+	d := pr.Defaults
+	if d.Enforcement == "" {
+		return nil
+	}
+
+	// any attestation_required flag set means attestations required overall
+	attestationsRequired := d.Evidence.SBOM.AttestationRequired ||
+		d.Evidence.Scan.AttestationRequired ||
+		d.Evidence.License.AttestationRequired ||
+		d.Evidence.Provenance.AttestationRequired
+
+	return &ReleasePolicy{
+		Enforcement: d.Enforcement,
+		Signing:     d.Signing,
+		Evidence: PolicyEvidence{
+			SBOMRequired:         d.Evidence.SBOM.Required,
+			ScanRequired:         d.Evidence.Scan.Required,
+			LicenseRequired:      d.Evidence.License.Required,
+			ProvenanceRequired:   d.Evidence.Provenance.Required,
+			AttestationsRequired: attestationsRequired,
+		},
+		Vulnerability: PolicyVulnerability{
+			BlockOn:    d.Vulnerability.Gating.Default.BlockOn,
+			AllowIfVEX: d.Vulnerability.Gating.Default.AllowIfVEX,
+		},
+		License: PolicyLicense{
+			Denied:       d.License.Deny.SPDXIDs,
+			Allowed:      d.License.Allow.SPDXIDs,
+			AllowUnknown: d.License.Allow.AllowUnknown,
+		},
+	}
 }
