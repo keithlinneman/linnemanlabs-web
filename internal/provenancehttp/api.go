@@ -192,15 +192,16 @@ type AppSummaryResponse struct {
 	Source  *AppSummarySource  `json:"source,omitempty"`
 	Builder *AppSummaryBuilder `json:"builder,omitempty"`
 
-	Vulnerabilities *AppSummaryVulns        `json:"vulnerabilities,omitempty"`
-	SBOM            *AppSummarySBOM         `json:"sbom,omitempty"`
-	Licenses        *AppSummaryLicenses     `json:"licenses,omitempty"`
-	Signing         *AppSummarySigning      `json:"signing,omitempty"`
-	SLSA            *AppSummarySLSA         `json:"slsa,omitempty"`
-	Policy          *AppSummaryPolicy       `json:"policy,omitempty"`
-	Attestations    *AppSummaryAttestations `json:"attestations,omitempty"`
-	Evidence        *AppSummaryEvidence     `json:"evidence,omitempty"`
-	Components      []AppSummaryComponent   `json:"components,omitempty"`
+	Vulnerabilities  *AppSummaryVulns            `json:"vulnerabilities,omitempty"`
+	SBOM             *AppSummarySBOM             `json:"sbom,omitempty"`
+	Licenses         *AppSummaryLicenses         `json:"licenses,omitempty"`
+	Signing          *AppSummarySigning          `json:"signing,omitempty"`
+	SLSA             *AppSummarySLSA             `json:"slsa,omitempty"`
+	Policy           *AppSummaryPolicy           `json:"policy,omitempty"`
+	PolicyCompliance *AppSummaryPolicyCompliance `json:"policy_compliance,omitempty"`
+	Attestations     *AppSummaryAttestations     `json:"attestations,omitempty"`
+	Evidence         *AppSummaryEvidence         `json:"evidence,omitempty"`
+	Components       []AppSummaryComponent       `json:"components,omitempty"`
 
 	// Links to detailed endpoints for drill-down
 	Links map[string]string `json:"_links,omitempty"`
@@ -258,12 +259,13 @@ type AppSummaryLicenses struct {
 }
 
 type AppSummarySigning struct {
-	Method            string `json:"method"`
-	KeyRef            string `json:"key_ref,omitempty"` // KMS alias — exactly which key signed
-	ArtifactsAttested bool   `json:"artifacts_attested"`
-	IndexAttested     bool   `json:"index_attested"`
-	InventorySigned   bool   `json:"inventory_signed"`
-	ReleaseSigned     bool   `json:"release_signed"`
+	Method                 string `json:"method"`
+	KeyRef                 string `json:"key_ref,omitempty"` // KMS alias — exactly which key signed
+	ArtifactsAttested      bool   `json:"artifacts_attested"`
+	IndexAttested          bool   `json:"index_attested"`
+	InventorySigned        bool   `json:"inventory_signed"`
+	ReleaseSigned          bool   `json:"release_signed"`
+	ReleaseSigstoreBundled bool   `json:"release_sigstore_bundled"`
 }
 
 type AppSummarySLSA struct {
@@ -595,6 +597,40 @@ func (api *API) HandleAppSummary(w http.ResponseWriter, r *http.Request) {
 				AllowUnknown: pol.License.AllowUnknown,
 			},
 		}
+
+		// build compliance evaluation
+		compliance := &AppSummaryPolicyCompliance{
+			Enforcement: pol.Enforcement,
+
+			SigningRequired:  pol.Signing.RequireSubjectSignatures,
+			SigningSatisfied: resp.Signing != nil && resp.Signing.ReleaseSigned && resp.Signing.ArtifactsAttested,
+
+			SBOMRequired:  pol.Evidence.SBOMRequired,
+			SBOMSatisfied: resp.SBOM != nil && resp.SBOM.SourcePackageCount > 0,
+
+			ScanRequired:  pol.Evidence.ScanRequired,
+			ScanSatisfied: resp.Vulnerabilities != nil && len(resp.Vulnerabilities.ScannersUsed) > 0,
+
+			LicenseRequired:  pol.Evidence.LicenseRequired,
+			LicenseSatisfied: resp.Licenses != nil,
+
+			ProvenanceRequired:  pol.Evidence.ProvenanceRequired,
+			ProvenanceSatisfied: resp.HasEvidence,
+
+			VulnGating:       pol.Vulnerability.BlockOn,
+			LicenseGating:    pol.Evidence.LicenseRequired,
+			LicenseCompliant: resp.Licenses != nil && resp.Licenses.Compliant,
+		}
+
+		if resp.Vulnerabilities != nil {
+			compliance.VulnGateResult = resp.Vulnerabilities.GateResult
+		}
+
+		if bundle.HasReleaseSigstoreBundle() {
+			compliance.SigningSatisfied = true
+		}
+
+		resp.PolicyCompliance = compliance
 	}
 
 	// attestations derived from evidence file index, not release.json
@@ -608,6 +644,11 @@ func (api *API) HandleAppSummary(w http.ResponseWriter, r *http.Request) {
 			ScanAttested:         ac.ScanAttested,
 			LicenseAttested:      ac.LicenseAttested,
 		}
+	}
+
+	if bundle.HasReleaseSigstoreBundle() {
+		// either fold into attestations or add to signing
+		resp.Signing.ReleaseSigstoreBundled = true
 	}
 
 	// components: merge per-platform artifacts with oci info

@@ -133,6 +133,16 @@ func (l *Loader) Load(ctx context.Context) (*Bundle, error) {
 		"component", release.Component,
 	)
 
+	// attempt to fetch release.json sigstore bundle
+	sigstoreBundleKey := prefix + "release.json.bundle.sigstore.json"
+	sigstoreBundleRaw, err := l.fetchS3(ctx, sigstoreBundleKey, MaxManifestSize)
+	if err != nil {
+		l.logger.Warn(ctx, "no release sigstore bundle found",
+			"key", sigstoreBundleKey,
+		)
+		sigstoreBundleRaw = nil
+	}
+
 	// fetch and verify inventory.json
 	invRef, ok := release.Files["inventory"]
 	if !ok {
@@ -190,15 +200,16 @@ func (l *Loader) Load(ctx context.Context) (*Bundle, error) {
 	)
 
 	return &Bundle{
-		Release:       &release,
-		ReleaseRaw:    releaseRaw,
-		InventoryRaw:  inventoryRaw,
-		InventoryHash: actualInvHash,
-		FileIndex:     fileIndex,
-		Files:         files,
-		Bucket:        l.opts.Bucket,
-		ReleasePrefix: prefix,
-		FetchedAt:     time.Now().UTC(),
+		Release:               &release,
+		ReleaseRaw:            releaseRaw,
+		ReleaseSigstoreBundle: sigstoreBundleRaw,
+		InventoryRaw:          inventoryRaw,
+		InventoryHash:         actualInvHash,
+		FileIndex:             fileIndex,
+		Files:                 files,
+		Bucket:                l.opts.Bucket,
+		ReleasePrefix:         prefix,
+		FetchedAt:             time.Now().UTC(),
 	}, nil
 }
 

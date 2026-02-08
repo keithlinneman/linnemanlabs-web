@@ -56,15 +56,16 @@ func FilterBundleByPlatform(b *Bundle, platform string) *Bundle {
 	}
 
 	return &Bundle{
-		Release:       filteredRelease,
-		ReleaseRaw:    newReleaseRaw,
-		InventoryRaw:  newInventoryRaw,
-		InventoryHash: b.InventoryHash,
-		FileIndex:     newIndex,
-		Files:         newFiles,
-		Bucket:        b.Bucket,
-		ReleasePrefix: b.ReleasePrefix,
-		FetchedAt:     b.FetchedAt,
+		Release:               filteredRelease,
+		ReleaseRaw:            newReleaseRaw,
+		ReleaseSigstoreBundle: b.ReleaseSigstoreBundle,
+		InventoryRaw:          newInventoryRaw,
+		InventoryHash:         b.InventoryHash,
+		FileIndex:             newIndex,
+		Files:                 newFiles,
+		Bucket:                b.Bucket,
+		ReleasePrefix:         b.ReleasePrefix,
+		FetchedAt:             b.FetchedAt,
 	}
 }
 

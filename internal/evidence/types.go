@@ -305,6 +305,9 @@ type Bundle struct {
 	// parsed release.json
 	Release *ReleaseManifest
 
+	// sigstore bundle for release.json
+	ReleaseSigstoreBundle []byte
+
 	// raw bytes for serving as-is
 	ReleaseRaw   []byte
 	InventoryRaw []byte
@@ -458,4 +461,9 @@ func ParsePolicy(raw json.RawMessage) *ReleasePolicy {
 			AllowUnknown: d.License.Allow.AllowUnknown,
 		},
 	}
+}
+
+// HasReleaseSigstoreBundle returns true if a sigstore bundle exists for release.json
+func (b *Bundle) HasReleaseSigstoreBundle() bool {
+	return b != nil && len(b.ReleaseSigstoreBundle) > 0
 }
