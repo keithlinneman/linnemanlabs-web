@@ -549,6 +549,11 @@ func (api *API) HandleAppSummary(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		// sigstore bundle proves release.json is signed - build-system cant sign and then include the fact its signed in the same release.json
+		if resp.Signing != nil && bundle.HasReleaseSigstoreBundle() {
+			resp.Signing.ReleaseSigned = true
+		}
+
 		if sl := s.SLSA; sl != nil {
 			resp.SLSA = &AppSummarySLSA{
 				ProvenanceGenerated: sl.ProvenanceGenerated,
