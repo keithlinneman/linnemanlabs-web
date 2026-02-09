@@ -395,7 +395,13 @@ func (api *API) HandleAppProvenance(w http.ResponseWriter, r *http.Request) {
 
 	// Parse policy from raw JSON into structured form
 	if bundle.Release != nil {
-		resp.Policy = evidence.ParsePolicy(bundle.Release.Policy)
+		pol, err := evidence.ParsePolicy(bundle.Release.Policy)
+		if err != nil {
+			api.logger.Warn(r.Context(), "parse policy", "error", err)
+		}
+		if pol != nil {
+			resp.Policy = pol
+		}
 	}
 
 	// Build attestation details from file index
@@ -578,7 +584,11 @@ func (api *API) HandleAppSummary(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// parse policy from raw json in the release manifest
-	if pol := evidence.ParsePolicy(rel.Policy); pol != nil {
+	pol, err := evidence.ParsePolicy(rel.Policy)
+	if err != nil {
+		api.logger.Warn(ctx, "parse policy", "error", err)
+	}
+	if pol != nil {
 		resp.Policy = &AppSummaryPolicy{
 			Enforcement: pol.Enforcement,
 			Signing: AppSummaryPolicySigning{

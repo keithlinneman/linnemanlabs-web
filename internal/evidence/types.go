@@ -2,6 +2,7 @@ package evidence
 
 import (
 	"encoding/json"
+	"fmt"
 	"time"
 )
 
@@ -417,19 +418,19 @@ func (b *Bundle) Attestations() AttestationCounts {
 }
 
 // ParsePolicy extracts a summary-friendly ReleasePolicy from the raw policy
-func ParsePolicy(raw json.RawMessage) *ReleasePolicy {
+func ParsePolicy(raw json.RawMessage) (*ReleasePolicy, error) {
 	if len(raw) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	var pr policyRaw
 	if err := json.Unmarshal(raw, &pr); err != nil {
-		return nil
+		return nil, fmt.Errorf("unmarshal policy: %w", err)
 	}
 
 	d := pr.Defaults
 	if d.Enforcement == "" {
-		return nil
+		return nil, nil
 	}
 
 	// any attestation_required flag set means attestations required overall
@@ -457,7 +458,7 @@ func ParsePolicy(raw json.RawMessage) *ReleasePolicy {
 			Allowed:      d.License.Allow,
 			AllowUnknown: d.License.AllowUnknown,
 		},
-	}
+	}, nil
 }
 
 // HasReleaseSigstoreBundle returns true if a sigstore bundle exists for release.json
