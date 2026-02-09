@@ -261,13 +261,10 @@ type policyVulnRaw struct {
 
 // license.deny.spdx_ids, license.allow.spdx_ids, etc
 type policyLicenseRaw struct {
-	Deny struct {
-		SPDXIDs []string `json:"spdx_ids"`
-	} `json:"deny"`
-	Allow struct {
-		SPDXIDs      []string `json:"spdx_ids"`
-		AllowUnknown bool     `json:"allow_unknown"`
-	} `json:"allow"`
+	Deny         []string `json:"deny"`
+	DenyRegex    []string `json:"deny_regex,omitempty"`
+	Allow        []string `json:"allow"`
+	AllowUnknown bool     `json:"allow_unknown"`
 }
 
 type VulnFinding struct {
@@ -456,9 +453,9 @@ func ParsePolicy(raw json.RawMessage) *ReleasePolicy {
 			AllowIfVEX: d.Vulnerability.Gating.Default.AllowIfVEX,
 		},
 		License: PolicyLicense{
-			Denied:       d.License.Deny.SPDXIDs,
-			Allowed:      d.License.Allow.SPDXIDs,
-			AllowUnknown: d.License.Allow.AllowUnknown,
+			Denied:       d.License.Deny,
+			Allowed:      d.License.Allow,
+			AllowUnknown: d.License.AllowUnknown,
 		},
 	}
 }
