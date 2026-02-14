@@ -322,7 +322,10 @@ func main() {
 		}),
 	)
 
-	// start ops http server
+	// start admin/ops listener to serve metrics, health checks, pprof and any future admin APIs
+	// sg restricts inbound to internal monitoring infrastructure
+	// we reject connections from public ips and requests with x-forwarded set in middleware
+	// to prevent accidental exposure if sg is misconfigured or load balancer ever sends traffic there
 	opsHTTPStop, err := opshttp.Start(ctx, L, opshttp.Options{
 		Port:         conf.AdminPort,
 		Metrics:      m.Handler(),

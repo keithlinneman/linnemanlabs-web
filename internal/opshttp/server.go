@@ -41,9 +41,11 @@ func Start(ctx context.Context, L log.Logger, opts Options) (func(context.Contex
 		})
 	}
 
+	handler := requirePrivateNetwork(L, mux)
+
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           mux,
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
@@ -74,4 +76,26 @@ func Start(ctx context.Context, L log.Logger, opts Options) (func(context.Contex
 		return retErr
 	}
 	return stop, nil
+}
+
+// requirePrivateNetwork is a middleware that only allows requests from private IPs, loopback or link-local addresses. This is used to protect the admin HTTP server from external access
+func requirePrivateNetwork(L log.Logger, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			L.Warn(r.Context(), "admin: rejected request, bad remote addr", "remote_addr", r.RemoteAddr)
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+
+		ip := net.ParseIP(host)
+		// only allow private, loopback or link-local ips
+		if ip == nil || !(ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast()) {
+			L.Warn(r.Context(), "admin: rejected non-private IP", "remote_ip", host)
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }
