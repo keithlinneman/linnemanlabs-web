@@ -277,7 +277,6 @@ func main() {
 		AuthToken:     "",
 		ServerAddress: conf.PyroServer,
 		TenantID:      conf.PyroTenantID,
-		// todo - shouldnt be hardcoding these especially region
 		Tags: map[string]string{
 			"app":       v.AppName,
 			"component": "server",
@@ -465,20 +464,11 @@ func main() {
 	}
 	defer func() { _ = siteHTTPStop(context.Background()) }()
 
-	// notify systemd that we started successfully
-	addr := os.Getenv("NOTIFY_SOCKET")
-	if addr == "" {
-		L.Info(ctx, "NOTIFY_SOCKET not set, skipping systemd notify")
-		return
+	// notify systemd that we started successfully if started under systemd
+	if err := notifySystemd(); err != nil {
+		// log and dont exit, worst case systemd will kill the process after timeout
+		L.Warn(ctx, "failed to notify systemd of readiness", "error", err)
 	}
-	conn, err := net.Dial("unixgram", addr)
-	if err != nil {
-		L.Warn(ctx, "systemd notify failed: dial failed: %w", "notify_socket", addr, err)
-		return
-	}
-	conn.Write([]byte("READY=1"))
-	conn.Close()
-	L.Info(ctx, "sent systemd READY notification")
 
 	// block until signal so we dont exit
 	sigCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -516,6 +506,23 @@ func main() {
 func ptrIf[T any](changed bool, v T) *T {
 	if changed {
 		return &v
+	}
+	return nil
+}
+
+func notifySystemd() error {
+	// systemd will set NOTIFY_SOCKET to a unix socket path if we were started under systemd with type=notify
+	addr := os.Getenv("NOTIFY_SOCKET")
+	if addr == "" {
+		return fmt.Errorf("NOTIFY_SOCKET not set, skipping systemd notify")
+	}
+	conn, err := net.Dial("unixgram", addr)
+	if err != nil {
+		return fmt.Errorf("systemd notify failed: dial failed: %w", err)
+	}
+	conn.Write([]byte("READY=1"))
+	if err := conn.Close(); err != nil {
+		return fmt.Errorf("systemd notify failed: close failed: %w", err)
 	}
 	return nil
 }
