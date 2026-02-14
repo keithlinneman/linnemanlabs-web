@@ -226,7 +226,7 @@ func main() {
 		os.Exit(1)
 	}
 	lg, err := log.New(log.Options{
-		App:               "linnemanlabs-web",
+		App:               v.AppName,
 		Version:           v.Version,
 		Commit:            v.Commit,
 		BuildId:           v.BuildId,
@@ -273,16 +273,14 @@ func main() {
 	// Setup pyroscope profiling
 	stopProf, err := prof.Start(ctx, prof.Options{
 		Enabled:       conf.EnablePyroscope,
-		AppName:       "linnemanlabs-web",
+		AppName:       v.AppName,
 		AuthToken:     "",
 		ServerAddress: conf.PyroServer,
 		TenantID:      conf.PyroTenantID,
 		// todo - shouldnt be hardcoding these especially region
 		Tags: map[string]string{
-			"app":       "linnemanlabs-web",
+			"app":       v.AppName,
 			"component": "server",
-			"env":       "prod",
-			"region":    "us-east-2",
 			"version":   vi.Version,
 			"commit":    vi.Commit,
 			"build_id":  vi.BuildId,
@@ -300,7 +298,7 @@ func main() {
 		Endpoint:  conf.OTLPEndpoint,
 		Insecure:  true,
 		Sample:    conf.TraceSample,
-		Service:   "linnemanlabs-web",
+		Service:   v.AppName,
 		Component: "server",
 		Version:   vi.Version,
 	})
@@ -311,7 +309,7 @@ func main() {
 
 	// Setup metrics / admin listener
 	var m *metrics.ServerMetrics = metrics.New()
-	m.SetBuildInfoFromVersion("linnemanlabs-web", "server", vi)
+	m.SetBuildInfoFromVersion(v.AppName, "server", vi)
 
 	// setup toggle for server shutdown
 	var gate probe.ShutdownGate

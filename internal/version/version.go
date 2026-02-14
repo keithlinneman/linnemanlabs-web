@@ -2,6 +2,8 @@ package version
 
 import "runtime/debug"
 
+const AppName = "linnemanlabs-web"
+
 // set via -ldflags at build time
 var (
 	Version    = "dev"
