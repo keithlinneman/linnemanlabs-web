@@ -36,6 +36,11 @@ type responseWriter struct {
 	writeErr         error
 }
 
+var validSchemes = map[string]bool{
+	"http":  true,
+	"https": true,
+}
+
 func (rw *responseWriter) ensureWriteSpan() {
 	if rw.writeSpanStarted {
 		return
@@ -127,6 +132,12 @@ func WithLogger(base log.Logger) func(http.Handler) http.Handler {
 
 			// Request ID from our RequestID middleware (outer)
 			reqID := RequestIDFromContext(ctx)
+
+			// todo: need to create ProxyTrust concept, where we can specify if this is running behind a trusted proxy/load balancer and if oidc is enabled
+			// if oidc enabled, we will verify the signature before verifying the cidr and then trust the header
+			// if alb but not oidc enabled, we will verify the cidr and then trust the header
+			// otherwise
+			// this will apply to the scheme as well as public ip
 
 			// Prefer X-Forwarded-For when behind ALB
 			clientAddr := r.RemoteAddr
@@ -261,17 +272,25 @@ func AccessLog() func(http.Handler) http.Handler {
 
 func schemeFromRequest(r *http.Request) string {
 	// 1. Try X-Forwarded-Proto (what ALB sets)
-	// todo: should check if request came from internal alb ip first, otherwise need to be very careful with this
 	if xf := r.Header.Get("X-Forwarded-Proto"); xf != "" {
 		// take the first if multiple in chain
 		parts := strings.Split(xf, ",")
-		return strings.TrimSpace(parts[0])
-		// todo: should we have a list of valid schemes/limit this to a max number of bytes?
+		scheme := strings.ToLower(strings.TrimSpace(parts[0]))
+		// only trust valid schemes, otherwise fall back to inferring from tls/url
+		if validSchemes[scheme] {
+			return scheme
+		}
+		// we could log invalid scheme here, but it would allow from some degree of user-supplied data into our logs
+		// could increment a counter metric instead for reduced attack surface but still get visibility into misconfigurations or abuse
 	}
 
 	// 2. Fall back to URL scheme if set
 	if r.URL != nil && r.URL.Scheme != "" {
-		return r.URL.Scheme
+		scheme := strings.ToLower(r.URL.Scheme)
+		// still only trust valid schemes, otherwise fall back to inferring from tls
+		if validSchemes[scheme] {
+			return scheme
+		}
 	}
 
 	// 3. Infer from TLS
