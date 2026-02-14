@@ -23,7 +23,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Allow", "GET, HEAD")
 		w.Header().Set("Cache-Control", "no-store")
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		// TODO make sure we arent keeping traces of these
+		// we keep counter metrics already which will alert us to issues without the overhead and security risk/sanitizing work of logging these
+		// we should disable traces for these as well but that is part of a future update as otel doesnt expose a simple solution
 		return
 	}
 
@@ -32,7 +33,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// serve maintenance page if no active content snapshot
 	if !ok {
-		// TODO make sure we arent keeping traces of these
 		h.serveMaintenance(w, r)
 		return
 	}
@@ -47,7 +47,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	// handle not found
 	if !found {
-		// TODO make sure we arent keeping traces of these
 		h.serveNotFound(w, r, snap.FS)
 		return
 	}
