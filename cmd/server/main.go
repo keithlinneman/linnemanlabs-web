@@ -292,6 +292,7 @@ func main() {
 	defer func() { stopProf() }()
 
 	// Setup otel for tracing
+	// Insecure is true because we are only writing to a collector on localhost
 	shutdownOTEL, err := otelx.Init(ctx, otelx.Options{
 		Enabled:   conf.EnableTracing,
 		Endpoint:  conf.OTLPEndpoint,
@@ -482,8 +483,21 @@ func main() {
 	L.Info(context.Background(), "shutdown signal received")
 
 	// fail health checks to drain connections
-	// we may want to have a force/clean mechanism to allow this to be set for 30s before actually shutting downy to allow load balancers to notice and drain connections
 	gate.Set("draining")
+	// sleep for 60s to allow in-flight requests to finish and for load balancer to detect unhealthy and stop sending new requests
+	L.Info(context.Background(), "shutdown gate closed")
+
+	// will make sleep time tunable in the future
+	L.Info(context.Background(), "sleeping 60s for in-flight and load balancer health checks to drain")
+	forceCh := make(chan os.Signal, 1)
+	signal.Notify(forceCh, os.Interrupt, syscall.SIGTERM)
+	select {
+	case <-time.After(60 * time.Second):
+		L.Info(context.Background(), "drain period complete")
+	case <-forceCh:
+		L.Warn(context.Background(), "second signal received, skipping drain")
+	}
+	signal.Stop(forceCh)
 
 	if err := siteHTTPStop(shutdownCtx); err != nil {
 		L.Error(context.Background(), err, "app http server shutdown")
