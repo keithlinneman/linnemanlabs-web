@@ -17,18 +17,19 @@ import (
 type ReqDBStatsFromContextFunc func(ctx context.Context) (count int64, errs int64, total time.Duration, ok bool)
 
 type ServerMetrics struct {
-	reg                *prometheus.Registry
-	handler            http.Handler
-	inflight           prometheus.Gauge
-	reqTotal           *prometheus.CounterVec
-	appDbQueriesTotal  *prometheus.CounterVec
-	appDbReqDur        *prometheus.HistogramVec
-	appDbQueriesPerReq *prometheus.HistogramVec
-	appDbTimeReqDur    *prometheus.HistogramVec
-	reqDur             *prometheus.HistogramVec
-	respBytes          *prometheus.HistogramVec
-	httpPanicTotal     prometheus.Counter
-	buildInfo          *prometheus.GaugeVec
+	reg                  *prometheus.Registry
+	handler              http.Handler
+	inflight             prometheus.Gauge
+	reqTotal             *prometheus.CounterVec
+	appDbQueriesTotal    *prometheus.CounterVec
+	appDbReqDur          *prometheus.HistogramVec
+	appDbQueriesPerReq   *prometheus.HistogramVec
+	appDbTimeReqDur      *prometheus.HistogramVec
+	reqDur               *prometheus.HistogramVec
+	respBytes            *prometheus.HistogramVec
+	httpPanicTotal       prometheus.Counter
+	buildInfo            *prometheus.GaugeVec
+	ratelimitDeniedTotal prometheus.Counter
 
 	reqDBStats ReqDBStatsFromContextFunc
 }
@@ -88,6 +89,10 @@ func New() *ServerMetrics {
 			Name: "build_info",
 			Help: "Build metadata (value is always 1)",
 		}, []string{"app", "component", "version", "commit", "commit_date", "build_id", "build_date", "vcs_dirty", "go_version"}),
+		ratelimitDeniedTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "http_requests_rate_limited_total",
+			Help: "Total requests rejected by rate limiter",
+		}),
 	}
 	//reg.MustRegister(m.inflight, m.reqTotal, m.reqDur, m.respBytes, m.httpPanicTotal, m.buildInfo)
 	reg.MustRegister(
@@ -101,6 +106,7 @@ func New() *ServerMetrics {
 		m.appDbQueriesPerReq,
 		m.appDbTimeReqDur,
 		m.buildInfo,
+		m.ratelimitDeniedTotal,
 	)
 
 	m.handler = promhttp.HandlerFor(reg, promhttp.HandlerOpts{
@@ -163,4 +169,8 @@ func (m *ServerMetrics) ObserveDBQuery(ctx context.Context, method, route, outco
 		}
 	}
 	m.appDbReqDur.WithLabelValues(method, route, outcome).Observe(sec)
+}
+
+func (m *ServerMetrics) IncRateLimitDenied() {
+	m.ratelimitDeniedTotal.Inc()
 }

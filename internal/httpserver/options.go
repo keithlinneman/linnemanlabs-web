@@ -13,6 +13,7 @@ type Options struct {
 	Port         int
 	UseRecoverMW bool
 	MetricsMW    func(http.Handler) http.Handler
+	RateLimitMW  func(http.Handler) http.Handler
 	Health       probe.Probe
 	Readiness    probe.Probe
 	ContentInfo  httpmw.ContentInfo // For X-Content-Bundle-Version and X-Content-Hash headers

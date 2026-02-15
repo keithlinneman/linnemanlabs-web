@@ -142,6 +142,14 @@ func NewHandler(opts Options, regs ...RouteRegistrar) http.Handler {
 		otelhttp.WithPublicEndpointFn(func(r *http.Request) bool { return true }),
 	)
 
+	// Rate limiting (after client IP mw so it uses resolved IP)
+	if opts.RateLimitMW != nil {
+		h = opts.RateLimitMW(h)
+	}
+
+	// Client IP resolution (must be before rate limiter and logging in middleware chain)
+	h = httpmw.ClientIP(h)
+
 	// Request ID (outer so everything downstream sees it)
 	h = httpmw.RequestID("X-Request-Id")(h)
 

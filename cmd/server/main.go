@@ -17,6 +17,7 @@ import (
 	"github.com/keithlinneman/linnemanlabs-web/internal/healthhttp"
 	"github.com/keithlinneman/linnemanlabs-web/internal/opshttp"
 	"github.com/keithlinneman/linnemanlabs-web/internal/provenancehttp"
+	"github.com/keithlinneman/linnemanlabs-web/internal/ratelimit"
 	"github.com/keithlinneman/linnemanlabs-web/internal/sitehandler"
 	"github.com/keithlinneman/linnemanlabs-web/internal/sitehttp"
 	"github.com/keithlinneman/linnemanlabs-web/internal/webassets"
@@ -445,6 +446,18 @@ func main() {
 	// register site handler routes
 	siteRoutes := sitehttp.New(siteHandler)
 
+	// Setup rate limiter middleware for site handler
+	limiter := ratelimit.New(ctx,
+		// increment prometheus counter on each denied request
+		ratelimit.WithOnDenied(func(ip string) {
+			m.IncRateLimitDenied()
+		}),
+		// only log the first time an ip is denied each time it is cleaned from the bucket
+		ratelimit.WithOnFirstDenied(func(ip string) {
+			L.Warn(ctx, "rate limit triggered", "ip", ip)
+		}),
+	)
+
 	// start site http server
 	siteHTTPStop, err := httpserver.Start(
 		ctx,
@@ -454,6 +467,7 @@ func main() {
 			Readiness:    readiness,
 			UseRecoverMW: true,
 			MetricsMW:    m.Middleware,
+			RateLimitMW:  limiter.Middleware,
 			Logger:       L,
 			ContentInfo:  contentMgr, // Pass content manager for headers
 		},
