@@ -13,6 +13,7 @@
 //
 // This is designed to be a simple, self contained solution for defense in depth with upstream filtering.
 // This specific app is extremely resilient (no long-lived db connections, process cache, internal states, etc), so this is an attempt to mitigate resource exhaustion and provide better visibility into abuse.
+// We only allow ipv4 traffic currently, this would not do much on ipv6 without further logic to examine prefixes and ranges
 package ratelimit
 
 import (
