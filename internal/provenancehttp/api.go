@@ -920,9 +920,13 @@ func (api *API) HandleEvidenceFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// basic path sanitization
-	if strings.Contains(filePath, "..") || strings.HasPrefix(filePath, "/") {
-		http.Error(w, `{"error":"invalid path"}`, http.StatusBadRequest)
+	// basic rejection of ambiguous/unsafe paths, return 404 and shared "not found" message to limit discovery about our handler filtering
+	if strings.Contains(filePath, "\x00") || strings.Contains(filePath, "\\") || strings.Contains(filePath, "..") {
+		http.Error(w, `{"error":"not found"}`, http.StatusNotFound)
+		return
+	}
+	if hasDotSegments(filePath) {
+		http.Error(w, `{"error":"not found"}`, http.StatusNotFound)
 		return
 	}
 
@@ -938,17 +942,10 @@ func (api *API) HandleEvidenceFile(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, `{"error":"evidence file known but not loaded (fetch failed at startup)"}`,
 				http.StatusServiceUnavailable)
 		} else {
-			http.Error(w, `{"error":"file not found in inventory"}`, http.StatusNotFound)
+			http.Error(w, `{"error":"not found"}`, http.StatusNotFound)
 		}
 		return
 	}
-
-	api.logger.Debug(ctx, "served evidence file",
-		"path", filePath,
-		"size", len(file.Data),
-		"category", file.Ref.Category,
-		"kind", file.Ref.Kind,
-	)
 
 	// content type: in-toto for attestations, json for everything else
 	contentType := "application/json; charset=utf-8"
@@ -967,6 +964,12 @@ func (api *API) HandleEvidenceFile(w http.ResponseWriter, r *http.Request) {
 			"error", err,
 		)
 	}
+	api.logger.Debug(ctx, "served evidence file",
+		"path", filePath,
+		"size", len(file.Data),
+		"category", file.Ref.Category,
+		"kind", file.Ref.Kind,
+	)
 }
 
 func (api *API) writeJSON(ctx context.Context, w http.ResponseWriter, status int, v any) {
@@ -1038,4 +1041,13 @@ func buildLicenseData(bundle *evidence.Bundle, policy *evidence.ReleasePolicy) (
 	}
 
 	return licenses, packages
+}
+
+func hasDotSegments(p string) bool {
+	for _, seg := range strings.Split(p, "/") {
+		if seg == "." || seg == ".." {
+			return true
+		}
+	}
+	return false
 }
