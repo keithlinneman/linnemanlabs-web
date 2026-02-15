@@ -133,29 +133,17 @@ func WithLogger(base log.Logger) func(http.Handler) http.Handler {
 			// Request ID from our RequestID middleware (outer)
 			reqID := RequestIDFromContext(ctx)
 
-			// todo: need to create ProxyTrust concept, where we can specify if this is running behind a trusted proxy/load balancer and if oidc is enabled
-			// if oidc enabled, we will verify the signature before verifying the cidr and then trust the header
-			// if alb but not oidc enabled, we will verify the cidr and then trust the header
-			// otherwise
-			// this will apply to the scheme as well as public ip
-
-			// Prefer X-Forwarded-For when behind ALB
-			clientAddr := r.RemoteAddr
-			if xf := r.Header.Get("X-Forwarded-For"); xf != "" {
-				parts := strings.Split(xf, ",")
-				if len(parts) > 0 {
-					clientAddr = strings.TrimSpace(parts[0])
-				}
-			}
 			// Normalize peer address to IP only (no port)
 			peerAddr := r.RemoteAddr
-			if host, _, err := net.SplitHostPort(peerAddr); err == nil {
-				peerAddr = host
+			if ip, _, err := net.SplitHostPort(peerAddr); err == nil {
+				peerAddr = ip
 			}
+
+			// Client IP from our ClientIP middleware (outer)
+			clientAddr := ClientIPFromContext(ctx)
 
 			// Set HTTP scheme
 			scheme := schemeFromRequest(r)
-			host := r.Host
 			// our app doesnt currently use query strings, logging them would require careful sanitization
 			// could consider adding them to traces for debugging as its a tighter controlled pipeline, but no value for this app so leaving it out entirely
 			//rawQuery := r.URL.RawQuery
@@ -187,7 +175,9 @@ func WithLogger(base log.Logger) func(http.Handler) http.Handler {
 				"request_id", reqID,
 				"client.address", clientAddr,
 				"network.peer.address", peerAddr,
-				"server.address", host,
+				// host is still user-supplied, and not very high value here, still captured in traces, so not capturing in logs
+				// we have alb listener rules that only send certain hosts, but they still forward the full user-supplied header and i have not thoroughly tested it for security
+				//"server.address", r.Host,
 				"http.request.method", r.Method,
 				"url.path", r.URL.Path,
 				"url.scheme", scheme,

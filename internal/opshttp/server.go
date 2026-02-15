@@ -41,7 +41,7 @@ func Start(ctx context.Context, L log.Logger, opts Options) (func(context.Contex
 		})
 	}
 
-	handler := requirePrivateNetwork(L, mux)
+	handler := requireNonPublicNetwork(L, mux)
 
 	srv := &http.Server{
 		Addr:              addr,
@@ -78,8 +78,8 @@ func Start(ctx context.Context, L log.Logger, opts Options) (func(context.Contex
 	return stop, nil
 }
 
-// requirePrivateNetwork is a middleware that only allows requests from private IPs, loopback or link-local addresses. This is used to protect the admin HTTP server from external access
-func requirePrivateNetwork(L log.Logger, next http.Handler) http.Handler {
+// requireNonPublicNetwork is a middleware that only allows requests from non-public IPs, loopback or link-local addresses. This is used to protect the admin HTTP server from external access
+func requireNonPublicNetwork(L log.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		host, _, err := net.SplitHostPort(r.RemoteAddr)
 		if err != nil {
