@@ -42,6 +42,7 @@ var (
 )
 
 type Info struct {
+	AppName    string `json:"app_name"`
 	Version    string `json:"version"`
 	Commit     string `json:"commit"`
 	CommitDate string `json:"commit_date"`
@@ -64,6 +65,7 @@ type Info struct {
 
 func Get() Info {
 	out := Info{
+		AppName:    AppName,
 		Version:    Version,
 		Commit:     Commit,
 		CommitDate: CommitDate,
