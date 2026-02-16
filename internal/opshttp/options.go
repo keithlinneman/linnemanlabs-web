@@ -13,4 +13,5 @@ type Options struct {
 	Health       probe.Probe
 	Readiness    probe.Probe
 	UseRecoverMW bool
+	OnPanic      func() // Optional callback for when panics are recovered, e.g. to trigger alerts or increment prometheus counters, etc.
 }

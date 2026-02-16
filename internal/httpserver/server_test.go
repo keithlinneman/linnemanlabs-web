@@ -734,3 +734,18 @@ func TestNewHandler_SecurityHeaders_AllMethods(t *testing.T) {
 		t.Fatal("HSTS missing on POST response")
 	}
 }
+
+func TestNewHandler_RecoverMW_CallsOnPanic(t *testing.T) {
+	var called bool
+	opts := defaultOpts()
+	opts.UseRecoverMW = true
+	opts.OnPanic = func() { called = true }
+
+	panicReg := &panicRegistrar{path: "/panic"}
+	h := NewHandler(opts, panicReg)
+	doRequest(t, h, "GET", "/panic")
+
+	if !called {
+		t.Fatal("OnPanic not called through Options")
+	}
+}

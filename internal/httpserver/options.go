@@ -12,6 +12,7 @@ type Options struct {
 	Logger       log.Logger
 	Port         int
 	UseRecoverMW bool
+	OnPanic      func() // Optional callback for when panics are recovered, e.g. to trigger alerts or increment prometheus counters, etc.
 	MetricsMW    func(http.Handler) http.Handler
 	RateLimitMW  func(http.Handler) http.Handler
 	Health       probe.Probe

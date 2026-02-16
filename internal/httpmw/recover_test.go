@@ -57,7 +57,7 @@ func TestRecover_NoPanic(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	mw := Recover(spy)
+	mw := Recover(spy, nil)
 	rec := httptest.NewRecorder()
 	mw(handler).ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
 
@@ -77,7 +77,7 @@ func TestRecover_StringPanic(t *testing.T) {
 		panic("something broke")
 	})
 
-	mw := Recover(spy)
+	mw := Recover(spy, nil)
 	rec := httptest.NewRecorder()
 
 	// Should not propagate the panic
@@ -104,7 +104,7 @@ func TestRecover_ErrorPanic(t *testing.T) {
 		panic(panicErr)
 	})
 
-	mw := Recover(spy)
+	mw := Recover(spy, nil)
 	rec := httptest.NewRecorder()
 	mw(handler).ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
 
@@ -128,7 +128,7 @@ func TestRecover_ResponseBody(t *testing.T) {
 		panic("boom")
 	})
 
-	mw := Recover(spy)
+	mw := Recover(spy, nil)
 	rec := httptest.NewRecorder()
 	mw(handler).ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
 
@@ -149,7 +149,7 @@ func TestRecover_LogIncludesMethodAndPath(t *testing.T) {
 		panic("test")
 	})
 
-	mw := Recover(spy)
+	mw := Recover(spy, nil)
 	mw(handler).ServeHTTP(
 		httptest.NewRecorder(),
 		httptest.NewRequest("POST", "/api/submit", nil),
@@ -173,7 +173,7 @@ func TestRecover_DoesNotInterfereWithNormalFlow(t *testing.T) {
 		w.Write([]byte("created"))
 	})
 
-	mw := Recover(spy)
+	mw := Recover(spy, nil)
 	rec := httptest.NewRecorder()
 	mw(handler).ServeHTTP(rec, httptest.NewRequest("POST", "/", nil))
 
@@ -185,5 +185,42 @@ func TestRecover_DoesNotInterfereWithNormalFlow(t *testing.T) {
 	}
 	if rec.Body.String() != "created" {
 		t.Fatalf("body = %q", rec.Body.String())
+	}
+}
+
+func TestRecover_OnPanicCalled(t *testing.T) {
+	spy := newSpyLogger()
+	var called bool
+	onPanic := func() { called = true }
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		panic("boom")
+	})
+
+	mw := Recover(spy, onPanic)
+	mw(handler).ServeHTTP(
+		httptest.NewRecorder(),
+		httptest.NewRequest("GET", "/", nil),
+	)
+
+	if !called {
+		t.Fatal("onPanic callback not called")
+	}
+}
+
+func TestRecover_OnPanicNil(t *testing.T) {
+	spy := newSpyLogger()
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		panic("boom")
+	})
+
+	// nil callback should not panic
+	mw := Recover(spy, nil)
+	rec := httptest.NewRecorder()
+	mw(handler).ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", rec.Code)
 	}
 }

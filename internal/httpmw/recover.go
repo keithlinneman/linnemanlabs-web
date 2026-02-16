@@ -13,11 +13,16 @@ import (
 	"github.com/keithlinneman/linnemanlabs-web/internal/xerrors"
 )
 
-func Recover(base log.Logger) func(next http.Handler) http.Handler {
+// Recover is a middleware that recovers from panics in HTTP handlers, logs the panic with stack trace, and returns a 500 response.
+// onPanic is an optional callback that is called when a panic occurs, e.g. to trigger alerts or increment prometheus counters, etc.
+func Recover(base log.Logger, onPanic func()) func(next http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			defer func() {
 				if rec := recover(); rec != nil {
+					if onPanic != nil {
+						onPanic()
+					}
 					ctx := r.Context()
 
 					// Preserve underlying panic error type when possible.

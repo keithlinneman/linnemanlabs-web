@@ -155,7 +155,7 @@ func NewHandler(opts Options, regs ...RouteRegistrar) http.Handler {
 
 	// Recovery middleware to log panics and serve 500 response
 	if opts.UseRecoverMW {
-		h = httpmw.Recover(opts.Logger)(h)
+		h = httpmw.Recover(opts.Logger, opts.OnPanic)(h)
 	}
 
 	// Security headers outermost to ensure they are served on every response

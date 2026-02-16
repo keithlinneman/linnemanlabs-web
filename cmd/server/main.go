@@ -178,6 +178,7 @@ func main() {
 		Health:       probe.Static(true, ""),
 		Readiness:    readiness,
 		UseRecoverMW: true,
+		OnPanic:      m.IncHttpPanic,
 	})
 	if err != nil {
 		L.Error(ctx, err, "failed to start ops http listener")
@@ -310,6 +311,7 @@ func main() {
 			Health:       probe.Static(true, ""),
 			Readiness:    readiness,
 			UseRecoverMW: true,
+			OnPanic:      m.IncHttpPanic,
 			MetricsMW:    m.Middleware,
 			RateLimitMW:  limiter.Middleware,
 			Logger:       L,
