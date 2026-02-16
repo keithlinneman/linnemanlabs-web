@@ -2,8 +2,6 @@ package evidence
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 
+	"github.com/keithlinneman/linnemanlabs-web/internal/cryptoutil"
 	"github.com/keithlinneman/linnemanlabs-web/internal/log"
 	"github.com/keithlinneman/linnemanlabs-web/internal/xerrors"
 )
@@ -166,8 +165,8 @@ func (l *Loader) Load(ctx context.Context) (*Bundle, error) {
 		return nil, xerrors.Wrap(err, "fetch inventory.json")
 	}
 
-	actualInvHash := sha256hex(inventoryRaw)
-	if actualInvHash != expectedInvHash {
+	actualInvHash := cryptoutil.SHA256Hex(inventoryRaw)
+	if !cryptoutil.HashEqual(actualInvHash, expectedInvHash) {
 		return nil, xerrors.Newf("inventory.json hash mismatch: expected %s, got %s",
 			expectedInvHash, actualInvHash)
 	}
@@ -260,8 +259,8 @@ func (l *Loader) fetchAllFiles(ctx context.Context, prefix string, index map[str
 
 			// verify hash
 			if wi.ref.SHA256 != "" {
-				actual := sha256hex(data)
-				if actual != wi.ref.SHA256 {
+				actual := cryptoutil.SHA256Hex(data)
+				if !cryptoutil.HashEqual(actual, wi.ref.SHA256) {
 					results <- fetchResult{
 						path: wi.path,
 						err:  fmt.Sprintf("hash mismatch: expected %s, got %s", wi.ref.SHA256[:12], actual[:12]),
@@ -323,11 +322,6 @@ func (l *Loader) fetchS3(ctx context.Context, key string, maxSize int64) ([]byte
 	}
 
 	return data, nil
-}
-
-func sha256hex(data []byte) string {
-	h := sha256.Sum256(data)
-	return hex.EncodeToString(h[:])
 }
 
 // LoadSummary returns a one-line summary for logging

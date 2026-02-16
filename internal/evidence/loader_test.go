@@ -1,8 +1,6 @@
 package evidence
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"strings"
 	"testing"
 )
@@ -111,50 +109,6 @@ func TestLoader_releasePrefix_NestedPrefix(t *testing.T) {
 	want := "apps/web/evidence/rel-42/"
 	if got != want {
 		t.Fatalf("releasePrefix() = %q, want %q", got, want)
-	}
-}
-
-// sha256hex
-
-func TestSha256hex_KnownVector(t *testing.T) {
-	input := []byte("hello world")
-	got := sha256hex(input)
-
-	h := sha256.Sum256(input)
-	want := hex.EncodeToString(h[:])
-
-	if got != want {
-		t.Fatalf("sha256hex(\"hello world\") = %q, want %q", got, want)
-	}
-
-	// verify the actual hex value
-	if got != "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9" {
-		t.Fatalf("unexpected hash: %s", got)
-	}
-}
-
-func TestSha256hex_Empty(t *testing.T) {
-	got := sha256hex([]byte{})
-	// SHA256 of empty input is well-known
-	if got != "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" {
-		t.Fatalf("sha256hex(empty) = %q", got)
-	}
-}
-
-func TestSha256hex_Deterministic(t *testing.T) {
-	input := []byte("determinism check")
-	a := sha256hex(input)
-	b := sha256hex(input)
-	if a != b {
-		t.Fatalf("same input produced different hashes: %q vs %q", a, b)
-	}
-}
-
-func TestSha256hex_DifferentInputs(t *testing.T) {
-	a := sha256hex([]byte("input A"))
-	b := sha256hex([]byte("input B"))
-	if a == b {
-		t.Fatal("different inputs produced the same hash")
 	}
 }
 

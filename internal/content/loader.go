@@ -14,6 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 
+	"github.com/keithlinneman/linnemanlabs-web/internal/cryptoutil"
 	"github.com/keithlinneman/linnemanlabs-web/internal/log"
 	"github.com/keithlinneman/linnemanlabs-web/internal/xerrors"
 )
@@ -141,8 +142,9 @@ func (l *Loader) Download(ctx context.Context, hash string) (string, error) {
 		"actual_hash", actualHash,
 	)
 
-	// verify checksum
-	if actualHash != hash {
+	// our policy is to always use cryptoutil/hashEqual for comparing hashes, even though
+	// this is not user-supplied or a secret value so timing attacks are not a concern here.
+	if !cryptoutil.HashEqual(actualHash, hash) {
 		os.Remove(tmpPath)
 		return "", xerrors.Newf("checksum mismatch: expected %s, got %s", hash, actualHash)
 	}
