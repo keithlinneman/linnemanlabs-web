@@ -329,7 +329,7 @@ func TestFilterBundleByPlatform_EmptyPlatform(t *testing.T) {
 // multiPlatformBundle builds a bundle with source evidence + two target platforms
 func multiPlatformBundle() *Bundle {
 	refs := map[string]*EvidenceFileRef{
-		// source (no platform) — should always survive filtering
+		// source (no platform) - should always survive filtering
 		"source/sbom.json": {
 			Path: "source/sbom.json", SHA256: "s1", Size: 1000,
 			Scope: "source", Category: "sbom", Kind: "report",

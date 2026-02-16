@@ -181,7 +181,7 @@ func TestSanitizeTarPath_DotDotTraversal(t *testing.T) {
 
 func TestSanitizeTarPath_CleanedPath(t *testing.T) {
 	dst := "/tmp/extract"
-	// "foo/./bar" cleans to "foo/bar" — should be allowed
+	// "foo/./bar" cleans to "foo/bar" - should be allowed
 	got, err := sanitizeTarPath(dst, "foo/./bar")
 	if err != nil {
 		t.Fatalf("sanitizeTarPath for 'foo/./bar' error: %v", err)
@@ -434,7 +434,7 @@ func TestExtractTarGz_VolumeLabel_Ignored(t *testing.T) {
 	gw := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gw)
 
-	// volume label (type 'V') — should be silently skipped
+	// volume label (type 'V') - should be silently skipped
 	tw.WriteHeader(&tar.Header{
 		Name:     "volume-label",
 		Typeflag: 'V',
@@ -578,7 +578,7 @@ func FuzzSanitizeTarPath(f *testing.F) {
 	f.Fuzz(func(t *testing.T, name string) {
 		result, err := sanitizeTarPath(dst, name)
 		if err != nil {
-			return // rejected — good
+			return // rejected - good
 		}
 		// Invariant: result MUST be under dst
 		if !strings.HasPrefix(result, dst+string(filepath.Separator)) {
@@ -600,7 +600,7 @@ func FuzzExtractTarGz(f *testing.F) {
 		}
 		dst := t.TempDir()
 
-		// We don't care if it errors — we care that it doesn't panic,
+		// We don't care if it errors - we care that it doesn't panic,
 		// doesn't write outside dst, and doesn't hang.
 		_ = extractTarGz(archivePath, dst)
 

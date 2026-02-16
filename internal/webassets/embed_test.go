@@ -6,9 +6,7 @@ import (
 	"testing"
 )
 
-// ---------------------------------------------------------------------------
 // FallbackFS
-// ---------------------------------------------------------------------------
 
 func TestFallbackFS_ReturnsNonNil(t *testing.T) {
 	fsys := FallbackFS()
@@ -44,7 +42,7 @@ func TestFallbackFS_MaintenanceContent(t *testing.T) {
 	}
 
 	body := string(data)
-	// Should contain something about maintenance — don't be too specific
+	// Should contain something about maintenance - don't be too specific
 	// to avoid breaking on copy changes
 	lower := strings.ToLower(body)
 	if !strings.Contains(lower, "maintenance") {
@@ -82,7 +80,7 @@ func TestFallbackFS_404Content(t *testing.T) {
 func TestFallbackFS_NoParentEscape(t *testing.T) {
 	fsys := FallbackFS()
 
-	// Should be rooted at fallback/ — no access to parent or seed/
+	// Should be rooted at fallback/ - no access to parent or seed/
 	_, err := fs.Stat(fsys, "../seed")
 	if err == nil {
 		t.Fatal("should not be able to escape to parent via ../")
@@ -112,9 +110,7 @@ func TestFallbackFS_Idempotent(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // SeedSiteFS
-// ---------------------------------------------------------------------------
 
 func TestSeedSiteFS_ReturnsValidResult(t *testing.T) {
 	fsys, ok := SeedSiteFS()
@@ -136,8 +132,8 @@ func TestSeedSiteFS_ReturnsValidResult(t *testing.T) {
 			t.Fatal("index.html is empty")
 		}
 	} else {
-		// If seed doesn't have index.html, that's fine — FS may be nil
-		t.Log("seed/ has no index.html — SeedSiteFS returns false (expected for placeholder)")
+		// If seed doesn't have index.html, that's fine - FS may be nil
+		t.Log("seed/ has no index.html - SeedSiteFS returns false (expected for placeholder)")
 	}
 }
 
@@ -163,9 +159,7 @@ func TestSeedSiteFS_NoFallbackAccess(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Embedded FS structure
-// ---------------------------------------------------------------------------
 
 func TestEmbeddedFS_HasFallbackDir(t *testing.T) {
 	// The package-level embedded var should have a fallback directory
@@ -195,7 +189,7 @@ func TestEmbeddedFS_HasSeedDir(t *testing.T) {
 	}
 	// Must have at least one file to satisfy go:embed
 	if len(entries) == 0 {
-		t.Fatal("seed/ is empty — go:embed should have caught this at compile time")
+		t.Fatal("seed/ is empty - go:embed should have caught this at compile time")
 	}
 }
 
@@ -218,9 +212,7 @@ func TestEmbeddedFS_RootHasBothDirs(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Contract: FallbackFS is compatible with sitehandler
-// ---------------------------------------------------------------------------
 
 func TestFallbackFS_PassesSiteHandlerValidation(t *testing.T) {
 	// The fallback FS must pass sitehandler's validate() check:

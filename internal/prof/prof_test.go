@@ -64,7 +64,7 @@ func TestStart_Disabled_WithLogger(t *testing.T) {
 	stop()
 }
 
-// Enabled — validation
+// Enabled - validation
 
 func TestStart_Enabled_EmptyServerAddress_Errors(t *testing.T) {
 	stop, err := Start(context.Background(), Options{
@@ -99,7 +99,7 @@ func TestStart_Enabled_EmptyServerAddress_StopIdempotent(t *testing.T) {
 	stop()
 }
 
-// Enabled — unreachable server (pyroscope.Start behavior)
+// Enabled - unreachable server (pyroscope.Start behavior)
 
 func TestStart_Enabled_UnreachableServer(t *testing.T) {
 	// pyroscope.Start may or may not error for unreachable servers
@@ -116,12 +116,12 @@ func TestStart_Enabled_UnreachableServer(t *testing.T) {
 	}
 	stop()
 
-	// We don't assert on err because pyroscope behavior varies —
+	// We don't assert on err because pyroscope behavior varies -
 	// some versions connect lazily and succeed, others fail immediately
 	_ = err
 }
 
-// Options — Tags, AuthToken, TenantID passthrough
+// Options - Tags, AuthToken, TenantID passthrough
 
 func TestStart_Enabled_EmptyAddress_WithFullOptions(t *testing.T) {
 	// Validates that all option fields are accepted without panic
@@ -165,7 +165,7 @@ func TestStart_ErrorContract(t *testing.T) {
 	stop()
 }
 
-// Context with logger — ensures FromContext path works
+// Context with logger - ensures FromContext path works
 
 func TestStart_Enabled_EmptyAddress_WithContextLogger(t *testing.T) {
 	ctx := log.WithContext(context.Background(), log.Nop())
@@ -182,7 +182,7 @@ func TestStart_Enabled_EmptyAddress_WithContextLogger(t *testing.T) {
 }
 
 func TestStart_Disabled_NoLogger(t *testing.T) {
-	// No logger in context — FromContext returns Nop, should not panic
+	// No logger in context - FromContext returns Nop, should not panic
 	stop, err := Start(context.Background(), Options{Enabled: false})
 	if err != nil {
 		t.Fatalf("Start: %v", err)

@@ -357,7 +357,7 @@ func FuzzResolvePath(f *testing.F) {
 	f.Fuzz(func(t *testing.T, input string) {
 		file, _, ok := resolvePath(input, fsys)
 		if !ok {
-			return // rejected — safe
+			return // rejected - safe
 		}
 		// INVARIANT: resolved file must be valid within the FS
 		if !fs.ValidPath(file) {

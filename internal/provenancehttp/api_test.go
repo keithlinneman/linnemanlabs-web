@@ -16,9 +16,7 @@ import (
 	"github.com/keithlinneman/linnemanlabs-web/internal/pathutil"
 )
 
-// ---------------------------------------------------------------------------
 // test stubs
-// ---------------------------------------------------------------------------
 
 // stubSnapshotProvider implements SnapshotProvider for tests.
 type stubSnapshotProvider struct {
@@ -184,9 +182,7 @@ func parseJSON(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
 	return m
 }
 
-// ---------------------------------------------------------------------------
 // NewAPI
-// ---------------------------------------------------------------------------
 
 func TestNewAPI_NilLogger(t *testing.T) {
 	api := NewAPI(noContentProvider(), nil, nil)
@@ -215,9 +211,7 @@ func TestNewAPI_AllFieldsSet(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // RegisterRoutes
-// ---------------------------------------------------------------------------
 
 func TestRegisterRoutes_AllEndpoints(t *testing.T) {
 	api := NewAPI(contentProvider(), evidenceStore(), log.Nop())
@@ -249,9 +243,7 @@ func TestRegisterRoutes_AllEndpoints(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // writeJSON
-// ---------------------------------------------------------------------------
 
 func TestWriteJSON_ContentType(t *testing.T) {
 	api := NewAPI(noContentProvider(), nil, log.Nop())
@@ -279,9 +271,7 @@ func TestWriteJSON_CacheControl(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // HandleAppProvenance
-// ---------------------------------------------------------------------------
 
 func TestHandleAppProvenance_NoEvidence(t *testing.T) {
 	api := NewAPI(noContentProvider(), nil, log.Nop())
@@ -375,9 +365,7 @@ func TestHandleAppProvenance_BuildInfoPresent(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // HandleAppSummary
-// ---------------------------------------------------------------------------
 
 func TestHandleAppSummary_NoEvidence(t *testing.T) {
 	api := NewAPI(noContentProvider(), nil, log.Nop())
@@ -448,9 +436,7 @@ func TestHandleAppSummary_AlwaysHasLinks(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // HandleContentProvenance
-// ---------------------------------------------------------------------------
 
 func TestHandleContentProvenance_NoContent(t *testing.T) {
 	api := NewAPI(noContentProvider(), nil, log.Nop())
@@ -507,9 +493,7 @@ func TestHandleContentProvenance_NoProvenance(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // HandleContentSummary
-// ---------------------------------------------------------------------------
 
 func TestHandleContentSummary_NoContent(t *testing.T) {
 	api := NewAPI(noContentProvider(), nil, log.Nop())
@@ -567,9 +551,7 @@ func TestHandleContentSummary_NoProvenance_Fallback(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // HandleEvidenceManifest
-// ---------------------------------------------------------------------------
 
 func TestHandleEvidenceManifest_NoEvidence(t *testing.T) {
 	api := NewAPI(noContentProvider(), nil, log.Nop())
@@ -624,9 +606,7 @@ func TestHandleEvidenceManifest_WithEvidence(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // HandleReleaseJSON
-// ---------------------------------------------------------------------------
 
 func TestHandleReleaseJSON_NoEvidence(t *testing.T) {
 	api := NewAPI(noContentProvider(), nil, log.Nop())
@@ -685,9 +665,7 @@ func TestHandleReleaseJSON_CacheHeaders(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // HandleInventoryJSON
-// ---------------------------------------------------------------------------
 
 func TestHandleInventoryJSON_NoEvidence(t *testing.T) {
 	api := NewAPI(noContentProvider(), nil, log.Nop())
@@ -730,9 +708,7 @@ func TestHandleInventoryJSON_CacheHeaders(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// HandleEvidenceFile — functional
-// ---------------------------------------------------------------------------
+// HandleEvidenceFile - functional
 
 func TestHandleEvidenceFile_ValidReport(t *testing.T) {
 	api := NewAPI(noContentProvider(), evidenceStore(), log.Nop())
@@ -853,7 +829,7 @@ func TestHandleEvidenceFile_KnownButNotLoaded(t *testing.T) {
 		Category: "scan",
 		Kind:     "report",
 	}
-	// Don't add to b.Files — simulates a fetch failure at startup
+	// Don't add to b.Files - simulates a fetch failure at startup
 	s.Set(b)
 
 	api := NewAPI(noContentProvider(), s, log.Nop())
@@ -874,9 +850,7 @@ func TestHandleEvidenceFile_KnownButNotLoaded(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// HandleEvidenceFile — SECURITY: path traversal
-// ---------------------------------------------------------------------------
+// HandleEvidenceFile - SECURITY: path traversal
 
 func TestHandleEvidenceFile_Security_DotDot(t *testing.T) {
 	api := NewAPI(noContentProvider(), evidenceStore(), log.Nop())
@@ -905,7 +879,7 @@ func TestHandleEvidenceFile_Security_NullByte(t *testing.T) {
 	// Go's net/http stack rejects URLs containing null bytes and other
 	// control characters before they reach any handler. httptest.NewRequest
 	// panics on such URLs. This means null byte injection is blocked at
-	// the transport layer — our strings.Contains(filePath, "\x00") guard
+	// the transport layer - our strings.Contains(filePath, "\x00") guard
 	// is defense-in-depth that can't be reached through normal HTTP.
 	t.Log("null bytes blocked by Go HTTP stack before reaching handler")
 }
@@ -977,9 +951,7 @@ func TestHandleEvidenceFile_Security_UniformErrorMessage(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // buildAppSummarySource
-// ---------------------------------------------------------------------------
 
 func TestBuildAppSummarySource_Nil(t *testing.T) {
 	out := buildAppSummarySource(nil)
@@ -1022,9 +994,7 @@ func TestBuildAppSummarySource_BranchBuild(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // appSummaryLinks
-// ---------------------------------------------------------------------------
 
 func TestAppSummaryLinks(t *testing.T) {
 	links := appSummaryLinks()
@@ -1037,9 +1007,7 @@ func TestAppSummaryLinks(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Integration: full router round-trip
-// ---------------------------------------------------------------------------
 
 func TestIntegration_FullRouter(t *testing.T) {
 	api := NewAPI(contentProvider(), evidenceStore(), log.Nop())
@@ -1121,15 +1089,15 @@ func FuzzEvidenceFilePath(f *testing.F) {
 		hasDotDot := strings.Contains(filePath, "..")
 		hasDots := pathutil.HasDotSegments(filePath)
 
-		// Build URL safely — net/http rejects control chars, so percent-encode
+		// Build URL safely - net/http rejects control chars, so percent-encode
 		// the path to get it through the HTTP layer into chi
 		safePath := "/api/provenance/evidence/files/" + filePath
 
 		// If the URL itself is invalid (control chars), Go blocks it at the
-		// transport layer. That's fine — attacker can't reach us either.
+		// transport layer. That's fine - attacker can't reach us either.
 		req, err := http.NewRequest("GET", safePath, nil)
 		if err != nil {
-			return // Go rejected the URL — transport-layer protection, not our problem
+			return // Go rejected the URL - transport-layer protection, not our problem
 		}
 
 		rec := httptest.NewRecorder()

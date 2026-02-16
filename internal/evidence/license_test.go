@@ -209,7 +209,7 @@ func TestLicenseEvaluator_AllowList(t *testing.T) {
 }
 
 func TestLicenseEvaluator_DenyTakesPrecedenceOverAllow(t *testing.T) {
-	// License is in both deny and allow — deny should win
+	// License is in both deny and allow - deny should win
 	policy := &ReleasePolicy{
 		License: PolicyLicense{
 			Denied:  []string{"MIT"},
@@ -227,7 +227,7 @@ func TestLicenseEvaluator_DenyTakesPrecedenceOverAllow(t *testing.T) {
 }
 
 func TestLicenseEvaluator_AllowUnknown(t *testing.T) {
-	// allowUnknown doesn't affect the evaluator directly — it's a policy flag
+	// allowUnknown doesn't affect the evaluator directly - it's a policy flag
 	// the evaluator returns "unknown" for empty licenses regardless
 	policy := &ReleasePolicy{
 		License: PolicyLicense{
@@ -360,7 +360,7 @@ func TestBuildPackageList_MultipleLicenses_UnknownEscalates(t *testing.T) {
 	eval := NewLicenseEvaluator(nil)
 	report := &LicenseReport{
 		Items: []LicenseReportItem{
-			// One real license, one empty — the empty evaluates as unknown
+			// One real license, one empty - the empty evaluates as unknown
 			// but the multi-license path checks individual licenses
 			{Name: "partial", Version: "1.0.0", Licenses: []string{"MIT", ""}},
 		},

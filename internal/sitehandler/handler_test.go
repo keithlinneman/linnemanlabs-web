@@ -12,9 +12,7 @@ import (
 	"github.com/keithlinneman/linnemanlabs-web/internal/log"
 )
 
-// ---------------------------------------------------------------------------
 // test fixtures
-// ---------------------------------------------------------------------------
 
 // fallbackFS has maintenance.html and optional 404.html
 func testFallbackFS() fs.FS {
@@ -86,9 +84,7 @@ func newTestHandler(cp SnapshotProvider, fallback fs.FS) *Handler {
 	return h
 }
 
-// ---------------------------------------------------------------------------
-// New — validation
-// ---------------------------------------------------------------------------
+// New - validation
 
 func TestNew_ValidOptions(t *testing.T) {
 	h, err := New(Options{
@@ -199,9 +195,7 @@ func TestNew_ErrInvalidOptions(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// ServeHTTP — method hardening
-// ---------------------------------------------------------------------------
+// ServeHTTP - method hardening
 
 func TestServeHTTP_GET_OK(t *testing.T) {
 	h := newTestHandler(activeProvider(testSiteFS()), testFallbackFS())
@@ -273,9 +267,7 @@ func TestServeHTTP_BlockedMethod_EmptyBody(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// ServeHTTP — serving content
-// ---------------------------------------------------------------------------
+// ServeHTTP - serving content
 
 func TestServeHTTP_RootServesIndexHTML(t *testing.T) {
 	h := newTestHandler(activeProvider(testSiteFS()), testFallbackFS())
@@ -355,9 +347,7 @@ func TestServeHTTP_DeepPrettyURL(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// ServeHTTP — not found
-// ---------------------------------------------------------------------------
+// ServeHTTP - not found
 
 func TestServeHTTP_NotFound_Site404(t *testing.T) {
 	h := newTestHandler(activeProvider(testSiteFS()), testFallbackFS())
@@ -413,9 +403,7 @@ func TestServeHTTP_NotFound_PlainText(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// ServeHTTP — maintenance
-// ---------------------------------------------------------------------------
+// ServeHTTP - maintenance
 
 func TestServeHTTP_Maintenance(t *testing.T) {
 	h := newTestHandler(noProvider(), testFallbackFS())
@@ -453,9 +441,7 @@ func TestServeHTTP_Maintenance_AnyPath(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// ServeHTTP — cache-control policy
-// ---------------------------------------------------------------------------
+// ServeHTTP - cache-control policy
 
 func TestServeHTTP_CacheControl_HTML(t *testing.T) {
 	h := newTestHandler(activeProvider(testSiteFS()), testFallbackFS())
@@ -536,9 +522,7 @@ func TestServeHTTP_CacheControl_Custom(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // statusOverrideWriter
-// ---------------------------------------------------------------------------
 
 func TestStatusOverrideWriter_OverridesFirstWrite(t *testing.T) {
 	rec := httptest.NewRecorder()
@@ -577,9 +561,7 @@ func TestStatusOverrideWriter_503(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Security — path traversal via handler
-// ---------------------------------------------------------------------------
+// Security - path traversal via handler
 
 func TestServeHTTP_Security_DotDot(t *testing.T) {
 	h := newTestHandler(activeProvider(testSiteFS()), testFallbackFS())
@@ -613,7 +595,7 @@ func TestServeHTTP_Security_Backslash(t *testing.T) {
 	}
 }
 
-// serveNotFound — Cache-Control always set
+// serveNotFound - Cache-Control always set
 
 func TestServeNotFound_NoCacheOnAllVariants(t *testing.T) {
 	variants := []struct {

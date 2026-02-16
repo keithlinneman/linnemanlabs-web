@@ -84,9 +84,7 @@ func setCIDefaults() {
 
 func ptrBool(b bool) *bool { return &b }
 
-// ---------------------------------------------------------------------------
 // AppName
-// ---------------------------------------------------------------------------
 
 func TestAppName(t *testing.T) {
 	if AppName != "linnemanlabs-web" {
@@ -94,9 +92,7 @@ func TestAppName(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Get — local build defaults
-// ---------------------------------------------------------------------------
+// Get - local build defaults
 
 func TestGet_LocalBuild_Defaults(t *testing.T) {
 	saveAndReset(t)
@@ -142,9 +138,7 @@ func TestGet_LocalBuild_NoBuildActor(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Get — CI build
-// ---------------------------------------------------------------------------
+// Get - CI build
 
 func TestGet_CIBuild_AllFields(t *testing.T) {
 	saveAndReset(t)
@@ -203,9 +197,7 @@ func TestGet_CIBuild_ProvenanceFields(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Get — BuildSystem inference
-// ---------------------------------------------------------------------------
+// Get - BuildSystem inference
 
 func TestGet_BuildSystem_InferLocal_WhenDevVersion(t *testing.T) {
 	saveAndReset(t)
@@ -242,9 +234,7 @@ func TestGet_BuildSystem_NoInfer_WhenAlreadySet(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Get — debug.ReadBuildInfo (exercised via Get)
-// ---------------------------------------------------------------------------
+// Get - debug.ReadBuildInfo (exercised via Get)
 
 func TestGet_GoVersion_FromBuildInfo(t *testing.T) {
 	saveAndReset(t)
@@ -269,9 +259,7 @@ func TestGet_LdflagsCommit_NotOverridden(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// applyBuildInfo — vcs.revision
-// ---------------------------------------------------------------------------
+// applyBuildInfo - vcs.revision
 
 func TestApplyBuildInfo_VCSRevision_OverridesNone(t *testing.T) {
 	out := &Info{Commit: "none"}
@@ -306,9 +294,7 @@ func TestApplyBuildInfo_VCSRevision_EmptyValueIgnored(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// applyBuildInfo — vcs.time
-// ---------------------------------------------------------------------------
+// applyBuildInfo - vcs.time
 
 func TestApplyBuildInfo_VCSTime_SetsBuildDate(t *testing.T) {
 	out := &Info{BuildDate: ""}
@@ -367,9 +353,7 @@ func TestApplyBuildInfo_VCSTime_EmptyStillSetsCommitDate(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// applyBuildInfo — vcs.modified (VCSDirty)
-// ---------------------------------------------------------------------------
+// applyBuildInfo - vcs.modified (VCSDirty)
 
 func TestApplyBuildInfo_VCSModified_True(t *testing.T) {
 	out := &Info{}
@@ -447,9 +431,7 @@ func TestApplyBuildInfo_VCSModified_OverridesExisting(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// applyBuildInfo — multiple settings combined
-// ---------------------------------------------------------------------------
+// applyBuildInfo - multiple settings combined
 
 func TestApplyBuildInfo_AllSettings(t *testing.T) {
 	out := &Info{Commit: "none", BuildDate: ""}
@@ -501,9 +483,7 @@ func TestApplyBuildInfo_EmptySettings(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // HasProvenance
-// ---------------------------------------------------------------------------
 
 func TestHasProvenance_True(t *testing.T) {
 	info := Info{ReleaseId: "rel-123", EvidenceBucket: "my-bucket"}
@@ -540,9 +520,7 @@ func TestHasProvenance_False_PrefixAloneNotEnough(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Get — returns copy, not reference to globals
-// ---------------------------------------------------------------------------
+// Get - returns copy, not reference to globals
 
 func TestGet_ReturnsCopy(t *testing.T) {
 	saveAndReset(t)
@@ -563,9 +541,7 @@ func TestGet_ReturnsCopy(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Integration
-// ---------------------------------------------------------------------------
 
 func TestIntegration_LocalBuild(t *testing.T) {
 	saveAndReset(t)

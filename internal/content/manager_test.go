@@ -76,7 +76,7 @@ func TestManager_Set_CopiesSnapshot(t *testing.T) {
 	}
 	m.Set(original)
 
-	// mutate the original — should not affect stored snapshot
+	// mutate the original - should not affect stored snapshot
 	original.Meta.SHA256 = "mutated"
 
 	snap, ok := m.Get()

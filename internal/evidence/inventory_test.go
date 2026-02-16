@@ -588,7 +588,7 @@ func TestAddFile_DuplicatePath_LastWins(t *testing.T) {
 	}
 }
 
-// --- edge cases and realistic payloads --------------------------------------
+// edge cases and realistic payloads
 
 func TestBuildFileIndex_NilSourceEvidence(t *testing.T) {
 	inv := inventoryRoot{

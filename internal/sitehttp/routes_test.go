@@ -50,7 +50,7 @@ func TestNew_NilHandler(t *testing.T) {
 	}
 }
 
-// RegisterRoutes — NotFound
+// RegisterRoutes - NotFound
 
 func TestRegisterRoutes_NotFound_DelegatesToSite(t *testing.T) {
 	stub := &stubHandler{}
@@ -90,7 +90,7 @@ func TestRegisterRoutes_NotFound_PreservesMethod(t *testing.T) {
 	}
 }
 
-// RegisterRoutes — coexists with explicit routes
+// RegisterRoutes - coexists with explicit routes
 
 func TestRegisterRoutes_ExplicitRouteTakesPrecedence(t *testing.T) {
 	stub := &stubHandler{}
@@ -134,7 +134,7 @@ func TestRegisterRoutes_ExplicitRouteTakesPrecedence(t *testing.T) {
 	}
 }
 
-// RegisterRoutes — various HTTP methods on unmatched paths
+// RegisterRoutes - various HTTP methods on unmatched paths
 
 func TestRegisterRoutes_AllMethods_FallToSite(t *testing.T) {
 	methods := []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}
@@ -156,7 +156,7 @@ func TestRegisterRoutes_AllMethods_FallToSite(t *testing.T) {
 	}
 }
 
-// RegisterRoutes — MethodNotAllowed delegation
+// RegisterRoutes - MethodNotAllowed delegation
 
 func TestRegisterRoutes_MethodNotAllowed_DelegatesToSite(t *testing.T) {
 	stub := &stubHandler{}
@@ -181,7 +181,7 @@ func TestRegisterRoutes_MethodNotAllowed_DelegatesToSite(t *testing.T) {
 	}
 }
 
-// RegisterRoutes — deep paths
+// RegisterRoutes - deep paths
 
 func TestRegisterRoutes_DeepPath(t *testing.T) {
 	stub := &stubHandler{}
@@ -202,7 +202,7 @@ func TestRegisterRoutes_DeepPath(t *testing.T) {
 	}
 }
 
-// RegisterRoutes — root path
+// RegisterRoutes - root path
 
 func TestRegisterRoutes_RootPath(t *testing.T) {
 	stub := &stubHandler{}

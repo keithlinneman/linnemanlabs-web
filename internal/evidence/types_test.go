@@ -453,7 +453,7 @@ func TestParsePolicy_InvalidJSON(t *testing.T) {
 }
 
 func TestParsePolicy_NoEnforcement(t *testing.T) {
-	// Valid JSON but no enforcement field — returns nil (no policy)
+	// Valid JSON but no enforcement field - returns nil (no policy)
 	raw := json.RawMessage(`{"defaults": {"signing": {}}}`)
 	pol, err := ParsePolicy(raw)
 	if err != nil {

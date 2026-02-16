@@ -73,7 +73,7 @@ func TestAnnotateHTTPRoute_NoRouteContext(t *testing.T) {
 }
 
 func TestAnnotateHTTPRoute_NoSpan(t *testing.T) {
-	// No span in context — should not panic
+	// No span in context - should not panic
 	handlerCalled := false
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		handlerCalled = true

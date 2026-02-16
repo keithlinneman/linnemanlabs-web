@@ -7,9 +7,7 @@ import (
 	"testing"
 )
 
-// ---------------------------------------------------------------------------
 // sentinel for errors.Is / errors.As testing
-// ---------------------------------------------------------------------------
 
 var errSentinel = errors.New("sentinel")
 
@@ -28,9 +26,7 @@ func stackContains(pcs []uintptr, substr string) bool {
 	return false
 }
 
-// ---------------------------------------------------------------------------
 // New / Newf
-// ---------------------------------------------------------------------------
 
 func TestNew_ErrorMessage(t *testing.T) {
 	err := New("something broke")
@@ -91,9 +87,7 @@ func TestNew_IsXerrorsWrapper(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // WithStack
-// ---------------------------------------------------------------------------
 
 func TestWithStack_NilReturnsNil(t *testing.T) {
 	if WithStack(nil) != nil {
@@ -132,9 +126,7 @@ func TestWithStack_Unwraps(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Wrap / Wrapf
-// ---------------------------------------------------------------------------
 
 func TestWrap_NilReturnsNil(t *testing.T) {
 	if Wrap(nil, "context") != nil {
@@ -217,9 +209,7 @@ func TestWrapf_HasPC(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // EnsureTrace
-// ---------------------------------------------------------------------------
 
 func TestEnsureTrace_NilReturnsNil(t *testing.T) {
 	if EnsureTrace(nil) != nil {
@@ -268,7 +258,7 @@ func TestEnsureTrace_PreservesUnwrap(t *testing.T) {
 }
 
 func TestEnsureTrace_WrappedErrorGetsStack(t *testing.T) {
-	// Wrap adds PC but not StackPCs — EnsureTrace should add a full stack
+	// Wrap adds PC but not StackPCs - EnsureTrace should add a full stack
 	base := errors.New("root")
 	wrapped := Wrap(base, "ctx")
 
@@ -280,9 +270,7 @@ func TestEnsureTrace_WrappedErrorGetsStack(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Chained wrapping
-// ---------------------------------------------------------------------------
 
 func TestChainedWrap_UnwrapsAll(t *testing.T) {
 	base := errors.New("root cause")
@@ -333,9 +321,7 @@ func TestChainedWrap_MultiplePCs(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // withStack internal
-// ---------------------------------------------------------------------------
 
 func TestWithStack_ErrorDelegates(t *testing.T) {
 	base := errors.New("delegate me")
@@ -365,9 +351,7 @@ func TestWithStack_StackPCsReturnsCapture(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // wrap internal
-// ---------------------------------------------------------------------------
 
 func TestWrapStruct_ErrorFormat(t *testing.T) {
 	base := errors.New("base")
@@ -394,9 +378,7 @@ func TestWrapStruct_PCReturnsValue(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // captureStack
-// ---------------------------------------------------------------------------
 
 func TestCaptureStack_NonEmpty(t *testing.T) {
 	pcs := captureStack(0)
@@ -412,9 +394,7 @@ func TestCaptureStack_ContainsCaller(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // callerPC
-// ---------------------------------------------------------------------------
 
 func TestCallerPC_NonZero(t *testing.T) {
 	pc := callerPC(0)
@@ -423,9 +403,7 @@ func TestCallerPC_NonZero(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// withStackSkip — nil passthrough
-// ---------------------------------------------------------------------------
+// withStackSkip - nil passthrough
 
 func TestWithStackSkip_NilReturnsNil(t *testing.T) {
 	if withStackSkip(nil, 0) != nil {

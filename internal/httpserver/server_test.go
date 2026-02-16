@@ -99,7 +99,7 @@ func getFreePort(t *testing.T) int {
 	return port
 }
 
-// NewHandler — middleware stack
+// NewHandler - middleware stack
 
 func TestNewHandler_SecurityHeaders(t *testing.T) {
 	h := NewHandler(defaultOpts())
@@ -176,7 +176,7 @@ func TestNewHandler_SecurityHeaders_On404(t *testing.T) {
 	}
 }
 
-// NewHandler — route registration
+// NewHandler - route registration
 
 func TestNewHandler_RegistersRoutes(t *testing.T) {
 	reg := &stubRegistrar{
@@ -229,7 +229,7 @@ func TestNewHandler_TypedNilRegistrar(t *testing.T) {
 	// This is the (*httpapi.API)(nil) pattern from the code
 	var reg *nilRegistrar // typed nil
 
-	// Should not panic — the reflect.ValueOf check should catch it
+	// Should not panic - the reflect.ValueOf check should catch it
 	h := NewHandler(defaultOpts(), reg)
 	rec := doRequest(t, h, "GET", "/")
 
@@ -248,7 +248,7 @@ func TestNewHandler_NoRegistrars(t *testing.T) {
 	}
 }
 
-// NewHandler — optional middleware
+// NewHandler - optional middleware
 
 func TestNewHandler_ContentHeaders_WhenProvided(t *testing.T) {
 	opts := defaultOpts()
@@ -371,7 +371,7 @@ func (p *panicRegistrar) RegisterRoutes(r chi.Router) {
 	})
 }
 
-// NewHandler — middleware ordering
+// NewHandler - middleware ordering
 
 func TestNewHandler_MiddlewareOrder_SecurityHeadersOutermost(t *testing.T) {
 	// Even if the handler panics and recover is on, security headers should be set
@@ -459,7 +459,7 @@ func TestNewServer_TimeoutsNonZero(t *testing.T) {
 
 	// All timeouts should be set (defense in depth against slowloris, etc.)
 	if srv.ReadHeaderTimeout == 0 {
-		t.Fatal("ReadHeaderTimeout is zero — vulnerable to slowloris")
+		t.Fatal("ReadHeaderTimeout is zero - vulnerable to slowloris")
 	}
 	if srv.ReadTimeout == 0 {
 		t.Fatal("ReadTimeout is zero")
@@ -472,7 +472,7 @@ func TestNewServer_TimeoutsNonZero(t *testing.T) {
 	}
 }
 
-// Start — lifecycle
+// Start - lifecycle
 
 func TestStart_DefaultPort(t *testing.T) {
 	// We can't actually bind to 8080 in tests (might be in use),
@@ -659,7 +659,7 @@ func TestStart_WithRouteRegistrar(t *testing.T) {
 	}
 }
 
-// Integration — full stack behavior
+// Integration - full stack behavior
 
 func TestNewHandler_CompressesJSON(t *testing.T) {
 	reg := &funcRegistrar{

@@ -66,7 +66,7 @@ func TestNew_GoCollectorPresent(t *testing.T) {
 
 	// Go collector should produce at least go_goroutines
 	if !names["go_goroutines"] {
-		t.Fatal("go_goroutines metric missing — Go collector not registered")
+		t.Fatal("go_goroutines metric missing - Go collector not registered")
 	}
 }
 
@@ -81,7 +81,7 @@ func TestNew_ProcessCollectorPresent(t *testing.T) {
 
 	// Process collector should produce process_open_fds (on Linux)
 	if !names["process_open_fds"] && !names["process_resident_memory_bytes"] {
-		t.Log("process collector metrics not found — may be expected on some platforms")
+		t.Log("process collector metrics not found - may be expected on some platforms")
 	}
 }
 
@@ -260,7 +260,7 @@ func TestHandler_ReflectsCounterIncrements(t *testing.T) {
 	}
 }
 
-// Isolation — each New() gets its own registry
+// Isolation - each New() gets its own registry
 
 func TestNew_IsolatedRegistries(t *testing.T) {
 	m1 := New()

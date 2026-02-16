@@ -41,7 +41,7 @@ func FuzzHasDotSegments(f *testing.F) {
 	f.Add(".")
 	f.Add("..")
 	f.Add("foo/bar")
-	f.Add("...") // triple dot — should NOT trigger
+	f.Add("...") // triple dot - should NOT trigger
 
 	f.Fuzz(func(t *testing.T, p string) {
 		result := HasDotSegments(p)

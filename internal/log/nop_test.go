@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// nop.go — Nop / nopLogger
+// nop.go - Nop / nopLogger
 
 func TestNop_ReturnsLogger(t *testing.T) {
 	l := Nop()
@@ -70,7 +70,7 @@ func TestNop_EmptyWith(t *testing.T) {
 
 func TestNop_OddWith(t *testing.T) {
 	l := Nop()
-	// Odd number of kv args — should not panic
+	// Odd number of kv args - should not panic
 	child := l.With("orphan_key")
 	if child == nil {
 		t.Fatal("With() with odd args returned nil")

@@ -161,7 +161,7 @@ func TestSlogLogger_DebugLevel_AllPass(t *testing.T) {
 	}
 }
 
-// With — copy-on-write
+// With - copy-on-write
 
 func TestSlogLogger_With_AddsAttrs(t *testing.T) {
 	var buf bytes.Buffer
@@ -220,7 +220,7 @@ func TestSlogLogger_With_OddArgs(t *testing.T) {
 	var buf bytes.Buffer
 	l := newTestLogger(t, &buf, Options{App: "test", JsonFormat: true, Level: slog.LevelInfo})
 
-	// Odd kv args — orphan key should be dropped, not panic
+	// Odd kv args - orphan key should be dropped, not panic
 	child := l.With("key1", "val1", "orphan")
 	child.Info(context.Background(), "odd args")
 

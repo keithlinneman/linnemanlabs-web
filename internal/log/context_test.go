@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// context.go — WithContext / FromContext
+// context.go - WithContext / FromContext
 
 func TestWithContext_StoresLogger(t *testing.T) {
 	l := Nop()

@@ -73,7 +73,7 @@ func TestStatusWriter_WriteHeader_ThenWrite(t *testing.T) {
 	}
 }
 
-// Middleware — basic behavior
+// Middleware - basic behavior
 
 func TestMiddleware_IncrementsReqTotal(t *testing.T) {
 	m := New()
@@ -161,7 +161,7 @@ func TestMiddleware_DefaultStatus200(t *testing.T) {
 func TestMiddleware_NoWriteDefaultsTo200(t *testing.T) {
 	m := New()
 
-	// Handler that does nothing — never calls Write or WriteHeader
+	// Handler that does nothing - never calls Write or WriteHeader
 	handler := m.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 
 	rec := httptest.NewRecorder()
@@ -179,7 +179,7 @@ func TestMiddleware_NoWriteDefaultsTo200(t *testing.T) {
 	}
 }
 
-// Middleware — inflight gauge
+// Middleware - inflight gauge
 
 func TestMiddleware_InflightGauge(t *testing.T) {
 	m := New()
@@ -210,7 +210,7 @@ func TestMiddleware_InflightGauge(t *testing.T) {
 	}
 }
 
-// Middleware — duration histogram
+// Middleware - duration histogram
 
 func TestMiddleware_RecordsDuration(t *testing.T) {
 	m := New()
@@ -227,7 +227,7 @@ func TestMiddleware_RecordsDuration(t *testing.T) {
 	}
 }
 
-// Middleware — response size histogram
+// Middleware - response size histogram
 
 func TestMiddleware_RecordsResponseSize(t *testing.T) {
 	m := New()
@@ -252,7 +252,7 @@ func TestMiddleware_RecordsResponseSize(t *testing.T) {
 	}
 }
 
-// Middleware — chi route pattern
+// Middleware - chi route pattern
 
 func TestMiddleware_ChiRoutePattern(t *testing.T) {
 	m := New()
@@ -285,7 +285,7 @@ func TestMiddleware_ChiRoutePattern(t *testing.T) {
 func TestMiddleware_FallsBackToURLPath(t *testing.T) {
 	m := New()
 
-	// No chi router — middleware creates its own route context
+	// No chi router - middleware creates its own route context
 	handler := m.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -303,7 +303,7 @@ func TestMiddleware_FallsBackToURLPath(t *testing.T) {
 	}
 }
 
-// Middleware — multiple requests accumulate
+// Middleware - multiple requests accumulate
 
 func TestMiddleware_MultipleRequests(t *testing.T) {
 	m := New()
@@ -349,7 +349,7 @@ func TestMiddleware_DifferentMethods(t *testing.T) {
 	}
 }
 
-// Middleware — creates chi route context when missing
+// Middleware - creates chi route context when missing
 
 func TestMiddleware_CreatesRouteContext(t *testing.T) {
 	m := New()
@@ -423,7 +423,7 @@ func TestTraceExemplar_InvalidSpanContext(t *testing.T) {
 	}
 }
 
-// Middleware — handler output not corrupted
+// Middleware - handler output not corrupted
 
 func TestMiddleware_ResponsePassthrough(t *testing.T) {
 	m := New()

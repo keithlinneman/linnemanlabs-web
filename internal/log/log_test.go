@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// log.go — ParseLevel
+// log.go - ParseLevel
 
 func TestParseLevel_ValidLevels(t *testing.T) {
 	tests := []struct {

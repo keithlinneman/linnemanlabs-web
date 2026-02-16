@@ -112,7 +112,7 @@ func TestInit_Disabled_IgnoresAllOptions(t *testing.T) {
 	}
 }
 
-// Global state — verify Init is safe to call multiple times
+// Global state - verify Init is safe to call multiple times
 
 func TestInit_Disabled_MultipleCalls(t *testing.T) {
 	for i := 0; i < 3; i++ {
@@ -132,7 +132,7 @@ func TestInit_Disabled_MultipleCalls(t *testing.T) {
 	}
 }
 
-// Propagator type — verify composite propagator
+// Propagator type - verify composite propagator
 
 func TestInit_Disabled_CompositePropagator(t *testing.T) {
 	_, _ = Init(context.Background(), Options{Enabled: false})

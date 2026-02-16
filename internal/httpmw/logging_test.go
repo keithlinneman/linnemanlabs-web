@@ -760,7 +760,7 @@ func TestAccessLog_NoLoggerInContext(t *testing.T) {
 
 	inner := AccessLog()(handler)
 
-	// No logger middleware wrapping — context has no logger.
+	// No logger middleware wrapping - context has no logger.
 	// This should not panic. The Nop logger from FromContext
 	// returns non-nil, so this tests the actual behavior.
 	rec := httptest.NewRecorder()
@@ -981,7 +981,7 @@ func FuzzSchemeFromRequest(f *testing.F) {
 
 		// Invariant: must always be exactly "http" or "https"
 		if got != "http" && got != "https" {
-			t.Fatalf("schemeFromRequest returned %q for X-Forwarded-Proto=%q — must be http or https",
+			t.Fatalf("schemeFromRequest returned %q for X-Forwarded-Proto=%q - must be http or https",
 				got, proto)
 		}
 	})
@@ -1003,7 +1003,7 @@ func FuzzSchemeFromRequest_URLScheme(f *testing.F) {
 		got := schemeFromRequest(r)
 
 		if got != "http" && got != "https" {
-			t.Fatalf("schemeFromRequest returned %q for URL.Scheme=%q — must be http or https",
+			t.Fatalf("schemeFromRequest returned %q for URL.Scheme=%q - must be http or https",
 				got, scheme)
 		}
 	})
