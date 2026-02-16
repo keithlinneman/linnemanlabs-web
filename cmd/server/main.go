@@ -156,50 +156,6 @@ func main() {
 	var m *metrics.ServerMetrics = metrics.New()
 	m.SetBuildInfoFromVersion(v.AppName, "server", vi)
 
-	// setup toggle for server shutdown
-	var gate probe.ShutdownGate
-	readiness := probe.Multi(
-		gate.Probe(),
-		probe.Func(func(ctx context.Context) error {
-			// do db checks, etc here
-			// nil = ok, err = reason
-			return nil
-		}),
-	)
-
-	// start admin/ops listener to serve metrics, health checks, pprof and any future admin APIs
-	// sg restricts inbound to internal monitoring infrastructure
-	// we reject connections from public ips and requests with x-forwarded set in middleware
-	// to prevent accidental exposure if sg is misconfigured or load balancer ever sends traffic there
-	opsHTTPStop, err := opshttp.Start(ctx, L, opshttp.Options{
-		Port:         conf.AdminPort,
-		Metrics:      m.Handler(),
-		EnablePprof:  conf.EnablePprof,
-		Health:       probe.Static(true, ""),
-		Readiness:    readiness,
-		UseRecoverMW: true,
-		OnPanic:      m.IncHttpPanic,
-	})
-	if err != nil {
-		L.Error(ctx, err, "failed to start ops http listener")
-		os.Exit(1)
-	}
-	defer func() { _ = opsHTTPStop(context.Background()) }()
-
-	// create application health/readiness checks
-	checker := healthhttp.StaticChecker{}
-	healthAPI := healthhttp.NewAPI(checker)
-
-	// setup content manager that will manage what content we serve
-	/*
-		contentMgr := content.NewManager(content.Options{
-			Logger:     L,
-			FallbackFS: fallbackFS,
-			SeedFS:     seedFS,
-			HaveSeed:   haveSeed,
-		})
-	*/
-
 	// initialize http content
 	// setup maintenance fallback fs
 	fallbackFS := webassets.FallbackFS()
@@ -288,6 +244,19 @@ func main() {
 		os.Exit(1)
 	}
 
+	// setup toggle for server shutdown
+	var gate probe.ShutdownGate
+	readiness := probe.Multi(
+		gate.Probe(),
+		probe.Func(func(ctx context.Context) error {
+			return contentMgr.ReadyErr()
+		}),
+	)
+
+	// create application health/readiness checks
+	checker := healthhttp.StaticChecker{}
+	healthAPI := healthhttp.NewAPI(checker)
+
 	// register site handler routes
 	siteRoutes := sitehttp.New(siteHandler)
 
@@ -327,6 +296,25 @@ func main() {
 		os.Exit(1)
 	}
 	defer func() { _ = siteHTTPStop(context.Background()) }()
+
+	// start admin/ops listener to serve metrics, health checks, pprof and any future admin APIs
+	// sg restricts inbound to internal monitoring infrastructure
+	// we reject connections from public ips and requests with x-forwarded set in middleware
+	// to prevent accidental exposure if sg is misconfigured or load balancer ever sends traffic there
+	opsHTTPStop, err := opshttp.Start(ctx, L, opshttp.Options{
+		Port:         conf.AdminPort,
+		Metrics:      m.Handler(),
+		EnablePprof:  conf.EnablePprof,
+		Health:       probe.Static(true, ""),
+		Readiness:    readiness,
+		UseRecoverMW: true,
+		OnPanic:      m.IncHttpPanic,
+	})
+	if err != nil {
+		L.Error(ctx, err, "failed to start ops http listener")
+		os.Exit(1)
+	}
+	defer func() { _ = opsHTTPStop(context.Background()) }()
 
 	// notify systemd that we started successfully if started under systemd
 	if err := notifySystemd(); err != nil {
