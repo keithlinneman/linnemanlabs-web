@@ -12,6 +12,7 @@ import (
 	"github.com/keithlinneman/linnemanlabs-web/internal/content"
 	"github.com/keithlinneman/linnemanlabs-web/internal/evidence"
 	"github.com/keithlinneman/linnemanlabs-web/internal/log"
+	"github.com/keithlinneman/linnemanlabs-web/internal/pathutil"
 	v "github.com/keithlinneman/linnemanlabs-web/internal/version"
 )
 
@@ -925,7 +926,7 @@ func (api *API) HandleEvidenceFile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"not found"}`, http.StatusNotFound)
 		return
 	}
-	if hasDotSegments(filePath) {
+	if pathutil.HasDotSegments(filePath) {
 		http.Error(w, `{"error":"not found"}`, http.StatusNotFound)
 		return
 	}
@@ -1041,13 +1042,4 @@ func buildLicenseData(bundle *evidence.Bundle, policy *evidence.ReleasePolicy) (
 	}
 
 	return licenses, packages
-}
-
-func hasDotSegments(p string) bool {
-	for _, seg := range strings.Split(p, "/") {
-		if seg == "." || seg == ".." {
-			return true
-		}
-	}
-	return false
 }

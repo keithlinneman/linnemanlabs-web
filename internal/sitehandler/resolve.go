@@ -4,6 +4,8 @@ import (
 	"io/fs"
 	"path"
 	"strings"
+
+	"github.com/keithlinneman/linnemanlabs-web/internal/pathutil"
 )
 
 // resolvePath maps a URL path to a file within an FS
@@ -25,7 +27,7 @@ func resolvePath(urlPath string, fsys fs.FS) (file string, redirectTo string, ok
 	if strings.Contains(p, "\x00") || strings.Contains(p, "\\") || strings.Contains(p, "..") {
 		return "", "", false
 	}
-	if hasDotSegments(p) {
+	if pathutil.HasDotSegments(p) {
 		return "", "", false
 	}
 
@@ -74,18 +76,8 @@ func resolvePath(urlPath string, fsys fs.FS) (file string, redirectTo string, ok
 	return "", "", false
 }
 
-func hasDotSegments(p string) bool {
-	for _, seg := range strings.Split(p, "/") {
-		if seg == "." || seg == ".." {
-			return true
-		}
-	}
-	return false
-}
-
 func existsFile(fsys fs.FS, name string) bool {
 	if name == "" || !fs.ValidPath(name) {
-		// hmmmmmmmm
 		return false
 	}
 	info, err := fs.Stat(fsys, name)

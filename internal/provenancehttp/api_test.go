@@ -13,6 +13,7 @@ import (
 	"github.com/keithlinneman/linnemanlabs-web/internal/content"
 	"github.com/keithlinneman/linnemanlabs-web/internal/evidence"
 	"github.com/keithlinneman/linnemanlabs-web/internal/log"
+	"github.com/keithlinneman/linnemanlabs-web/internal/pathutil"
 )
 
 // ---------------------------------------------------------------------------
@@ -977,35 +978,6 @@ func TestHandleEvidenceFile_Security_UniformErrorMessage(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// hasDotSegments
-// ---------------------------------------------------------------------------
-
-func TestHasDotSegments(t *testing.T) {
-	tests := []struct {
-		path string
-		want bool
-	}{
-		{"source/sbom/report.json", false},
-		{"source/../etc/passwd", true},
-		{"./source/sbom", true},
-		{"source/./sbom", true},
-		{"source/sbom/.", true},
-		{"../escape", true},
-		{"source/sbom/report.json.bak", false},
-		{"source/some..thing/file", false}, // ".." in a name is fine, only as a segment
-		{"", false},
-		{"/", false},
-	}
-
-	for _, tt := range tests {
-		got := hasDotSegments(tt.path)
-		if got != tt.want {
-			t.Errorf("hasDotSegments(%q) = %v, want %v", tt.path, got, tt.want)
-		}
-	}
-}
-
-// ---------------------------------------------------------------------------
 // buildAppSummarySource
 // ---------------------------------------------------------------------------
 
@@ -1147,7 +1119,7 @@ func FuzzEvidenceFilePath(f *testing.F) {
 		hasNull := strings.Contains(filePath, "\x00")
 		hasBackslash := strings.Contains(filePath, "\\")
 		hasDotDot := strings.Contains(filePath, "..")
-		hasDots := hasDotSegments(filePath)
+		hasDots := pathutil.HasDotSegments(filePath)
 
 		// Build URL safely — net/http rejects control chars, so percent-encode
 		// the path to get it through the HTTP layer into chi
