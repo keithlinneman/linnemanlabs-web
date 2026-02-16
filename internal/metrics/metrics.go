@@ -17,21 +17,23 @@ import (
 type ReqDBStatsFromContextFunc func(ctx context.Context) (count int64, errs int64, total time.Duration, ok bool)
 
 type ServerMetrics struct {
-	reg                  *prometheus.Registry
-	handler              http.Handler
-	inflight             prometheus.Gauge
-	reqTotal             *prometheus.CounterVec
-	appDbQueriesTotal    *prometheus.CounterVec
-	appDbReqDur          *prometheus.HistogramVec
-	appDbQueriesPerReq   *prometheus.HistogramVec
-	appDbTimeReqDur      *prometheus.HistogramVec
-	reqDur               *prometheus.HistogramVec
-	respBytes            *prometheus.HistogramVec
-	httpPanicTotal       prometheus.Counter
-	buildInfo            *prometheus.GaugeVec
-	ratelimitDeniedTotal prometheus.Counter
-
-	reqDBStats ReqDBStatsFromContextFunc
+	reg                    *prometheus.Registry
+	handler                http.Handler
+	inflight               prometheus.Gauge
+	reqTotal               *prometheus.CounterVec
+	appDbQueriesTotal      *prometheus.CounterVec
+	appDbReqDur            *prometheus.HistogramVec
+	appDbQueriesPerReq     *prometheus.HistogramVec
+	appDbTimeReqDur        *prometheus.HistogramVec
+	reqDur                 *prometheus.HistogramVec
+	respBytes              *prometheus.HistogramVec
+	httpPanicTotal         prometheus.Counter
+	buildInfo              *prometheus.GaugeVec
+	ratelimitDeniedTotal   prometheus.Counter
+	contentSource          *prometheus.GaugeVec
+	contentLoadedTimestamp prometheus.Gauge
+	contentBundleInfo      *prometheus.GaugeVec
+	reqDBStats             ReqDBStatsFromContextFunc
 }
 
 // New returns a fresh registry + standard collectors + HTTP metrics
@@ -93,6 +95,18 @@ func New() *ServerMetrics {
 			Name: "http_requests_rate_limited_total",
 			Help: "Total requests rejected by rate limiter",
 		}),
+		contentSource: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "content_source_info",
+			Help: "Current content source (label carries value, gauge is always 1)",
+		}, []string{"source"}),
+		contentLoadedTimestamp: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "content_loaded_timestamp_seconds",
+			Help: "Unix timestamp of when the current content bundle was loaded",
+		}),
+		contentBundleInfo: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "content_bundle_info",
+			Help: "Currently active content bundle (label carries identity, value is always 1)",
+		}, []string{"sha256"}),
 	}
 	//reg.MustRegister(m.inflight, m.reqTotal, m.reqDur, m.respBytes, m.httpPanicTotal, m.buildInfo)
 	reg.MustRegister(
@@ -173,4 +187,18 @@ func (m *ServerMetrics) ObserveDBQuery(ctx context.Context, method, route, outco
 
 func (m *ServerMetrics) IncRateLimitDenied() {
 	m.ratelimitDeniedTotal.Inc()
+}
+
+func (m *ServerMetrics) SetContentSource(source string) {
+	m.contentSource.Reset() // clear previous label value
+	m.contentSource.WithLabelValues(source).Set(1)
+}
+
+func (m *ServerMetrics) SetContentLoadedTimestamp(t time.Time) {
+	m.contentLoadedTimestamp.Set(float64(t.Unix()))
+}
+
+func (m *ServerMetrics) SetContentBundle(sha256 string) {
+	m.contentBundleInfo.Reset()
+	m.contentBundleInfo.WithLabelValues(sha256).Set(1)
 }

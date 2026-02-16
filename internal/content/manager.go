@@ -65,3 +65,21 @@ func (m *Manager) Provenance() *Provenance {
 	}
 	return s.Provenance
 }
+
+// Source returns the source of the current content, or SourceUnknown if not available
+func (m *Manager) Source() Source {
+	s := m.active.Load()
+	if s == nil {
+		return SourceUnknown
+	}
+	return s.Meta.Source
+}
+
+// LoadedAt returns the time when the current content snapshot was loaded, or zero if not available
+func (m *Manager) LoadedAt() time.Time {
+	s := m.active.Load()
+	if s == nil {
+		return time.Time{}
+	}
+	return s.LoadedAt
+}

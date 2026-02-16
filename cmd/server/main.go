@@ -84,7 +84,8 @@ func main() {
 		fmt.Fprintln(os.Stderr, "logger init error:", err)
 		os.Exit(1)
 	}
-	// defer lg.Sync()
+	// no-op for slog/stderr, but here if we swap backends in the future to ensure any buffered logs are flushed on shutdown
+	defer lg.Sync()
 	L := lg.With("component", "server")
 	ctx = log.WithContext(ctx, L)
 
@@ -198,6 +199,11 @@ func main() {
 				"content_hash", contentMgr.ContentHash(),
 			)
 		}
+	}
+	m.SetContentSource(string(contentMgr.Source()))
+	m.SetContentBundle(contentMgr.ContentHash())
+	if t := contentMgr.LoadedAt(); !t.IsZero() {
+		m.SetContentLoadedTimestamp(t)
 	}
 
 	// setup evidence loading (fetch build attestations from S3 at startup)

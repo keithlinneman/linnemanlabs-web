@@ -324,3 +324,37 @@ func TestManager_ReadyErr_NilFS(t *testing.T) {
 		t.Fatal("expected error when FS is nil")
 	}
 }
+
+func TestManager_Source_Empty(t *testing.T) {
+	m := NewManager()
+	if s := m.Source(); s != SourceUnknown {
+		t.Fatalf("Source = %q, want %q", s, SourceUnknown)
+	}
+}
+
+func TestManager_Source_ReturnsActive(t *testing.T) {
+	m := NewManager()
+	fs := fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html>")}}
+	m.Set(Snapshot{FS: fs, Meta: Meta{Source: SourceS3}})
+
+	if s := m.Source(); s != SourceS3 {
+		t.Fatalf("Source = %q, want %q", s, SourceS3)
+	}
+}
+
+func TestManager_LoadedAt_Empty(t *testing.T) {
+	m := NewManager()
+	if got := m.LoadedAt(); !got.IsZero() {
+		t.Fatalf("LoadedAt = %v, want zero", got)
+	}
+}
+
+func TestManager_LoadedAt_ReturnsActive(t *testing.T) {
+	m := NewManager()
+	fs := fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html>")}}
+	m.Set(Snapshot{FS: fs, Meta: Meta{Source: SourceS3}})
+
+	if got := m.LoadedAt(); got.IsZero() {
+		t.Fatal("LoadedAt should be set after Set()")
+	}
+}

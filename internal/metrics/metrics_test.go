@@ -437,3 +437,9 @@ func histogramCount(t *testing.T, reg *prometheus.Registry, name string) uint64 
 	}
 	return f.GetMetric()[0].GetHistogram().GetSampleCount()
 }
+
+func TestSetContentBundle(t *testing.T) {
+	m := New()
+	m.SetContentBundle("abc123")
+	m.SetContentBundle("def456") // verify Reset doesn't panic on second call
+}
