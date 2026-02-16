@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/keithlinneman/linnemanlabs-web/internal/cryptoutil"
 	"github.com/keithlinneman/linnemanlabs-web/internal/xerrors"
 )
 
@@ -186,7 +187,7 @@ func ValidateBundle(path, expectedHash string) error {
 		return xerrors.Wrapf(err, "compute hash of %s", path)
 	}
 
-	if hash != expectedHash {
+	if !cryptoutil.HashEqual(hash, expectedHash) {
 		return fmt.Errorf("hash mismatch: expected %s, got %s", expectedHash, hash)
 	}
 
