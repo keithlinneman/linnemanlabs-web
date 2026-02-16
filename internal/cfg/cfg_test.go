@@ -283,7 +283,7 @@ func TestValidate_OK(t *testing.T) {
 		"-otlp-endpoint=otel:4317",
 		"-trace-sample=0.2",
 	})
-	if err := Validate(c); err != nil {
+	if err := Validate(c, false); err != nil {
 		t.Fatalf("Validate() unexpected error: %v", err)
 	}
 }
@@ -303,7 +303,7 @@ func TestValidate_InvalidCombined(t *testing.T) {
 		"-max-error-links=0",
 	})
 
-	err := Validate(c)
+	err := Validate(c, false)
 	if err == nil {
 		t.Fatal("Validate() expected errors, got <nil>")
 	}
@@ -320,4 +320,59 @@ func TestValidate_InvalidCombined(t *testing.T) {
 
 func TestMain(m *testing.M) {
 	os.Exit(m.Run())
+}
+
+// validConfig returns an App with all fields set to valid, non-default values
+// suitable for testing individual validation rules in isolation.
+func validConfig() App {
+	return App{
+		LogJSON:               true,
+		LogLevel:              "info",
+		HTTPPort:              8080,
+		AdminPort:             9000,
+		EnablePprof:           true,
+		StacktraceLevel:       "error",
+		IncludeErrorLinks:     true,
+		MaxErrorLinks:         5,
+		TraceSample:           0.1,
+		EvidenceSigningKeyARN: "arn:aws:kms:us-east-2:000000000000:key/evidence-key",
+		ContentSigningKeyARN:  "arn:aws:kms:us-east-2:000000000000:key/content-key",
+	}
+}
+
+func TestValidate_ProvenanceRequiresBothKeys(t *testing.T) {
+	t.Run("both missing", func(t *testing.T) {
+		c := validConfig()
+		c.EvidenceSigningKeyARN = ""
+		c.ContentSigningKeyARN = ""
+		wantErrContains(t, Validate(c, true), "evidence-signing-key-arn")
+	})
+
+	t.Run("evidence missing", func(t *testing.T) {
+		c := validConfig()
+		c.EvidenceSigningKeyARN = ""
+		wantErrContains(t, Validate(c, true), "evidence-signing-key-arn")
+	})
+
+	t.Run("content missing", func(t *testing.T) {
+		c := validConfig()
+		c.ContentSigningKeyARN = ""
+		wantErrContains(t, Validate(c, true), "content-signing-key-arn")
+	})
+
+	t.Run("both present", func(t *testing.T) {
+		c := validConfig()
+		if err := Validate(c, true); err != nil {
+			t.Fatalf("unexpected error with both keys: %v", err)
+		}
+	})
+}
+
+func TestValidate_NoProvenanceSkipsKeyCheck(t *testing.T) {
+	c := validConfig()
+	c.EvidenceSigningKeyARN = ""
+	c.ContentSigningKeyARN = ""
+	if err := Validate(c, false); err != nil {
+		t.Fatalf("unexpected error without provenance: %v", err)
+	}
 }

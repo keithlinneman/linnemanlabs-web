@@ -5,6 +5,7 @@ go 1.24.11
 require (
 	github.com/aws/aws-sdk-go-v2 v1.41.1
 	github.com/aws/aws-sdk-go-v2/config v1.32.7
+	github.com/aws/aws-sdk-go-v2/service/kms v1.50.0
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.96.0
 	github.com/aws/aws-sdk-go-v2/service/ssm v1.67.8
 	github.com/go-chi/chi/v5 v5.2.5

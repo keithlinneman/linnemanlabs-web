@@ -13,24 +13,26 @@ import (
 )
 
 type App struct {
-	LogJSON              bool
-	LogLevel             string
-	HTTPPort             int
-	AdminPort            int
-	EnablePprof          bool
-	EnablePyroscope      bool
-	EnableTracing        bool
-	EnableContentUpdates bool
-	PyroServer           string
-	PyroTenantID         string
-	OTLPEndpoint         string
-	TraceSample          float64
-	StacktraceLevel      string
-	IncludeErrorLinks    bool
-	MaxErrorLinks        int
-	ContentSSMParam      string
-	ContentS3Bucket      string
-	ContentS3Prefix      string
+	LogJSON               bool
+	LogLevel              string
+	HTTPPort              int
+	AdminPort             int
+	EnablePprof           bool
+	EnablePyroscope       bool
+	EnableTracing         bool
+	EnableContentUpdates  bool
+	PyroServer            string
+	PyroTenantID          string
+	OTLPEndpoint          string
+	TraceSample           float64
+	StacktraceLevel       string
+	IncludeErrorLinks     bool
+	MaxErrorLinks         int
+	ContentSSMParam       string
+	ContentS3Bucket       string
+	ContentS3Prefix       string
+	EvidenceSigningKeyARN string
+	ContentSigningKeyARN  string
 }
 
 // Register binds all config fields to the given FlagSet with defaults inline
@@ -53,6 +55,8 @@ func Register(fs *flag.FlagSet, c *App) {
 	fs.StringVar(&c.ContentSSMParam, "content-ssm-param", "/app/linnemanlabs-web/server/content/stable/release/id", "ssm parameter name to get content bundle hash from")
 	fs.StringVar(&c.ContentS3Bucket, "content-s3-bucket", "phxi-build-prod-use2-deployment-artifacts", "s3 bucket name to get content bundle from")
 	fs.StringVar(&c.ContentS3Prefix, "content-s3-prefix", "apps/linnemanlabs-web/server/content/bundles", "s3 prefix (key) to get content bundle from")
+	fs.StringVar(&c.ContentSigningKeyARN, "content-signing-key-arn", "", "KMS key ARN for content bundle signature verification")
+	fs.StringVar(&c.EvidenceSigningKeyARN, "evidence-signing-key-arn", "", "KMS key ARN for evidence signature verification")
 }
 
 // FillFromEnv sets any flag not explicitly passed on the CLI from
@@ -86,7 +90,7 @@ func FillFromEnv(fs *flag.FlagSet, prefix string, logf func(string, ...any)) {
 
 // Validate checks that config values are within expected ranges and formats.
 // Returns an error describing all invalid fields, or nil if all valid.
-func Validate(c App) error {
+func Validate(c App, hasProvenance bool) error {
 	var errs []error
 
 	// Ports
@@ -157,6 +161,16 @@ func Validate(c App) error {
 		}
 		if c.ContentS3Prefix == "" {
 			errs = append(errs, fmt.Errorf("CONTENT_S3_PREFIX is required"))
+		}
+	}
+
+	// if build has provenance data then it is expected to have signing keys configured
+	if hasProvenance {
+		if c.EvidenceSigningKeyARN == "" {
+			return fmt.Errorf("release build requires evidence-signing-key-arn")
+		}
+		if c.ContentSigningKeyARN == "" {
+			return fmt.Errorf("release build requires content-signing-key-arn")
 		}
 	}
 

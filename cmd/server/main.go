@@ -10,8 +10,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/kms"
 	"github.com/keithlinneman/linnemanlabs-web/internal/cfg"
 	"github.com/keithlinneman/linnemanlabs-web/internal/content"
+	"github.com/keithlinneman/linnemanlabs-web/internal/cryptoutil"
 	"github.com/keithlinneman/linnemanlabs-web/internal/evidence"
 	"github.com/keithlinneman/linnemanlabs-web/internal/healthhttp"
 	"github.com/keithlinneman/linnemanlabs-web/internal/opshttp"
@@ -33,6 +36,10 @@ import (
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// Get build/version info
+	vi := v.Get()
+	hasProvenance := vi.HasProvenance()
 
 	var conf cfg.App
 	var showVersion bool
@@ -58,7 +65,7 @@ func main() {
 	})
 
 	// validate config
-	if err := cfg.Validate(conf); err != nil {
+	if err := cfg.Validate(conf, hasProvenance); err != nil {
 		fmt.Fprintln(os.Stderr, "config error:", err)
 		os.Exit(1)
 	}
@@ -88,8 +95,6 @@ func main() {
 	L := lg.With("component", "server")
 	ctx = log.WithContext(ctx, L)
 
-	// Get build/version info
-	vi := v.Get()
 	L.Info(ctx, "initializing application",
 		"version", vi.Version,
 		"commit", vi.Commit,
@@ -156,6 +161,27 @@ func main() {
 	var m *metrics.ServerMetrics = metrics.New()
 	m.SetBuildInfoFromVersion(v.AppName, "server", vi)
 
+	// create shared KMS client for signature verification of evidence and content bundles, separate keys may be used for each
+	var kmsClient *kms.Client
+	if conf.EvidenceSigningKeyARN != "" || conf.ContentSigningKeyARN != "" {
+		awsCfg, err := config.LoadDefaultConfig(ctx)
+		if err != nil {
+			L.Error(ctx, err, "failed to load AWS config for signature verification")
+		} else {
+			kmsClient = kms.NewFromConfig(awsCfg)
+		}
+	}
+
+	// create KMS verifiers for evidence and content if configured
+	var releaseVerifier *cryptoutil.KMSVerifier
+	if kmsClient != nil && conf.EvidenceSigningKeyARN != "" {
+		releaseVerifier = cryptoutil.NewKMSVerifier(kmsClient, conf.EvidenceSigningKeyARN)
+	}
+	var contentVerifier *cryptoutil.KMSVerifier
+	if kmsClient != nil && conf.ContentSigningKeyARN != "" {
+		contentVerifier = cryptoutil.NewKMSVerifier(kmsClient, conf.ContentSigningKeyARN)
+	}
+
 	// initialize http content
 	// setup maintenance fallback fs
 	fallbackFS := webassets.FallbackFS()
@@ -181,16 +207,17 @@ func main() {
 	}
 
 	// setup content bundle loader
-	loader, err := content.NewLoader(ctx, content.LoaderOptions{
+	contentLoader, err := content.NewLoader(ctx, content.LoaderOptions{
 		Logger:   L,
 		SSMParam: conf.ContentSSMParam,
 		S3Bucket: conf.ContentS3Bucket,
 		S3Prefix: conf.ContentS3Prefix,
+		Verifier: contentVerifier,
 	})
 	if err != nil {
 		L.Error(ctx, err, "failed to create content loader")
 	} else {
-		if err := loader.LoadIntoManager(ctx, contentMgr); err != nil {
+		if err := contentLoader.LoadIntoManager(ctx, contentMgr); err != nil {
 			L.Error(ctx, err, "failed to load content bundle, falling back to seed")
 		} else {
 			L.Info(ctx, "loaded content bundle from S3",
@@ -207,20 +234,27 @@ func main() {
 
 	// setup evidence loading (fetch build attestations from S3 at startup)
 	var evidenceStore *evidence.Store
-	if vi.HasProvenance() {
+	if hasProvenance {
 		evidenceStore = evidence.NewStore()
 		evidenceLoader, err := evidence.NewLoader(ctx, evidence.LoaderOptions{
-			Logger:    L,
-			Bucket:    vi.EvidenceBucket,
-			Prefix:    vi.EvidencePrefix,
-			ReleaseID: vi.ReleaseId,
+			Logger:          L,
+			Bucket:          vi.EvidenceBucket,
+			Prefix:          vi.EvidencePrefix,
+			ReleaseID:       vi.ReleaseId,
+			ReleaseVerifier: releaseVerifier,
 		})
 		if err != nil {
-			L.Warn(ctx, "failed to create evidence loader", "error", err)
+			// evidence is required for builds with provenance data, fail early at startup if we cant initiate loader
+			L.Error(ctx, err, "failed to create evidence loader")
+			os.Exit(1)
 		} else {
 			bundle, err := evidenceLoader.Load(ctx)
 			if err != nil {
-				L.Warn(ctx, "failed to load evidence, continuing without", "error", err)
+				// evidence is required for builds with provenance data, fail early
+				// systemd will restart, asg will terminate if we fail to start succesfully
+				// will add retry logic in the future
+				L.Error(ctx, err, "failed to load evidence which is required when provenance data is present")
+				os.Exit(1)
 			} else {
 				bundle = evidence.FilterBundleByPlatform(bundle, evidence.RuntimePlatform())
 				evidenceStore.Set(bundle)

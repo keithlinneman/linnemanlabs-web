@@ -34,6 +34,9 @@ type LoaderOptions struct {
 
 	// AWS config (uses default if nil)
 	AWSConfig *aws.Config
+
+	// Verifier for bundle signatures
+	Verifier *cryptoutil.KMSVerifier
 }
 
 type Loader struct {

@@ -47,6 +47,9 @@ type LoaderOptions struct {
 
 	// AWS config (default if nil)
 	AWSConfig *aws.Config
+
+	// Verifier for release.json signature bundle
+	ReleaseVerifier *cryptoutil.KMSVerifier
 }
 
 // Loader discovers and fetches evidence artifacts currently from S3 possibly OCI soon
@@ -54,6 +57,13 @@ type Loader struct {
 	opts     LoaderOptions
 	s3Client *s3.Client
 	logger   log.Logger
+}
+
+// fetchResult holds the result of a single file fetch.
+type fetchResult struct {
+	path string
+	file *EvidenceFile
+	err  string // empty on success
 }
 
 // NewLoader creates a new evidence loader that will fetch artifacts
@@ -136,10 +146,16 @@ func (l *Loader) Load(ctx context.Context) (*Bundle, error) {
 	sigstoreBundleKey := prefix + "release.json.bundle.sigstore.json"
 	sigstoreBundleRaw, err := l.fetchS3(ctx, sigstoreBundleKey, MaxManifestSize)
 	if err != nil {
-		l.logger.Warn(ctx, "no release sigstore bundle found",
-			"key", sigstoreBundleKey,
-		)
-		sigstoreBundleRaw = nil
+		return nil, xerrors.Wrap(err, "failed to fetch release.json.bundle.sigstore.json")
+	}
+
+	// verify bundle against release.json
+	if sigstoreBundleRaw != nil {
+		result, err := cryptoutil.VerifyBlobSignature(ctx, l.opts.ReleaseVerifier, sigstoreBundleRaw, releaseRaw)
+		if err != nil {
+			return nil, xerrors.Wrap(err, "release.json signature verification failed")
+		}
+		l.logger.Info(ctx, "release.json signature verified", "key_hint", result.KeyHint)
 	}
 
 	// fetch and verify inventory.json
@@ -210,13 +226,6 @@ func (l *Loader) Load(ctx context.Context) (*Bundle, error) {
 		ReleasePrefix:         prefix,
 		FetchedAt:             time.Now().UTC(),
 	}, nil
-}
-
-// fetchResult holds the result of a single file fetch.
-type fetchResult struct {
-	path string
-	file *EvidenceFile
-	err  string // empty on success
 }
 
 // fetchAllFiles downloads all evidence files using a bounded worker pool.
