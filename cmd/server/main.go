@@ -7,7 +7,6 @@ import (
 	"net"
 	"os"
 	"os/signal"
-	"strconv"
 	"syscall"
 	"time"
 
@@ -36,187 +35,32 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// Handle cmd line flags
-	var (
-		flagLogJSON bool
-		setLogJSON  bool
+	var conf cfg.App
+	var showVersion bool
 
-		flagLogLevel string
-		setLogLevel  bool
-
-		flagHTTPPort int
-		setHTTPPort  bool
-
-		flagAdminPort int
-		setAdminPort  bool
-
-		flagEnablePprof bool
-		setEnablePprof  bool
-
-		flagEnablePyroscope bool
-		setEnablePyroscope  bool
-
-		flagEnableTracing bool
-		setEnableTracing  bool
-
-		flagEnableContentUpdates bool
-		setEnableContentUpdates  bool
-
-		flagTraceSample float64
-		setTraceSample  bool
-
-		flagPyroServer string
-		setPyroServer  bool
-
-		flagPyroTenantID string
-		setPyroTenantID  bool
-
-		flagOTLPEndpoint string
-		setOTLPEndpoint  bool
-
-		flagStacktraceLevel string
-		setStacktraceLevel  bool
-
-		flagIncludeErrorLinks bool
-		setIncludeErrorLinks  bool
-
-		flagMaxErrorLinks int
-		setMaxErrorLinks  bool
-
-		flagContentSSMParam string
-		setContentSSMParam  bool
-
-		flagContentS3Bucket string
-		setContentS3Bucket  bool
-
-		flagContentS3Prefix string
-		setContentS3Prefix  bool
-
-		flagShowVersion bool
-	)
-	flag.Func("log-level", "debug|info|warn|error", func(s string) error {
-		flagLogLevel, setLogLevel = s, true
-		return nil
-	})
-	flag.Func("admin-port", "listen TCP port (1..65535)", func(s string) error {
-		n, err := strconv.Atoi(s)
-		if err != nil {
-			return err
-		}
-		flagAdminPort, setAdminPort = n, true
-		return nil
-	})
-	flag.Func("http-port", "listen TCP port (1..65535)", func(s string) error {
-		n, err := strconv.Atoi(s)
-		if err != nil {
-			return err
-		}
-		flagHTTPPort, setHTTPPort = n, true
-		return nil
-	})
-	flag.Func("trace-sample", "trace sampling ratio (0..1)", func(s string) error {
-		n, err := strconv.ParseFloat(s, 64)
-		if err != nil {
-			return err
-		}
-		flagTraceSample, setTraceSample = n, true
-		return nil
-	})
-	flag.Func("stacktrace-level", "debug|info|warn|error", func(s string) error {
-		flagStacktraceLevel, setStacktraceLevel = s, true
-		return nil
-	})
-	flag.Func("pyro-server", "pyroscope server url to push to", func(s string) error {
-		flagPyroServer, setPyroServer = s, true
-		return nil
-	})
-	flag.Func("pyro-tenant", "tenant (x-scope-orgid) to use for pyro-server", func(s string) error {
-		flagPyroTenantID, setPyroTenantID = s, true
-		return nil
-	})
-	flag.Func("otlp-endpoint", "OTLP endpoint to push to (gRPC) (host:port)", func(s string) error {
-		flagOTLPEndpoint, setOTLPEndpoint = s, true
-		return nil
-	})
-	flag.Func("max-error-links", "max error chain depth (1..64)", func(s string) error {
-		n, err := strconv.Atoi(s)
-		if err != nil {
-			return err
-		}
-		flagMaxErrorLinks, setMaxErrorLinks = n, true
-		return nil
-	})
-	flag.Func("content-ssm-param", "ssm parameter name to get content bundle hash from", func(s string) error {
-		flagContentSSMParam, setContentSSMParam = s, true
-		return nil
-	})
-	flag.Func("content-s3-bucket", "s3 bucket name to get content bundle from", func(s string) error {
-		flagContentS3Bucket, setContentS3Bucket = s, true
-		return nil
-	})
-	flag.Func("content-s3-prefix", "s3 prefix (key) to get content bundle from", func(s string) error {
-		flagContentS3Prefix, setContentS3Prefix = s, true
-		return nil
-	})
-	flag.BoolVar(&flagIncludeErrorLinks, "include-error-links", true, "Include error links in log messages")
-	flag.BoolVar(&flagLogJSON, "log-json", true, "JSON logs (true) or logfmt (false)")
-	flag.BoolVar(&flagEnablePprof, "enable-pprof", true, "Enable Pprof profiling (on admin port only)")
-	flag.BoolVar(&flagEnableTracing, "enable-tracing", false, "Enable OTLP tracing and push to otlp-endpoint")
-	flag.BoolVar(&flagEnablePyroscope, "enable-pyroscope", false, "Enable pushing Pyroscope data to server set in -pyro-server")
-	flag.BoolVar(&flagEnableContentUpdates, "enable-content-updates", true, "Enable refreshing content bundles from S3/SSM")
-	flag.BoolVar(&flagShowVersion, "V", false, "Print version+build information and exit")
+	// Parse config from flags and env
+	cfg.Register(flag.CommandLine, &conf)
+	flag.BoolVar(&showVersion, "V", false, "Print version+build information and exit")
 	flag.Parse()
-	if flagShowVersion {
+
+	if showVersion {
 		vi := v.Get()
 		fmt.Printf(
-			"linnemanlabs web %s (commit=%s, commit_date=%s, build_id=%s, build_date=%s, go=%s, dirty=%v)\n",
-			vi.Version, vi.Commit, vi.CommitDate, vi.BuildId, vi.BuildDate, vi.GoVersion,
+			"%s %s (commit=%s, commit_date=%s, build_id=%s, build_date=%s, go=%s, dirty=%v)\n",
+			vi.AppName, vi.Version, vi.Commit, vi.CommitDate, vi.BuildId, vi.BuildDate, vi.GoVersion,
 			vi.VCSDirty != nil && *vi.VCSDirty,
 		)
 		os.Exit(0)
 	}
-	flag.Visit(func(f *flag.Flag) {
-		switch f.Name {
-		case "include-error-links":
-			setIncludeErrorLinks = true
-		case "log-json":
-			setLogJSON = true
-		case "enable-pprof":
-			setEnablePprof = true
-		case "enable-pyroscope":
-			setEnablePyroscope = true
-		case "enable-tracing":
-			setEnableTracing = true
-		case "enable-content-updates":
-			setEnableContentUpdates = true
-		}
+
+	// Fill in config from environment variables with prefix LMLABS_ and validate
+	cfg.FillFromEnv(flag.CommandLine, "LMLABS_", func(format string, args ...any) {
+		fmt.Fprintf(os.Stderr, format+"\n", args...)
 	})
 
-	// Setup configuration
-	conf := cfg.Defaults()
-	conf = cfg.FromEnv(conf, "LMLABS_")
-	conf = cfg.Apply(conf, cfg.Overrides{
-		LogJSON:              ptrIf(setLogJSON, flagLogJSON),
-		LogLevel:             ptrIf(setLogLevel, flagLogLevel),
-		HTTPPort:             ptrIf(setHTTPPort, flagHTTPPort),
-		AdminPort:            ptrIf(setAdminPort, flagAdminPort),
-		EnablePprof:          ptrIf(setEnablePprof, flagEnablePprof),
-		EnablePyroscope:      ptrIf(setEnablePyroscope, flagEnablePyroscope),
-		EnableTracing:        ptrIf(setEnableTracing, flagEnableTracing),
-		EnableContentUpdates: ptrIf(setEnableContentUpdates, flagEnableContentUpdates),
-		PyroServer:           ptrIf(setPyroServer, flagPyroServer),
-		PyroTenantID:         ptrIf(setPyroTenantID, flagPyroTenantID),
-		OTLPEndpoint:         ptrIf(setOTLPEndpoint, flagOTLPEndpoint),
-		TraceSample:          ptrIf(setTraceSample, flagTraceSample),
-		StacktraceLevel:      ptrIf(setStacktraceLevel, flagStacktraceLevel),
-		IncludeErrorLinks:    ptrIf(setIncludeErrorLinks, flagIncludeErrorLinks),
-		MaxErrorLinks:        ptrIf(setMaxErrorLinks, flagMaxErrorLinks),
-		ContentSSMParam:      ptrIf(setContentSSMParam, flagContentSSMParam),
-		ContentS3Bucket:      ptrIf(setContentS3Bucket, flagContentS3Bucket),
-		ContentS3Prefix:      ptrIf(setContentS3Prefix, flagContentS3Prefix),
-	})
+	// validate config
 	if err := cfg.Validate(conf); err != nil {
-		fmt.Fprintln(os.Stderr, "config error: ", err)
+		fmt.Fprintln(os.Stderr, "config error:", err)
 		os.Exit(1)
 	}
 
@@ -532,13 +376,6 @@ func main() {
 
 	L.Info(context.Background(), "shutdown complete")
 	os.Exit(0)
-}
-
-func ptrIf[T any](changed bool, v T) *T {
-	if changed {
-		return &v
-	}
-	return nil
 }
 
 func notifySystemd() error {

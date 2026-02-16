@@ -2,11 +2,12 @@ package cfg
 
 import (
 	"errors"
+	"flag"
 	"fmt"
 	"net"
 	"net/url"
 	"os"
-	"strconv"
+	"strings"
 
 	"github.com/keithlinneman/linnemanlabs-web/internal/log"
 )
@@ -32,186 +33,59 @@ type App struct {
 	ContentS3Prefix      string
 }
 
-func Defaults() App {
-	return App{
-		LogJSON:              true,
-		LogLevel:             "info",
-		HTTPPort:             8080,
-		AdminPort:            9000,
-		EnablePprof:          true,
-		EnablePyroscope:      false,
-		EnableTracing:        false,
-		EnableContentUpdates: true,
-		OTLPEndpoint:         "",
-		TraceSample:          0.1,
-		PyroServer:           "",
-		PyroTenantID:         "",
-		StacktraceLevel:      "error",
-		IncludeErrorLinks:    true,
-		MaxErrorLinks:        8,
-		ContentSSMParam:      "/app/linnemanlabs-web/server/content/stable/release/id",
-		ContentS3Bucket:      "phxi-build-prod-use2-deployment-artifacts",
-		ContentS3Prefix:      "apps/linnemanlabs-web/server/content/bundles",
-	}
+// Register binds all config fields to the given FlagSet with defaults inline
+func Register(fs *flag.FlagSet, c *App) {
+	fs.BoolVar(&c.LogJSON, "log-json", true, "JSON logs (true) or logfmt (false)")
+	fs.StringVar(&c.LogLevel, "log-level", "info", "debug|info|warn|error")
+	fs.IntVar(&c.HTTPPort, "http-port", 8080, "listen TCP port (1..65535)")
+	fs.IntVar(&c.AdminPort, "admin-port", 9000, "admin listen TCP port (1..65535)")
+	fs.BoolVar(&c.EnablePprof, "enable-pprof", true, "Enable pprof profiling (on admin port only)")
+	fs.BoolVar(&c.EnableTracing, "enable-tracing", false, "Enable OTLP tracing and push to otlp-endpoint")
+	fs.BoolVar(&c.EnablePyroscope, "enable-pyroscope", false, "Enable pushing Pyroscope data to server set in -pyro-server")
+	fs.BoolVar(&c.EnableContentUpdates, "enable-content-updates", true, "Enable refreshing content bundles from S3/SSM")
+	fs.BoolVar(&c.IncludeErrorLinks, "include-error-links", true, "Include error links in log messages")
+	fs.IntVar(&c.MaxErrorLinks, "max-error-links", 5, "max error chain depth (1..64)")
+	fs.Float64Var(&c.TraceSample, "trace-sample", 0.0, "trace sampling ratio (0..1)")
+	fs.StringVar(&c.StacktraceLevel, "stacktrace-level", "error", "debug|info|warn|error")
+	fs.StringVar(&c.PyroServer, "pyro-server", "", "pyroscope server url to push to")
+	fs.StringVar(&c.PyroTenantID, "pyro-tenant", "", "tenant (x-scope-orgid) to use for pyro-server")
+	fs.StringVar(&c.OTLPEndpoint, "otlp-endpoint", "", "OTLP endpoint to push to (gRPC) (host:port)")
+	fs.StringVar(&c.ContentSSMParam, "content-ssm-param", "/app/linnemanlabs-web/server/content/stable/release/id", "ssm parameter name to get content bundle hash from")
+	fs.StringVar(&c.ContentS3Bucket, "content-s3-bucket", "phxi-build-prod-use2-deployment-artifacts", "s3 bucket name to get content bundle from")
+	fs.StringVar(&c.ContentS3Prefix, "content-s3-prefix", "apps/linnemanlabs-web/server/content/bundles", "s3 prefix (key) to get content bundle from")
 }
 
-func FromEnv(base App, prefix string) App {
-	if v := os.Getenv(prefix + "LOG_JSON"); v != "" {
-		if b, err := strconv.ParseBool(v); err == nil {
-			base.LogJSON = b
+// FillFromEnv sets any flag not explicitly passed on the CLI from
+// environment variables. Flag "foo-bar" maps to PREFIX_FOO_BAR.
+// Precedence: cli flag > env var > default.
+func FillFromEnv(fs *flag.FlagSet, prefix string, logf func(string, ...any)) {
+	explicit := make(map[string]bool)
+	fs.Visit(func(f *flag.Flag) { explicit[f.Name] = true })
+
+	fs.VisitAll(func(f *flag.Flag) {
+		key := prefix + strings.ReplaceAll(strings.ToUpper(f.Name), "-", "_")
+		envVal, envSet := os.LookupEnv(key)
+		if !envSet {
+			return
 		}
-	}
-	if v := os.Getenv(prefix + "ENABLE_PPROF"); v != "" {
-		if b, err := strconv.ParseBool(v); err == nil {
-			base.EnablePprof = b
+		if explicit[f.Name] {
+			if logf != nil {
+				logf("flag -%s: cli value %q overrides env %s=%q", f.Name, f.Value.String(), key, envVal)
+			}
+			return
 		}
-	}
-	if v := os.Getenv(prefix + "ENABLE_PYROSCOPE"); v != "" {
-		if b, err := strconv.ParseBool(v); err == nil {
-			base.EnablePyroscope = b
+		prev := f.Value.String()
+		if err := fs.Set(f.Name, envVal); err != nil {
+			fs.Set(f.Name, prev)
+			if logf != nil {
+				logf("flag -%s: ignoring invalid env %s=%q: %v", f.Name, key, envVal, err)
+			}
 		}
-	}
-	if v := os.Getenv(prefix + "ENABLE_TRACING"); v != "" {
-		if b, err := strconv.ParseBool(v); err == nil {
-			base.EnableTracing = b
-		}
-	}
-	if v := os.Getenv(prefix + "ENABLE_CONTENT_UPDATES"); v != "" {
-		if b, err := strconv.ParseBool(v); err == nil {
-			base.EnableContentUpdates = b
-		}
-	}
-	if v := os.Getenv(prefix + "PYRO_SERVER"); v != "" {
-		base.PyroServer = v
-	}
-	if v := os.Getenv(prefix + "PYRO_TENANT"); v != "" {
-		base.PyroTenantID = v
-	}
-	if v := os.Getenv(prefix + "OTLP_ENDPOINT"); v != "" {
-		base.OTLPEndpoint = v
-	}
-	if v := os.Getenv(prefix + "LOG_LEVEL"); v != "" {
-		base.LogLevel = v
-	}
-	if v := os.Getenv(prefix + "ADMIN_PORT"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			base.AdminPort = n
-		}
-	}
-	if v := os.Getenv(prefix + "HTTP_PORT"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			base.HTTPPort = n
-		}
-	}
-	if v := os.Getenv(prefix + "TRACE_SAMPLE"); v != "" {
-		if n, err := strconv.ParseFloat(v, 64); err == nil {
-			base.TraceSample = n
-		}
-	}
-	if v := os.Getenv(prefix + "STACKTRACE_LEVEL"); v != "" {
-		base.StacktraceLevel = v
-	}
-	if v := os.Getenv(prefix + "INCLUDE_ERROR_LINKS"); v != "" {
-		if b, err := strconv.ParseBool(v); err == nil {
-			base.IncludeErrorLinks = b
-		}
-	}
-	if v := os.Getenv(prefix + "MAX_ERROR_LINKS"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			base.MaxErrorLinks = n
-		}
-	}
-	if v := os.Getenv(prefix + "CONTENT_SSM_PARAM"); v != "" {
-		base.ContentSSMParam = v
-	}
-	if v := os.Getenv(prefix + "CONTENT_S3_BUCKET"); v != "" {
-		base.ContentS3Bucket = v
-	}
-	if v := os.Getenv(prefix + "CONTENT_S3_PREFIX"); v != "" {
-		base.ContentS3Prefix = v
-	}
-	return base
+	})
 }
 
-type Overrides struct {
-	LogJSON              *bool
-	LogLevel             *string
-	StacktraceLevel      *string
-	HTTPPort             *int
-	AdminPort            *int
-	EnablePprof          *bool
-	EnablePyroscope      *bool
-	EnableTracing        *bool
-	EnableContentUpdates *bool
-	PyroServer           *string
-	PyroTenantID         *string
-	OTLPEndpoint         *string
-	TraceSample          *float64
-	IncludeErrorLinks    *bool
-	MaxErrorLinks        *int
-	ContentSSMParam      *string
-	ContentS3Bucket      *string
-	ContentS3Prefix      *string
-}
-
-func Apply(base App, o Overrides) App {
-	if o.LogJSON != nil {
-		base.LogJSON = *o.LogJSON
-	}
-	if o.LogLevel != nil {
-		base.LogLevel = *o.LogLevel
-	}
-	if o.AdminPort != nil {
-		base.AdminPort = *o.AdminPort
-	}
-	if o.EnablePprof != nil {
-		base.EnablePprof = *o.EnablePprof
-	}
-	if o.EnablePyroscope != nil {
-		base.EnablePyroscope = *o.EnablePyroscope
-	}
-	if o.EnableTracing != nil {
-		base.EnableTracing = *o.EnableTracing
-	}
-	if o.EnableContentUpdates != nil {
-		base.EnableContentUpdates = *o.EnableContentUpdates
-	}
-	if o.OTLPEndpoint != nil {
-		base.OTLPEndpoint = *o.OTLPEndpoint
-	}
-	if o.PyroServer != nil {
-		base.PyroServer = *o.PyroServer
-	}
-	if o.PyroTenantID != nil {
-		base.PyroTenantID = *o.PyroTenantID
-	}
-	if o.HTTPPort != nil {
-		base.HTTPPort = *o.HTTPPort
-	}
-	if o.TraceSample != nil {
-		base.TraceSample = *o.TraceSample
-	}
-	if o.StacktraceLevel != nil {
-		base.StacktraceLevel = *o.StacktraceLevel
-	}
-	if o.IncludeErrorLinks != nil {
-		base.IncludeErrorLinks = *o.IncludeErrorLinks
-	}
-	if o.MaxErrorLinks != nil {
-		base.MaxErrorLinks = *o.MaxErrorLinks
-	}
-	if o.ContentSSMParam != nil {
-		base.ContentSSMParam = *o.ContentSSMParam
-	}
-	if o.ContentS3Bucket != nil {
-		base.ContentS3Bucket = *o.ContentS3Bucket
-	}
-	if o.ContentS3Prefix != nil {
-		base.ContentS3Prefix = *o.ContentS3Prefix
-	}
-	return base
-}
-
+// Validate checks that config values are within expected ranges and formats.
+// Returns an error describing all invalid fields, or nil if all valid.
 func Validate(c App) error {
 	var errs []error
 
