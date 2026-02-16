@@ -92,7 +92,7 @@ type AppProvenanceResponse struct {
 }
 
 // AppProvenanceAttestations is the attestation detail on the full endpoint
-// Richer than the summary — includes per-file references
+// richer than the summary - includes per-file references
 type AppProvenanceAttestations struct {
 	Total    int `json:"total"`
 	Source   int `json:"source"`
@@ -182,7 +182,7 @@ type AppSummaryResponse struct {
 	CreatedAt time.Time `json:"created_at,omitempty"`
 	FetchedAt time.Time `json:"fetched_at,omitempty"`
 
-	// build context — who/how/where (from binary ldflags)
+	// build context - who/how/where (from binary ldflags)
 	BuildActor      string `json:"build_actor,omitempty"`
 	BuildSystem     string `json:"build_system,omitempty"`
 	BuildRunURL     string `json:"build_run_url,omitempty"`
@@ -260,7 +260,7 @@ type AppSummaryLicenses struct {
 
 type AppSummarySigning struct {
 	Method                 string `json:"method"`
-	KeyRef                 string `json:"key_ref,omitempty"` // KMS alias — exactly which key signed
+	KeyRef                 string `json:"key_ref,omitempty"`
 	ArtifactsAttested      bool   `json:"artifacts_attested"`
 	IndexAttested          bool   `json:"index_attested"`
 	InventorySigned        bool   `json:"inventory_signed"`
@@ -366,7 +366,7 @@ type AppProvenanceLicenses struct {
 
 // HandleAppProvenance serves the comprehensive app provenance: build info + full release
 // manifest + parsed policy + attestation details + complete evidence file index
-// This is the "give me everything" endpoint — the summary abbreviates from this
+// This is the "give me everything" endpoint - the summary abbreviates from this
 func (api *API) HandleAppProvenance(w http.ResponseWriter, r *http.Request) {
 	resp := AppProvenanceResponse{
 		Build: v.Get(),
@@ -487,7 +487,7 @@ func (api *API) HandleAppSummary(w http.ResponseWriter, r *http.Request) {
 		FetchedAt:   bundle.FetchedAt,
 		Links:       appSummaryLinks(),
 
-		// build context — who/how/where (from compile-time ldflags)
+		// build context - who/how/where (from compile-time ldflags)
 		BuildActor:      bi.BuildActor,
 		BuildSystem:     bi.BuildSystem,
 		BuildRunURL:     bi.BuildRunURL,
@@ -692,7 +692,7 @@ func buildAppSummarySource(src *evidence.ReleaseSource) *AppSummarySource {
 		Dirty:       src.Dirty,
 	}
 
-	// for tag builds, branch is often empty/unknown — use base_tag as the meaningful ref
+	// for tag builds, branch is often empty/unknown - use base_tag as the meaningful ref
 	if src.BaseTag != "" {
 		out.Tag = src.BaseTag
 	}
@@ -992,7 +992,7 @@ func buildLicenseData(bundle *evidence.Bundle, policy *evidence.ReleasePolicy) (
 		return nil, nil
 	}
 
-	// Find license report files — prefer source scope
+	// Find license report files - prefer source scope
 	var reportData []byte
 	for _, scope := range []string{"source", "artifact"} {
 		refs := bundle.FileRefs(scope, "license")

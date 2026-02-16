@@ -86,32 +86,7 @@ func Get() Info {
 
 	if bi, ok := debug.ReadBuildInfo(); ok {
 		out.GoVersion = bi.GoVersion
-		var dirty *bool
-		for _, s := range bi.Settings {
-			switch s.Key {
-			case "vcs.revision":
-				if out.Commit == "none" && s.Value != "" {
-					out.Commit = s.Value
-				}
-			case "vcs.time":
-				if out.BuildDate == "" && s.Value != "" {
-					out.BuildDate = s.Value
-				}
-				out.CommitDate = s.Value
-			case "vcs.modified":
-				switch s.Value {
-				case "true":
-					t := true
-					dirty = &t
-				case "false":
-					f := false
-					dirty = &f
-				}
-			}
-		}
-		if dirty != nil {
-			out.VCSDirty = dirty
-		}
+		applyBuildInfo(&out, bi.Settings)
 	}
 
 	// if not set by ldflags in ci then assume local build
@@ -122,6 +97,38 @@ func Get() Info {
 	}
 
 	return out
+}
+
+// applyBuildInfo enriches Info with VCS metadata from debug.ReadBuildInfo settings.
+// Ldflags-injected values take precedence: Commit is only overridden if still "none",
+// BuildDate only if still empty.
+func applyBuildInfo(out *Info, settings []debug.BuildSetting) {
+	var dirty *bool
+	for _, s := range settings {
+		switch s.Key {
+		case "vcs.revision":
+			if out.Commit == "none" && s.Value != "" {
+				out.Commit = s.Value
+			}
+		case "vcs.time":
+			if out.BuildDate == "" && s.Value != "" {
+				out.BuildDate = s.Value
+			}
+			out.CommitDate = s.Value
+		case "vcs.modified":
+			switch s.Value {
+			case "true":
+				t := true
+				dirty = &t
+			case "false":
+				f := false
+				dirty = &f
+			}
+		}
+	}
+	if dirty != nil {
+		out.VCSDirty = dirty
+	}
 }
 
 // HasProvenance returns whether this binary has ci injected provenance

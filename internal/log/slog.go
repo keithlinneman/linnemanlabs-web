@@ -342,6 +342,9 @@ func frameFromPC(pc uintptr) (fn, file string, line int, ok bool) {
 }
 
 func firstExtFrame(pcs []uintptr) (fn, file string, line int, ok bool) {
+	if len(pcs) == 0 {
+		return "", "", 0, false
+	}
 	frames := runtime.CallersFrames(pcs)
 	for {
 		fr, more := frames.Next()

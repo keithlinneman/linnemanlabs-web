@@ -13,7 +13,7 @@ type clientIPKey struct{}
 func ClientIP(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ip := extractRealClientAddr(r)
-		ctx := context.WithValue(r.Context(), clientIPKey{}, ip)
+		ctx := WithClientIP(r.Context(), ip)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -51,4 +51,11 @@ func extractRealClientAddr(r *http.Request) string {
 func ClientIPFromContext(ctx context.Context) string {
 	ip, _ := ctx.Value(clientIPKey{}).(string)
 	return ip
+}
+
+func WithClientIP(ctx context.Context, ip string) context.Context {
+	if ip == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, clientIPKey{}, ip)
 }

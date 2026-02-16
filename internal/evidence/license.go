@@ -176,7 +176,7 @@ func BuildPackageList(report *LicenseReport, eval *LicenseEvaluator) ([]PackageI
 			license = strings.Join(item.Licenses, " AND ")
 		}
 
-		// evaluate status — if multiple licenses, evaluate each and take worst
+		// evaluate status. if multiple licenses, evaluate each and take worst
 		status := eval.Evaluate(license)
 		if len(item.Licenses) > 1 {
 			for _, lic := range item.Licenses {

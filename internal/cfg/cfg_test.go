@@ -109,6 +109,7 @@ func TestValidate_OK(t *testing.T) {
 	c := Defaults()
 	c.EnablePyroscope = true
 	c.PyroServer = "https://pyro:4040"
+	c.PyroTenantID = "test-tenant"
 	c.EnableTracing = true
 	c.OTLPEndpoint = "otel:4317"
 	c.TraceSample = 0.2
