@@ -55,19 +55,9 @@ func newSlog(opts Options) (Logger, error) {
 	// enrich with stack data
 	h = stackHandler{next: h, level: opts.StacktraceLevel}
 
-	/*
-		l := slog.New(h).With(
-			"app",     opts.App,
-			"version", opts.Version,
-			"commit",  opts.Commit,
-		)
-	*/
-
 	// enrich with attributes
 	baseAttrs := []slog.Attr{
 		slog.String("app", opts.App),
-		//slog.String("version", opts.Version),
-		//slog.String("commit",  opts.Commit),
 	}
 
 	if opts.MaxErrorLinks <= 0 {
@@ -186,7 +176,7 @@ func (h otelHandler) WithGroup(name string) slog.Handler {
 	return otelHandler{next: h.next.WithGroup(name)}
 }
 
-// for stack trace enchriment
+// for stack trace enrichment
 type stackHandler struct {
 	next  slog.Handler
 	level slog.Level

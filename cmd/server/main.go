@@ -28,7 +28,6 @@ import (
 	"github.com/keithlinneman/linnemanlabs-web/internal/probe"
 	"github.com/keithlinneman/linnemanlabs-web/internal/prof"
 	v "github.com/keithlinneman/linnemanlabs-web/internal/version"
-	// "github.com/keithlinneman/linnemanlabs-web/internal/xerrors"
 )
 
 func main() {

@@ -6,7 +6,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 	"go.opentelemetry.io/otel/trace"
@@ -302,70 +301,6 @@ func TestMiddleware_FallsBackToURLPath(t *testing.T) {
 	if labels["route"] != "/custom/path" {
 		t.Fatalf("route = %q, want /custom/path", labels["route"])
 	}
-}
-
-// Middleware — DB stats integration
-
-func TestMiddleware_DBStats_WhenSet(t *testing.T) {
-	m := New()
-
-	m.SetReqDBStatsFromContext(func(ctx context.Context) (int64, int64, time.Duration, bool) {
-		return 3, 0, 15 * time.Millisecond, true
-	})
-
-	handler := m.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-
-	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/api/test", nil))
-
-	// app_db_queries_per_request should have 1 observation
-	count := histogramCount(t, m.reg, "app_db_queries_per_request")
-	if count != 1 {
-		t.Fatalf("queries_per_request count = %d, want 1", count)
-	}
-
-	// app_db_time_per_request_seconds should have 1 observation
-	count = histogramCount(t, m.reg, "app_db_time_per_request_seconds")
-	if count != 1 {
-		t.Fatalf("db_time_per_request count = %d, want 1", count)
-	}
-}
-
-func TestMiddleware_DBStats_NotOk(t *testing.T) {
-	m := New()
-
-	m.SetReqDBStatsFromContext(func(ctx context.Context) (int64, int64, time.Duration, bool) {
-		return 0, 0, 0, false // ok=false → skip recording
-	})
-
-	handler := m.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-
-	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/", nil))
-
-	// Should NOT have recorded DB stats
-	f := gatherMetric(t, m.reg, "app_db_queries_per_request")
-	if f != nil {
-		for _, metric := range f.GetMetric() {
-			if metric.GetHistogram().GetSampleCount() > 0 {
-				t.Fatal("DB stats should not be recorded when ok=false")
-			}
-		}
-	}
-}
-
-func TestMiddleware_DBStats_NilFunc(t *testing.T) {
-	m := New()
-
-	// reqDBStats is nil by default — should not panic
-	handler := m.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-
-	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/", nil))
-	// No panic = pass
 }
 
 // Middleware — multiple requests accumulate

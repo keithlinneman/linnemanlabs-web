@@ -15,9 +15,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
-	//"github.com/keithlinneman/linnemanlabs-web/internal/log"
 	"github.com/keithlinneman/linnemanlabs-web/internal/httpmw"
-	//"github.com/keithlinneman/linnemanlabs-web/internal/metrics"
 	"github.com/keithlinneman/linnemanlabs-web/internal/xerrors"
 )
 
@@ -103,30 +101,6 @@ func NewHandler(opts Options, regs ...RouteRegistrar) http.Handler {
 
 		return true
 	}
-
-	/* moved into otelhttp.WithFilter to follow otel recommended practice
-	// Otel middleware to add spans to requests
-	otelWrapped := otelhttp.NewHandler(
-		h,
-		"http.server",
-		otelhttp.WithSpanNameFormatter(func(_ string, r *http.Request) string {
-			// AnnotateHTTPRoute will rename the span later to the final route pattern.
-			return r.Method + " " + r.URL.Path
-		}),
-		// WithPublicEndpointFn is the replacement for WithPublicEndpoint()
-		otelhttp.WithPublicEndpointFn(func(r *http.Request) bool { return true }),
-	)
-
-	// traced requests go through otelWrapped, others skip it
-	base := h
-	h = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if shouldTrace(r.URL.Path) {
-			otelWrapped.ServeHTTP(w, r)
-			return
-		}
-		base.ServeHTTP(w, r)
-	})
-	*/
 
 	h = otelhttp.NewHandler(
 		h,

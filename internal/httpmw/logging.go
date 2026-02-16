@@ -127,7 +127,6 @@ func (rw *responseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 func WithLogger(base log.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			//start := time.Now()
 			ctx := r.Context()
 
 			// Request ID from our RequestID middleware (outer)
@@ -146,10 +145,6 @@ func WithLogger(base log.Logger) func(http.Handler) http.Handler {
 			scheme := schemeFromRequest(r)
 			// our app doesnt currently use query strings, logging them would require careful sanitization
 			// could consider adding them to traces for debugging as its a tighter controlled pipeline, but no value for this app so leaving it out entirely
-			//rawQuery := r.URL.RawQuery
-
-			// Trace ID from OTel, if present
-			//var traceID string
 			if span := trace.SpanFromContext(ctx); span != nil {
 				if sc := span.SpanContext(); sc.IsValid() {
 					//traceID = sc.TraceID().String()
@@ -183,11 +178,6 @@ func WithLogger(base log.Logger) func(http.Handler) http.Handler {
 				"url.scheme", scheme,
 				//"trace_id", traceID,
 			}
-			/*
-				if rawQuery != "" {
-					fields = append(fields, "url.query", rawQuery)
-				}
-			*/
 			L := base.With(fields...)
 			ctx = log.WithContext(ctx, L)
 			r = r.WithContext(ctx)

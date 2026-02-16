@@ -1,13 +1,11 @@
 package metrics
 
 import (
-	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
@@ -240,85 +238,6 @@ func TestSetBuildInfoFromVersion_NilVCSDirty(t *testing.T) {
 	}
 }
 
-// ObserveDBQuery
-
-func TestObserveDBQuery(t *testing.T) {
-	m := New()
-
-	m.ObserveDBQuery(context.Background(), "GET", "/api/data", "ok", 5*time.Millisecond)
-	m.ObserveDBQuery(context.Background(), "GET", "/api/data", "ok", 10*time.Millisecond)
-	m.ObserveDBQuery(context.Background(), "POST", "/api/submit", "error", 100*time.Millisecond)
-
-	// Histogram should have 3 total observations across label combos
-	f := gatherMetric(t, m.reg, "app_db_query_duration_seconds")
-	if f == nil {
-		t.Fatal("app_db_query_duration_seconds not found")
-	}
-	var totalCount uint64
-	for _, metric := range f.GetMetric() {
-		totalCount += metric.GetHistogram().GetSampleCount()
-	}
-	if totalCount != 3 {
-		t.Fatalf("db duration histogram total count = %d, want 3", totalCount)
-	}
-}
-
-func TestObserveDBQuery_EmptyLabels(t *testing.T) {
-	m := New()
-
-	// Empty labels should default to UNKNOWN/unknown
-	m.ObserveDBQuery(context.Background(), "", "", "", 1*time.Millisecond)
-
-	f := gatherMetric(t, m.reg, "app_db_queries_total")
-	if f == nil {
-		t.Fatal("app_db_queries_total not found")
-	}
-
-	labels := make(map[string]string)
-	for _, lp := range f.GetMetric()[0].GetLabel() {
-		labels[lp.GetName()] = lp.GetValue()
-	}
-
-	if labels["method"] != "UNKNOWN" {
-		t.Fatalf("method = %q, want UNKNOWN", labels["method"])
-	}
-	if labels["route"] != "unknown" {
-		t.Fatalf("route = %q, want unknown", labels["route"])
-	}
-	if labels["outcome"] != "unknown" {
-		t.Fatalf("outcome = %q, want unknown", labels["outcome"])
-	}
-}
-
-// SetReqDBStatsFromContext
-
-func TestSetReqDBStatsFromContext(t *testing.T) {
-	m := New()
-
-	if m.reqDBStats != nil {
-		t.Fatal("reqDBStats should be nil initially")
-	}
-
-	called := false
-	m.SetReqDBStatsFromContext(func(ctx context.Context) (int64, int64, time.Duration, bool) {
-		called = true
-		return 5, 0, 50 * time.Millisecond, true
-	})
-
-	if m.reqDBStats == nil {
-		t.Fatal("reqDBStats should be set after SetReqDBStatsFromContext")
-	}
-
-	// Invoke it to verify it's the right function
-	count, _, dur, ok := m.reqDBStats(context.Background())
-	if !called {
-		t.Fatal("callback not called")
-	}
-	if count != 5 || dur != 50*time.Millisecond || !ok {
-		t.Fatalf("unexpected return: count=%d dur=%v ok=%v", count, dur, ok)
-	}
-}
-
 // Metrics handler serves after mutations
 
 func TestHandler_ReflectsCounterIncrements(t *testing.T) {
@@ -378,7 +297,6 @@ func TestHandler_FullScrape(t *testing.T) {
 	m.SetBuildInfoFromVersion("test", "test", version.Info{Version: "test", VCSDirty: &dirty})
 	m.IncHttpPanic()
 	m.IncRateLimitDenied()
-	m.ObserveDBQuery(context.Background(), "GET", "/test", "ok", time.Millisecond)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/metrics", nil)

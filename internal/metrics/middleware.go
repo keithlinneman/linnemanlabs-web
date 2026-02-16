@@ -90,14 +90,6 @@ func (m *ServerMetrics) Middleware(next http.Handler) http.Handler {
 		}
 
 		m.respBytes.WithLabelValues(method, route).Observe(float64(sw.n))
-
-		// per-request DB stats (injected at startup so metrics doesnt import postgres).
-		if m.reqDBStats != nil {
-			if qCount, _, qTotal, ok := m.reqDBStats(ctx); ok {
-				m.appDbQueriesPerReq.WithLabelValues(method, route).Observe(float64(qCount))
-				m.appDbTimeReqDur.WithLabelValues(method, route).Observe(qTotal.Seconds())
-			}
-		}
 	})
 }
 

@@ -21,10 +21,6 @@ type ServerMetrics struct {
 	handler                http.Handler
 	inflight               prometheus.Gauge
 	reqTotal               *prometheus.CounterVec
-	appDbQueriesTotal      *prometheus.CounterVec
-	appDbReqDur            *prometheus.HistogramVec
-	appDbQueriesPerReq     *prometheus.HistogramVec
-	appDbTimeReqDur        *prometheus.HistogramVec
 	reqDur                 *prometheus.HistogramVec
 	respBytes              *prometheus.HistogramVec
 	httpPanicTotal         prometheus.Counter
@@ -68,25 +64,6 @@ func New() *ServerMetrics {
 			Name: "http_panic_total",
 			Help: "Total number of recovered httpserver panics",
 		}),
-		appDbQueriesTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Name: "app_db_queries_total",
-			Help: "Total number of database queries by method route and outcome",
-		}, []string{"method", "route", "outcome"}),
-		appDbReqDur: prometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    "app_db_query_duration_seconds",
-			Help:    "Duration of database requests by method route and outcome",
-			Buckets: prometheus.ExponentialBuckets(0.001, 1.6, 16), // 1ms .. ~1.15s
-		}, []string{"method", "route", "outcome"}),
-		appDbQueriesPerReq: prometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    "app_db_queries_per_request",
-			Help:    "Number of database queries per http reuest by method and route",
-			Buckets: []float64{1, 2, 3, 4, 5, 7, 10, 15, 20, 30, 40, 50, 75, 100},
-		}, []string{"method", "route"}),
-		appDbTimeReqDur: prometheus.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    "app_db_time_per_request_seconds",
-			Help:    "Total time spent on database calls per http request by method and route",
-			Buckets: prometheus.ExponentialBuckets(0.002, 1.6, 18), // 2ms .. ~4.3s
-		}, []string{"method", "route"}),
 		buildInfo: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "build_info",
 			Help: "Build metadata (value is always 1)",
@@ -115,12 +92,11 @@ func New() *ServerMetrics {
 		m.reqDur,
 		m.respBytes,
 		m.httpPanicTotal,
-		m.appDbQueriesTotal,
-		m.appDbReqDur,
-		m.appDbQueriesPerReq,
-		m.appDbTimeReqDur,
 		m.buildInfo,
 		m.ratelimitDeniedTotal,
+		m.contentSource,
+		m.contentLoadedTimestamp,
+		m.contentBundleInfo,
 	)
 
 	m.handler = promhttp.HandlerFor(reg, promhttp.HandlerOpts{
@@ -156,33 +132,6 @@ func (m *ServerMetrics) SetBuildInfoFromVersion(app, component string, vi versio
 		"go_version":  vi.GoVersion,
 		"vcs_dirty":   dirty,
 	}).Set(1)
-}
-
-func (m *ServerMetrics) SetReqDBStatsFromContext(fn ReqDBStatsFromContextFunc) {
-	m.reqDBStats = fn
-}
-
-func (m *ServerMetrics) ObserveDBQuery(ctx context.Context, method, route, outcome string, dur time.Duration) {
-	if method == "" {
-		method = "UNKNOWN"
-	}
-	if route == "" {
-		route = "unknown"
-	}
-	if outcome == "" {
-		outcome = "unknown"
-	}
-
-	m.appDbQueriesTotal.WithLabelValues(method, route, outcome).Inc()
-
-	sec := dur.Seconds()
-	if ex := traceExemplar(ctx); ex != nil {
-		if eo, ok := m.appDbReqDur.WithLabelValues(method, route, outcome).(prometheus.ExemplarObserver); ok {
-			eo.ObserveWithExemplar(sec, ex)
-			return
-		}
-	}
-	m.appDbReqDur.WithLabelValues(method, route, outcome).Observe(sec)
 }
 
 func (m *ServerMetrics) IncRateLimitDenied() {
