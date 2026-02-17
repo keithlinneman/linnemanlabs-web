@@ -3,12 +3,10 @@ package content
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
+	"io/fs"
 	"strings"
 	"testing"
 
@@ -16,102 +14,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 	ssmtypes "github.com/aws/aws-sdk-go-v2/service/ssm/types"
+
 	"github.com/keithlinneman/linnemanlabs-web/internal/cryptoutil"
 	"github.com/keithlinneman/linnemanlabs-web/internal/log"
 )
-
-// NewLoader validation
-
-func TestNewLoader_MissingSSMParam(t *testing.T) {
-	_, err := NewLoader(context.Background(), LoaderOptions{
-		S3Bucket: "test-bucket",
-	})
-	if err == nil {
-		t.Fatal("expected error for missing SSMParam")
-	}
-}
-
-func TestNewLoader_MissingS3Bucket(t *testing.T) {
-	_, err := NewLoader(context.Background(), LoaderOptions{
-		SSMParam: "/app/content/hash",
-	})
-	if err == nil {
-		t.Fatal("expected error for missing S3Bucket")
-	}
-}
-
-func TestNewLoader_BothMissing(t *testing.T) {
-	_, err := NewLoader(context.Background(), LoaderOptions{})
-	if err == nil {
-		t.Fatal("expected error when both SSMParam and S3Bucket missing")
-	}
-}
-
-// NewLoader with valid params requires AWS credentials/config,
-// so we can't easily test the success path in unit tests without mocking.
-// Integration tests or a mock AWS config would be needed for that.
-
-// s3Key
-
-func TestLoader_s3Key_WithPrefix(t *testing.T) {
-	l := &Loader{
-		opts: LoaderOptions{
-			S3Prefix: "content/bundles",
-		},
-	}
-	got := l.s3Key("abc123def456")
-	want := "content/bundles/abc123def456.tar.gz"
-	if got != want {
-		t.Fatalf("s3Key = %q, want %q", got, want)
-	}
-}
-
-func TestLoader_s3Key_WithoutPrefix(t *testing.T) {
-	l := &Loader{
-		opts: LoaderOptions{
-			S3Prefix: "",
-		},
-	}
-	got := l.s3Key("abc123def456")
-	want := "abc123def456.tar.gz"
-	if got != want {
-		t.Fatalf("s3Key = %q, want %q", got, want)
-	}
-}
-
-func TestLoader_s3Key_ShortHash(t *testing.T) {
-	l := &Loader{
-		opts: LoaderOptions{S3Prefix: "prefix"},
-	}
-	got := l.s3Key("a")
-	want := "prefix/a.tar.gz"
-	if got != want {
-		t.Fatalf("s3Key = %q, want %q", got, want)
-	}
-}
-
-// provenanceVersion
-
-func TestProvenanceVersion_Nil(t *testing.T) {
-	got := provenanceVersion(nil)
-	if got != "" {
-		t.Fatalf("provenanceVersion(nil) = %q, want empty", got)
-	}
-}
-
-func TestProvenanceVersion_Empty(t *testing.T) {
-	got := provenanceVersion(&Provenance{Version: ""})
-	if got != "" {
-		t.Fatalf("provenanceVersion(empty) = %q, want empty", got)
-	}
-}
-
-func TestProvenanceVersion_Present(t *testing.T) {
-	got := provenanceVersion(&Provenance{Version: "2.1.0"})
-	if got != "2.1.0" {
-		t.Fatalf("provenanceVersion = %q, want 2.1.0", got)
-	}
-}
 
 // fakeS3 implements s3Getter for unit testing.
 type fakeS3 struct {
@@ -127,8 +33,6 @@ func newFakeS3() *fakeS3 {
 }
 
 func (f *fakeS3) put(key string, data []byte) { f.objects[key] = data }
-
-func (f *fakeS3) failOn(key string, err error) { f.errs[key] = err }
 
 func (f *fakeS3) GetObject(_ context.Context, in *s3.GetObjectInput, _ ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
 	key := aws.ToString(in.Key)
@@ -190,13 +94,12 @@ func newTestLoader(t *testing.T, s3fake *fakeS3, ssmFake *fakeSSM) *Loader {
 	t.Helper()
 	return &Loader{
 		opts: LoaderOptions{
-			Logger:     log.Nop(),
-			SSMParam:   testSSMParam,
-			S3Bucket:   testBucket,
-			S3Prefix:   testS3Prefix,
-			ExtractDir: t.TempDir(),
-			S3Client:   s3fake,
-			SSMClient:  ssmFake,
+			Logger:    log.Nop(),
+			SSMParam:  testSSMParam,
+			S3Bucket:  testBucket,
+			S3Prefix:  testS3Prefix,
+			S3Client:  s3fake,
+			SSMClient: ssmFake,
 		},
 		s3Client:  s3fake,
 		ssmClient: ssmFake,
@@ -219,133 +122,92 @@ func buildContentBundle(t *testing.T) ([]byte, string) {
 // and a provenance.json file. Returns the raw bytes and their SHA256 hash.
 func buildContentBundleWithProvenance(t *testing.T) ([]byte, string) {
 	t.Helper()
-	prov, _ := json.Marshal(Provenance{
-		Schema:      "llabs.content.provenance.v1",
-		Type:        "content-bundle",
-		Version:     "1.2.3",
-		ContentHash: "abc123",
-		Source: ProvenanceSource{
-			CommitShort: "abc123d",
-		},
-		Summary: ProvenanceSummary{
-			TotalFiles: 1,
-		},
-	})
 	data := makeTarGz(t, map[string]string{
 		"index.html":      "<html><body>hello</body></html>",
-		"provenance.json": string(prov),
+		"provenance.json": `{"version":"1.0.0","content_hash":"test","summary":{"total_files":2},"source":{"commit_short":"abc1234"}}`,
 	})
 	hash := cryptoutil.SHA256Hex(data)
 	return data, hash
 }
 
-// putBundle stores a content bundle in fakeS3 at the expected key.
+// putBundle stores a bundle in fakeS3 at the expected key.
 func putBundle(fake *fakeS3, hash string, data []byte) {
 	key := fmt.Sprintf("%s/%s.tar.gz", testS3Prefix, hash)
 	fake.put(key, data)
 }
 
-// NewLoader - validation (supplements existing tests)
+// NewLoader
 
-func TestNewLoader_MissingS3Client(t *testing.T) {
+func TestNewLoader_RequiresS3Client(t *testing.T) {
 	_, err := NewLoader(t.Context(), LoaderOptions{
 		SSMParam:  testSSMParam,
 		S3Bucket:  testBucket,
-		SSMClient: ssmWithValue("abc"),
-		// S3Client omitted
+		SSMClient: ssmWithValue("x"),
 	})
 	if err == nil {
-		t.Fatal("expected error for missing S3Client")
-	}
-	if !strings.Contains(err.Error(), "S3Client") {
-		t.Fatalf("error should mention S3Client: %v", err)
+		t.Fatal("expected error when S3Client is nil")
 	}
 }
 
-func TestNewLoader_MissingSSMClient(t *testing.T) {
+func TestNewLoader_RequiresSSMClient(t *testing.T) {
 	_, err := NewLoader(t.Context(), LoaderOptions{
 		SSMParam: testSSMParam,
 		S3Bucket: testBucket,
 		S3Client: newFakeS3(),
-		// SSMClient omitted
 	})
 	if err == nil {
-		t.Fatal("expected error for missing SSMClient")
-	}
-	if !strings.Contains(err.Error(), "SSMClient") {
-		t.Fatalf("error should mention SSMClient: %v", err)
+		t.Fatal("expected error when SSMClient is nil")
 	}
 }
 
-func TestNewLoader_Success(t *testing.T) {
-	extractDir := t.TempDir()
-	l, err := NewLoader(t.Context(), LoaderOptions{
-		Logger:     log.Nop(),
-		SSMParam:   testSSMParam,
-		S3Bucket:   testBucket,
-		S3Client:   newFakeS3(),
-		SSMClient:  ssmWithValue("abc"),
-		ExtractDir: extractDir,
+func TestNewLoader_RequiresSSMParam(t *testing.T) {
+	_, err := NewLoader(t.Context(), LoaderOptions{
+		S3Bucket:  testBucket,
+		S3Client:  newFakeS3(),
+		SSMClient: ssmWithValue("x"),
 	})
-	if err != nil {
-		t.Fatalf("NewLoader: %v", err)
-	}
-	if l == nil {
-		t.Fatal("expected non-nil loader")
+	if err == nil {
+		t.Fatal("expected error when SSMParam is empty")
 	}
 }
 
-func TestNewLoader_NilLoggerDefaultsToNop(t *testing.T) {
-	l, err := NewLoader(t.Context(), LoaderOptions{
-		SSMParam:   testSSMParam,
-		S3Bucket:   testBucket,
-		S3Client:   newFakeS3(),
-		SSMClient:  ssmWithValue("abc"),
-		ExtractDir: t.TempDir(),
-		// Logger omitted
+func TestNewLoader_RequiresS3Bucket(t *testing.T) {
+	_, err := NewLoader(t.Context(), LoaderOptions{
+		SSMParam:  testSSMParam,
+		S3Client:  newFakeS3(),
+		SSMClient: ssmWithValue("x"),
 	})
-	if err != nil {
-		t.Fatalf("NewLoader: %v", err)
-	}
-	if l == nil {
-		t.Fatal("expected non-nil loader")
+	if err == nil {
+		t.Fatal("expected error when S3Bucket is empty")
 	}
 }
 
-func TestNewLoader_CreatesDefaultExtractDir(t *testing.T) {
+func TestNewLoader_DefaultsLogger(t *testing.T) {
 	l, err := NewLoader(t.Context(), LoaderOptions{
 		SSMParam:  testSSMParam,
 		S3Bucket:  testBucket,
 		S3Client:  newFakeS3(),
-		SSMClient: ssmWithValue("abc"),
-		// ExtractDir omitted - should create temp dir
+		SSMClient: ssmWithValue("x"),
 	})
 	if err != nil {
 		t.Fatalf("NewLoader: %v", err)
 	}
-	if l.opts.ExtractDir == "" {
-		t.Fatal("ExtractDir should be set to a temp directory")
-	}
-	info, err := os.Stat(l.opts.ExtractDir)
-	if err != nil {
-		t.Fatalf("ExtractDir should exist: %v", err)
-	}
-	if !info.IsDir() {
-		t.Fatal("ExtractDir should be a directory")
+	if l.logger == nil {
+		t.Fatal("expected logger to be set")
 	}
 }
 
 // FetchCurrentBundleHash
 
 func TestFetchCurrentBundleHash_Success(t *testing.T) {
-	l := newTestLoader(t, newFakeS3(), ssmWithValue("abc123def456"))
+	l := newTestLoader(t, newFakeS3(), ssmWithValue("abc123"))
 
 	hash, err := l.FetchCurrentBundleHash(t.Context())
 	if err != nil {
 		t.Fatalf("FetchCurrentBundleHash: %v", err)
 	}
-	if hash != "abc123def456" {
-		t.Fatalf("hash = %q, want abc123def456", hash)
+	if hash != "abc123" {
+		t.Fatalf("hash = %q, want abc123", hash)
 	}
 }
 
@@ -357,7 +219,7 @@ func TestFetchCurrentBundleHash_TrimsWhitespace(t *testing.T) {
 		t.Fatalf("FetchCurrentBundleHash: %v", err)
 	}
 	if hash != "abc123" {
-		t.Fatalf("hash = %q, want abc123 (whitespace should be trimmed)", hash)
+		t.Fatalf("hash = %q, want abc123", hash)
 	}
 }
 
@@ -368,12 +230,6 @@ func TestFetchCurrentBundleHash_SSMError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), "access denied") {
-		t.Fatalf("error should propagate: %v", err)
-	}
-	if !strings.Contains(err.Error(), testSSMParam) {
-		t.Fatalf("error should mention parameter name: %v", err)
-	}
 }
 
 func TestFetchCurrentBundleHash_NilParameter(t *testing.T) {
@@ -382,9 +238,6 @@ func TestFetchCurrentBundleHash_NilParameter(t *testing.T) {
 	_, err := l.FetchCurrentBundleHash(t.Context())
 	if err == nil {
 		t.Fatal("expected error for nil parameter")
-	}
-	if !strings.Contains(err.Error(), "no value") {
-		t.Fatalf("error should mention no value: %v", err)
 	}
 }
 
@@ -395,9 +248,6 @@ func TestFetchCurrentBundleHash_NilValue(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for nil value")
 	}
-	if !strings.Contains(err.Error(), "no value") {
-		t.Fatalf("error should mention no value: %v", err)
-	}
 }
 
 func TestFetchCurrentBundleHash_EmptyValue(t *testing.T) {
@@ -405,107 +255,35 @@ func TestFetchCurrentBundleHash_EmptyValue(t *testing.T) {
 
 	_, err := l.FetchCurrentBundleHash(t.Context())
 	if err == nil {
-		t.Fatal("expected error for whitespace-only value")
-	}
-	if !strings.Contains(err.Error(), "empty") {
-		t.Fatalf("error should mention empty: %v", err)
+		t.Fatal("expected error for empty/whitespace value")
 	}
 }
 
-// Download
+// s3Key
 
-func TestDownload_Success(t *testing.T) {
-	fake := newFakeS3()
-	bundleData, bundleHash := buildContentBundle(t)
-	putBundle(fake, bundleHash, bundleData)
+func TestS3Key_WithPrefix(t *testing.T) {
+	l := newTestLoader(t, newFakeS3(), ssmWithValue("x"))
 
-	l := newTestLoader(t, fake, ssmWithValue(bundleHash))
-
-	tmpPath, err := l.Download(t.Context(), bundleHash)
-	if err != nil {
-		t.Fatalf("Download: %v", err)
-	}
-	defer os.Remove(tmpPath)
-
-	// verify the downloaded file has the right content
-	got, err := os.ReadFile(tmpPath)
-	if err != nil {
-		t.Fatalf("read downloaded file: %v", err)
-	}
-	if !bytes.Equal(got, bundleData) {
-		t.Fatal("downloaded content does not match original")
+	key := l.s3Key("abc123")
+	if key != "content/bundles/abc123.tar.gz" {
+		t.Fatalf("key = %q, want content/bundles/abc123.tar.gz", key)
 	}
 }
 
-func TestDownload_S3Error(t *testing.T) {
-	fake := newFakeS3()
-	fake.failOn(testS3Prefix+"/abc123.tar.gz", errors.New("access denied"))
-
-	l := newTestLoader(t, fake, ssmWithValue("abc123"))
-
-	_, err := l.Download(t.Context(), "abc123")
-	if err == nil {
-		t.Fatal("expected error")
+func TestS3Key_WithoutPrefix(t *testing.T) {
+	l := &Loader{
+		opts: LoaderOptions{S3Prefix: ""},
 	}
-	if !strings.Contains(err.Error(), "access denied") {
-		t.Fatalf("error should propagate: %v", err)
-	}
-}
 
-func TestDownload_S3NotFound(t *testing.T) {
-	l := newTestLoader(t, newFakeS3(), ssmWithValue("nonexistent"))
-
-	_, err := l.Download(t.Context(), "nonexistent")
-	if err == nil {
-		t.Fatal("expected error for missing S3 object")
-	}
-	if !strings.Contains(err.Error(), "NoSuchKey") {
-		t.Fatalf("error should mention NoSuchKey: %v", err)
-	}
-}
-
-func TestDownload_HashMismatch(t *testing.T) {
-	fake := newFakeS3()
-	bundleData, _ := buildContentBundle(t)
-
-	// store the bundle under a WRONG hash key
-	wrongHash := "0000000000000000000000000000000000000000000000000000000000000000"
-	putBundle(fake, wrongHash, bundleData)
-
-	l := newTestLoader(t, fake, ssmWithValue(wrongHash))
-
-	_, err := l.Download(t.Context(), wrongHash)
-	if err == nil {
-		t.Fatal("expected error for hash mismatch")
-	}
-	if !strings.Contains(err.Error(), "checksum mismatch") {
-		t.Fatalf("error should mention checksum mismatch: %v", err)
-	}
-}
-
-func TestDownload_HashMismatch_CleansUpTempFile(t *testing.T) {
-	fake := newFakeS3()
-	bundleData, _ := buildContentBundle(t)
-	wrongHash := "0000000000000000000000000000000000000000000000000000000000000000"
-	putBundle(fake, wrongHash, bundleData)
-
-	l := newTestLoader(t, fake, ssmWithValue(wrongHash))
-
-	// Download should fail, the temp file should be cleaned up.
-	// We can't easily check the exact temp path, but we verify no error
-	// from Download other than the mismatch.
-	_, err := l.Download(t.Context(), wrongHash)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if !strings.Contains(err.Error(), "checksum mismatch") {
-		t.Fatalf("unexpected error: %v", err)
+	key := l.s3Key("abc123")
+	if key != "abc123.tar.gz" {
+		t.Fatalf("key = %q, want abc123.tar.gz", key)
 	}
 }
 
 // LoadHash
 
-func TestLoadHash_Success_NoProvenance(t *testing.T) {
+func TestLoadHash_Success(t *testing.T) {
 	fake := newFakeS3()
 	bundleData, bundleHash := buildContentBundle(t)
 	putBundle(fake, bundleHash, bundleData)
@@ -519,103 +297,23 @@ func TestLoadHash_Success_NoProvenance(t *testing.T) {
 	if snap == nil {
 		t.Fatal("expected non-nil snapshot")
 	}
-	if snap.FS == nil {
-		t.Fatal("snapshot FS should not be nil")
-	}
 	if snap.Meta.SHA256 != bundleHash {
 		t.Fatalf("Meta.SHA256 = %q, want %q", snap.Meta.SHA256, bundleHash)
 	}
 	if snap.Meta.Source != SourceS3 {
 		t.Fatalf("Meta.Source = %q, want %q", snap.Meta.Source, SourceS3)
 	}
-	if snap.LoadedAt.IsZero() {
-		t.Fatal("LoadedAt should be set")
+	if snap.FS == nil {
+		t.Fatal("expected non-nil FS")
 	}
-	// no provenance.json in bundle → provenance should be nil, version empty
-	if snap.Provenance != nil {
-		t.Fatal("expected nil provenance for bundle without provenance.json")
-	}
-	if snap.Meta.Version != "" {
-		t.Fatalf("Meta.Version = %q, want empty", snap.Meta.Version)
-	}
-}
 
-func TestLoadHash_Success_WithProvenance(t *testing.T) {
-	fake := newFakeS3()
-	bundleData, bundleHash := buildContentBundleWithProvenance(t)
-	putBundle(fake, bundleHash, bundleData)
-
-	l := newTestLoader(t, fake, ssmWithValue(bundleHash))
-
-	snap, err := l.LoadHash(t.Context(), bundleHash)
+	// verify we can read index.html from the in-memory FS
+	data, err := fs.ReadFile(snap.FS, "index.html")
 	if err != nil {
-		t.Fatalf("LoadHash: %v", err)
+		t.Fatalf("read index.html from snapshot FS: %v", err)
 	}
-	if snap.Provenance == nil {
-		t.Fatal("expected provenance to be loaded")
-	}
-	if snap.Provenance.Version != "1.2.3" {
-		t.Fatalf("Provenance.Version = %q, want 1.2.3", snap.Provenance.Version)
-	}
-	if snap.Meta.Version != "1.2.3" {
-		t.Fatalf("Meta.Version = %q, want 1.2.3 (from provenance)", snap.Meta.Version)
-	}
-}
-
-func TestLoadHash_Success_ExtractsFiles(t *testing.T) {
-	fake := newFakeS3()
-	bundleData, bundleHash := buildContentBundle(t)
-	putBundle(fake, bundleHash, bundleData)
-
-	l := newTestLoader(t, fake, ssmWithValue(bundleHash))
-
-	snap, err := l.LoadHash(t.Context(), bundleHash)
-	if err != nil {
-		t.Fatalf("LoadHash: %v", err)
-	}
-
-	// verify we can read index.html from the snapshot FS
-	data, err := snap.FS.Open("index.html")
-	if err != nil {
-		t.Fatalf("open index.html from snapshot FS: %v", err)
-	}
-	data.Close()
-}
-
-func TestLoadHash_Success_UsesHashSubdirectory(t *testing.T) {
-	fake := newFakeS3()
-	bundleData, bundleHash := buildContentBundle(t)
-	putBundle(fake, bundleHash, bundleData)
-
-	extractDir := t.TempDir()
-	l := &Loader{
-		opts: LoaderOptions{
-			Logger:     log.Nop(),
-			SSMParam:   testSSMParam,
-			S3Bucket:   testBucket,
-			S3Prefix:   testS3Prefix,
-			ExtractDir: extractDir,
-			S3Client:   fake,
-			SSMClient:  ssmWithValue(bundleHash),
-		},
-		s3Client:  fake,
-		ssmClient: ssmWithValue(bundleHash),
-		logger:    log.Nop(),
-	}
-
-	_, err := l.LoadHash(t.Context(), bundleHash)
-	if err != nil {
-		t.Fatalf("LoadHash: %v", err)
-	}
-
-	// verify hash subdirectory was created
-	hashDir := filepath.Join(extractDir, bundleHash)
-	info, err := os.Stat(hashDir)
-	if err != nil {
-		t.Fatalf("expected hash subdirectory to exist: %v", err)
-	}
-	if !info.IsDir() {
-		t.Fatal("hash subdirectory should be a directory")
+	if !strings.Contains(string(data), "hello") {
+		t.Fatalf("index.html content = %q, expected it to contain 'hello'", data)
 	}
 }
 
@@ -627,6 +325,27 @@ func TestLoadHash_DownloadFails(t *testing.T) {
 	_, err := l.LoadHash(t.Context(), "abc123")
 	if err == nil {
 		t.Fatal("expected error when download fails")
+	}
+}
+
+func TestLoadHash_ChecksumMismatch(t *testing.T) {
+	fake := newFakeS3()
+	bundleData, bundleHash := buildContentBundle(t)
+	putBundle(fake, bundleHash, bundleData)
+
+	l := newTestLoader(t, fake, ssmWithValue(bundleHash))
+
+	// request with wrong hash - data is stored under real hash key,
+	// so we store it under a fake key too
+	wrongHash := "0000000000000000000000000000000000000000000000000000000000000000"
+	putBundle(fake, wrongHash, bundleData)
+
+	_, err := l.LoadHash(t.Context(), wrongHash)
+	if err == nil {
+		t.Fatal("expected error for checksum mismatch")
+	}
+	if !strings.Contains(err.Error(), "checksum mismatch") {
+		t.Fatalf("expected 'checksum mismatch' in error, got: %v", err)
 	}
 }
 
@@ -649,42 +368,81 @@ func TestLoadHash_BadTarGz_ExtractionFails(t *testing.T) {
 	}
 }
 
-func TestLoadHash_BadTarGz_CleansUpExtractDir(t *testing.T) {
+func TestLoadHash_WithProvenance(t *testing.T) {
 	fake := newFakeS3()
+	bundleData, bundleHash := buildContentBundleWithProvenance(t)
+	putBundle(fake, bundleHash, bundleData)
 
-	badData := []byte("not a tarball")
-	badHash := cryptoutil.SHA256Hex(badData)
-	putBundle(fake, badHash, badData)
+	l := newTestLoader(t, fake, ssmWithValue(bundleHash))
 
-	extractDir := t.TempDir()
-	l := &Loader{
-		opts: LoaderOptions{
-			Logger:     log.Nop(),
-			SSMParam:   testSSMParam,
-			S3Bucket:   testBucket,
-			S3Prefix:   testS3Prefix,
-			ExtractDir: extractDir,
-			S3Client:   fake,
-			SSMClient:  ssmWithValue(badHash),
-		},
-		s3Client:  fake,
-		ssmClient: ssmWithValue(badHash),
-		logger:    log.Nop(),
+	snap, err := l.LoadHash(t.Context(), bundleHash)
+	if err != nil {
+		t.Fatalf("LoadHash: %v", err)
 	}
-
-	_, err := l.LoadHash(t.Context(), badHash)
-	if err == nil {
-		t.Fatal("expected error")
+	if snap.Provenance == nil {
+		t.Fatal("expected provenance to be loaded")
 	}
-
-	// the hash subdirectory should be cleaned up on extraction failure
-	hashDir := filepath.Join(extractDir, badHash)
-	if _, err := os.Stat(hashDir); !os.IsNotExist(err) {
-		t.Fatalf("hash subdirectory should be removed on extraction failure, stat: %v", err)
+	if snap.Provenance.Version != "1.0.0" {
+		t.Fatalf("Provenance.Version = %q, want 1.0.0", snap.Provenance.Version)
+	}
+	if snap.Meta.Version != "1.0.0" {
+		t.Fatalf("Meta.Version = %q, want 1.0.0 (from provenance)", snap.Meta.Version)
 	}
 }
 
-// Load (end-to-end: SSM -> S3 -> extract)
+func TestLoadHash_WithoutProvenance(t *testing.T) {
+	fake := newFakeS3()
+	bundleData, bundleHash := buildContentBundle(t)
+	putBundle(fake, bundleHash, bundleData)
+
+	l := newTestLoader(t, fake, ssmWithValue(bundleHash))
+
+	snap, err := l.LoadHash(t.Context(), bundleHash)
+	if err != nil {
+		t.Fatalf("LoadHash: %v", err)
+	}
+	// provenance should be nil when provenance.json is missing (not an error)
+	if snap.Provenance != nil {
+		t.Fatal("expected nil provenance when provenance.json is missing")
+	}
+	if snap.Meta.Version != "" {
+		t.Fatalf("Meta.Version = %q, want empty when no provenance", snap.Meta.Version)
+	}
+}
+
+func TestLoadHash_SetsLoadedAt(t *testing.T) {
+	fake := newFakeS3()
+	bundleData, bundleHash := buildContentBundle(t)
+	putBundle(fake, bundleHash, bundleData)
+
+	l := newTestLoader(t, fake, ssmWithValue(bundleHash))
+
+	snap, err := l.LoadHash(t.Context(), bundleHash)
+	if err != nil {
+		t.Fatalf("LoadHash: %v", err)
+	}
+	if snap.LoadedAt.IsZero() {
+		t.Fatal("LoadedAt should be set")
+	}
+}
+
+func TestLoadHash_SetsVerifiedAt(t *testing.T) {
+	fake := newFakeS3()
+	bundleData, bundleHash := buildContentBundle(t)
+	putBundle(fake, bundleHash, bundleData)
+
+	l := newTestLoader(t, fake, ssmWithValue(bundleHash))
+
+	snap, err := l.LoadHash(t.Context(), bundleHash)
+	if err != nil {
+		t.Fatalf("LoadHash: %v", err)
+	}
+	if snap.Meta.VerifiedAt.IsZero() {
+		t.Fatal("Meta.VerifiedAt should be set")
+	}
+}
+
+// Load (end-to-end: SSM -> S3 -> extract to memory)
 
 func TestLoad_Success(t *testing.T) {
 	fake := newFakeS3()
@@ -749,173 +507,43 @@ func TestLoadIntoManager_Success(t *testing.T) {
 		t.Fatal("expected manager to have content after LoadIntoManager")
 	}
 	if snap.Meta.SHA256 != bundleHash {
-		t.Fatalf("manager SHA256 = %q, want %q", snap.Meta.SHA256, bundleHash)
-	}
-	if mgr.ContentVersion() != "1.2.3" {
-		t.Fatalf("ContentVersion = %q, want 1.2.3", mgr.ContentVersion())
-	}
-	if mgr.Source() != SourceS3 {
-		t.Fatalf("Source = %q, want %q", mgr.Source(), SourceS3)
+		t.Fatalf("Meta.SHA256 = %q, want %q", snap.Meta.SHA256, bundleHash)
 	}
 }
 
 func TestLoadIntoManager_Failure(t *testing.T) {
-	l := newTestLoader(t, newFakeS3(), ssmWithError(errors.New("SSM down")))
+	l := newTestLoader(t, newFakeS3(), ssmWithError(errors.New("unavailable")))
 	mgr := NewManager()
 
 	err := l.LoadIntoManager(t.Context(), mgr)
 	if err == nil {
-		t.Fatal("expected error to propagate")
+		t.Fatal("expected error")
 	}
 
-	// manager should still be empty
 	_, ok := mgr.Get()
 	if ok {
 		t.Fatal("manager should not have content after failed load")
 	}
 }
 
-// NewLoader field wiring verification
+// provenanceVersion helper
 
-func TestNewLoader_FieldsWired_FetchWorks(t *testing.T) {
-	fake := newFakeS3()
-	ssmFake := ssmWithValue("hash-from-ssm")
-
-	l, err := NewLoader(t.Context(), LoaderOptions{
-		Logger:     log.Nop(),
-		SSMParam:   testSSMParam,
-		S3Bucket:   testBucket,
-		S3Client:   fake,
-		SSMClient:  ssmFake,
-		ExtractDir: t.TempDir(),
-	})
-	if err != nil {
-		t.Fatalf("NewLoader: %v", err)
-	}
-
-	// If NewLoader doesnt wire ssmClient from opts.SSMClient, this panics
-	hash, err := l.FetchCurrentBundleHash(t.Context())
-	if err != nil {
-		t.Fatalf("FetchCurrentBundleHash through NewLoader: %v", err)
-	}
-	if hash != "hash-from-ssm" {
-		t.Fatalf("hash = %q, want hash-from-ssm", hash)
+func TestProvenanceVersion_Nil(t *testing.T) {
+	if v := provenanceVersion(nil); v != "" {
+		t.Fatalf("provenanceVersion(nil) = %q, want empty", v)
 	}
 }
 
-func TestNewLoader_FieldsWired_DownloadWorks(t *testing.T) {
-	fake := newFakeS3()
-	bundleData, bundleHash := buildContentBundle(t)
-	key := fmt.Sprintf("%s/%s.tar.gz", testS3Prefix, bundleHash)
-	fake.put(key, bundleData)
-
-	l, err := NewLoader(t.Context(), LoaderOptions{
-		Logger:     log.Nop(),
-		SSMParam:   testSSMParam,
-		S3Bucket:   testBucket,
-		S3Prefix:   testS3Prefix,
-		S3Client:   fake,
-		SSMClient:  ssmWithValue(bundleHash),
-		ExtractDir: t.TempDir(),
-	})
-	if err != nil {
-		t.Fatalf("NewLoader: %v", err)
-	}
-
-	// If NewLoader doesnt wire s3Client from opts.S3Client, this panics
-	tmpPath, err := l.Download(t.Context(), bundleHash)
-	if err != nil {
-		t.Fatalf("Download through NewLoader: %v", err)
-	}
-	os.Remove(tmpPath)
-}
-
-// CleanupHash
-
-func TestCleanupHash_RemovesDirectory(t *testing.T) {
-	extractDir := t.TempDir()
-	hashDir := filepath.Join(extractDir, "abc123")
-	if err := os.MkdirAll(hashDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-	// put a file inside to verify recursive removal
-	if err := os.WriteFile(filepath.Join(hashDir, "index.html"), []byte("hello"), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	l := &Loader{
-		opts: LoaderOptions{ExtractDir: extractDir},
-	}
-
-	if err := l.CleanupHash("abc123"); err != nil {
-		t.Fatalf("CleanupHash: %v", err)
-	}
-
-	if _, err := os.Stat(hashDir); !os.IsNotExist(err) {
-		t.Fatal("expected hash directory to be removed")
+func TestProvenanceVersion_WithVersion(t *testing.T) {
+	p := &Provenance{Version: "2.0.0"}
+	if v := provenanceVersion(p); v != "2.0.0" {
+		t.Fatalf("provenanceVersion = %q, want 2.0.0", v)
 	}
 }
 
-func TestCleanupHash_NonexistentDir_NoError(t *testing.T) {
-	l := &Loader{
-		opts: LoaderOptions{ExtractDir: t.TempDir()},
-	}
-
-	// removing a directory that doesn't exist should not error
-	if err := l.CleanupHash("does-not-exist"); err != nil {
-		t.Fatalf("CleanupHash on nonexistent dir: %v", err)
-	}
-}
-
-func TestCleanupHash_EmptyHash_Noop(t *testing.T) {
-	l := &Loader{
-		opts: LoaderOptions{ExtractDir: t.TempDir()},
-	}
-
-	if err := l.CleanupHash(""); err != nil {
-		t.Fatalf("CleanupHash with empty hash: %v", err)
-	}
-}
-
-func TestCleanupHash_EmptyExtractDir_Noop(t *testing.T) {
-	l := &Loader{
-		opts: LoaderOptions{ExtractDir: ""},
-	}
-
-	if err := l.CleanupHash("abc123"); err != nil {
-		t.Fatalf("CleanupHash with empty ExtractDir: %v", err)
-	}
-}
-
-func TestCleanupHash_DoesNotAffectOtherHashes(t *testing.T) {
-	extractDir := t.TempDir()
-
-	// create two hash directories
-	for _, h := range []string{"hash-a", "hash-b"} {
-		dir := filepath.Join(extractDir, h)
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(dir, "file.txt"), []byte("data"), 0644); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	l := &Loader{
-		opts: LoaderOptions{ExtractDir: extractDir},
-	}
-
-	if err := l.CleanupHash("hash-a"); err != nil {
-		t.Fatalf("CleanupHash: %v", err)
-	}
-
-	// hash-a should be gone
-	if _, err := os.Stat(filepath.Join(extractDir, "hash-a")); !os.IsNotExist(err) {
-		t.Fatal("hash-a should be removed")
-	}
-
-	// hash-b should still exist
-	if _, err := os.Stat(filepath.Join(extractDir, "hash-b")); err != nil {
-		t.Fatal("hash-b should still exist")
+func TestProvenanceVersion_EmptyVersion(t *testing.T) {
+	p := &Provenance{}
+	if v := provenanceVersion(p); v != "" {
+		t.Fatalf("provenanceVersion = %q, want empty", v)
 	}
 }

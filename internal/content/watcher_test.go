@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"os"
-	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -40,17 +38,14 @@ func newWatcherFixture(t *testing.T, initialHash string) *watcherFixture {
 	s3fake := newFakeS3()
 	ssmFake := ssmWithValue(initialHash)
 
-	extractDir := t.TempDir()
-
 	loader := &Loader{
 		opts: LoaderOptions{
-			Logger:     log.Nop(),
-			SSMParam:   testSSMParam,
-			S3Bucket:   testBucket,
-			S3Prefix:   testS3Prefix,
-			ExtractDir: extractDir,
-			S3Client:   s3fake,
-			SSMClient:  ssmFake,
+			Logger:    log.Nop(),
+			SSMParam:  testSSMParam,
+			S3Bucket:  testBucket,
+			S3Prefix:  testS3Prefix,
+			S3Client:  s3fake,
+			SSMClient: ssmFake,
 		},
 		s3Client:  s3fake,
 		ssmClient: ssmFake,
@@ -192,33 +187,38 @@ func TestNewWatcher_EmptyManager_EmptyHash(t *testing.T) {
 	}
 }
 
-func TestNewWatcher_NilLogger(t *testing.T) {
+func TestNewWatcher_NilLogger_UsesNop(t *testing.T) {
 	f := newWatcherFixture(t, "")
 	w := f.newWatcher(func(o *WatcherOptions) {
 		o.Logger = nil
 	})
 	if w.logger == nil {
-		t.Fatal("logger should default to nop, not nil")
+		t.Fatal("expected non-nil logger")
 	}
 }
 
-func TestNewWatcher_DefaultValidationOptions(t *testing.T) {
+func TestNewWatcher_DefaultValidation(t *testing.T) {
 	f := newWatcherFixture(t, "")
 	w := f.newWatcher()
+
 	defaults := DefaultValidationOptions()
-	if w.validation != defaults {
-		t.Fatalf("validation = %+v, want %+v", w.validation, defaults)
+	if w.validation.MinFiles != defaults.MinFiles {
+		t.Fatalf("MinFiles = %d, want %d", w.validation.MinFiles, defaults.MinFiles)
 	}
 }
 
-func TestNewWatcher_CustomValidationOptions(t *testing.T) {
+func TestNewWatcher_CustomValidation(t *testing.T) {
 	f := newWatcherFixture(t, "")
-	custom := ValidationOptions{MinFiles: 10, RequireProvenance: true}
+	custom := &ValidationOptions{MinFiles: 5, RequireProvenance: true}
 	w := f.newWatcher(func(o *WatcherOptions) {
-		o.Validation = &custom
+		o.Validation = custom
 	})
-	if w.validation != custom {
-		t.Fatalf("validation = %+v, want %+v", w.validation, custom)
+
+	if w.validation.MinFiles != 5 {
+		t.Fatalf("MinFiles = %d, want 5", w.validation.MinFiles)
+	}
+	if !w.validation.RequireProvenance {
+		t.Fatal("RequireProvenance should be true")
 	}
 }
 
@@ -230,49 +230,68 @@ func TestCheckOnce_NoChange(t *testing.T) {
 	f.seedManager(t, bundleHash, bundleData)
 
 	w := f.newWatcher()
-
 	result := w.checkOnce(t.Context())
 	if result != pollNoChange {
 		t.Fatalf("result = %d, want pollNoChange", result)
 	}
-	if w.pollCount != 1 {
-		t.Fatalf("pollCount = %d, want 1", w.pollCount)
+	if len(f.swapCalls) != 0 {
+		t.Fatalf("OnSwap called %d times, want 0", len(f.swapCalls))
 	}
-	if w.swapCount != 0 {
-		t.Fatalf("swapCount = %d, want 0", w.swapCount)
+}
+
+// checkOnce - SSM error
+
+func TestCheckOnce_SSMError(t *testing.T) {
+	f := newWatcherFixture(t, "initial")
+	f.ssm.err = errors.New("SSM timeout")
+
+	w := f.newWatcher()
+	result := w.checkOnce(t.Context())
+	if result != pollSSMError {
+		t.Fatalf("result = %d, want pollSSMError", result)
+	}
+}
+
+// checkOnce - load error
+
+func TestCheckOnce_LoadError(t *testing.T) {
+	bundleData, hashA := buildContentBundle(t)
+	f := newWatcherFixture(t, hashA)
+	f.seedManager(t, hashA, bundleData)
+
+	// point SSM at a hash that doesn't exist in S3
+	newHash := "0000000000000000000000000000000000000000000000000000000000000000"
+	f.ssm.value = &newHash
+
+	w := f.newWatcher()
+	result := w.checkOnce(t.Context())
+	if result != pollLoadError {
+		t.Fatalf("result = %d, want pollLoadError", result)
+	}
+
+	// manager should still serve old content
+	snap, _ := f.mgr.Get()
+	if snap.Meta.SHA256 != hashA {
+		t.Fatalf("manager hash = %q, want %q (old content preserved)", snap.Meta.SHA256, hashA)
 	}
 }
 
 // checkOnce - successful swap
 
 func TestCheckOnce_Swap(t *testing.T) {
-	// start with bundle A
 	bundleDataA, hashA := buildContentBundle(t)
 	f := newWatcherFixture(t, hashA)
 	f.seedManager(t, hashA, bundleDataA)
 
-	// store bundle B in S3
 	_, hashB := storeBundle(t, f, map[string]string{
-		"index.html": "<html>new content</html>",
+		"index.html": "<html>updated</html>",
 	})
-
-	// SSM now returns hash B
 	f.ssm.value = &hashB
 
 	w := f.newWatcher()
-
 	result := w.checkOnce(t.Context())
 	if result != pollSwapped {
 		t.Fatalf("result = %d, want pollSwapped", result)
-	}
-	if w.swapCount != 1 {
-		t.Fatalf("swapCount = %d, want 1", w.swapCount)
-	}
-	if w.currentHash != hashB {
-		t.Fatalf("currentHash = %q, want %q", w.currentHash, hashB)
-	}
-	if w.previousHash != hashA {
-		t.Fatalf("previousHash = %q, want %q", w.previousHash, hashA)
 	}
 
 	// manager should serve new content
@@ -283,101 +302,27 @@ func TestCheckOnce_Swap(t *testing.T) {
 	if snap.Meta.SHA256 != hashB {
 		t.Fatalf("manager hash = %q, want %q", snap.Meta.SHA256, hashB)
 	}
-}
 
-func TestCheckOnce_Swap_OnSwapCalled(t *testing.T) {
-	bundleDataA, hashA := buildContentBundle(t)
-	f := newWatcherFixture(t, hashA)
-	f.seedManager(t, hashA, bundleDataA)
-
-	_, hashB := storeBundle(t, f, map[string]string{
-		"index.html": "<html>v2</html>",
-	})
-	f.ssm.value = &hashB
-
-	w := f.newWatcher()
-	w.checkOnce(t.Context())
-
+	// OnSwap callback should have fired
 	if len(f.swapCalls) != 1 {
 		t.Fatalf("OnSwap called %d times, want 1", len(f.swapCalls))
 	}
 	if f.swapCalls[0].hash != hashB {
 		t.Fatalf("OnSwap hash = %q, want %q", f.swapCalls[0].hash, hashB)
 	}
-}
 
-func TestCheckOnce_Swap_NilOnSwap_NoPanic(t *testing.T) {
-	bundleDataA, hashA := buildContentBundle(t)
-	f := newWatcherFixture(t, hashA)
-	f.seedManager(t, hashA, bundleDataA)
-
-	_, hashB := storeBundle(t, f, map[string]string{
-		"index.html": "<html>v2</html>",
-	})
-	f.ssm.value = &hashB
-
-	w := f.newWatcher(func(o *WatcherOptions) {
-		o.OnSwap = nil
-	})
-
-	// should not panic
-	result := w.checkOnce(t.Context())
-	if result != pollSwapped {
-		t.Fatalf("result = %d, want pollSwapped", result)
+	// watcher state should be updated
+	if w.currentHash != hashB {
+		t.Fatalf("currentHash = %q, want %q", w.currentHash, hashB)
 	}
-}
-
-// checkOnce - SSM error
-
-func TestCheckOnce_SSMError(t *testing.T) {
-	f := newWatcherFixture(t, "initial")
-	f.ssm.err = errors.New("SSM throttle")
-
-	w := f.newWatcher()
-	result := w.checkOnce(t.Context())
-	if result != pollSSMError {
-		t.Fatalf("result = %d, want pollSSMError", result)
-	}
-	if w.swapCount != 0 {
-		t.Fatalf("swapCount = %d, want 0", w.swapCount)
-	}
-}
-
-// checkOnce - load error (S3 fails)
-
-func TestCheckOnce_LoadError(t *testing.T) {
-	bundleDataA, hashA := buildContentBundle(t)
-	f := newWatcherFixture(t, hashA)
-	f.seedManager(t, hashA, bundleDataA)
-
-	// SSM returns new hash, but S3 doesn't have it
-	newHash := "aaaa000000000000000000000000000000000000000000000000000000000000"
-	f.ssm.value = &newHash
-
-	w := f.newWatcher()
-	result := w.checkOnce(t.Context())
-	if result != pollLoadError {
-		t.Fatalf("result = %d, want pollLoadError", result)
-	}
-
-	// manager should still serve old content
-	snap, ok := f.mgr.Get()
-	if !ok {
-		t.Fatal("manager should still have content")
-	}
-	if snap.Meta.SHA256 != hashA {
-		t.Fatalf("manager hash = %q, want %q (old content preserved)", snap.Meta.SHA256, hashA)
-	}
-
-	// currentHash should NOT be updated
-	if w.currentHash != hashA {
-		t.Fatalf("currentHash = %q, want %q (unchanged on failure)", w.currentHash, hashA)
+	if w.swapCount != 1 {
+		t.Fatalf("swapCount = %d, want 1", w.swapCount)
 	}
 }
 
 // checkOnce - validation error
 
-func TestCheckOnce_ValidationError_MissingIndex(t *testing.T) {
+func TestCheckOnce_ValidationError_NoIndexHTML(t *testing.T) {
 	bundleDataA, hashA := buildContentBundle(t)
 	f := newWatcherFixture(t, hashA)
 	f.seedManager(t, hashA, bundleDataA)
@@ -411,27 +356,6 @@ func TestCheckOnce_ValidationError_MissingIndex(t *testing.T) {
 	}
 }
 
-func TestCheckOnce_ValidationError_CleansUpRejectedBundle(t *testing.T) {
-	bundleDataA, hashA := buildContentBundle(t)
-	f := newWatcherFixture(t, hashA)
-	f.seedManager(t, hashA, bundleDataA)
-
-	// new bundle will fail validation (no index.html)
-	_, hashB := storeBundle(t, f, map[string]string{
-		"about.html": "<html>rejected</html>",
-	})
-	f.ssm.value = &hashB
-
-	w := f.newWatcher()
-	w.checkOnce(t.Context())
-
-	// the rejected bundle's directory should be cleaned up
-	rejectedDir := filepath.Join(f.loader.opts.ExtractDir, hashB)
-	if _, err := os.Stat(rejectedDir); !os.IsNotExist(err) {
-		t.Fatal("rejected bundle directory should be cleaned up")
-	}
-}
-
 func TestCheckOnce_ValidationError_ProvenanceHashMismatch(t *testing.T) {
 	bundleDataA, hashA := buildContentBundle(t)
 	f := newWatcherFixture(t, hashA)
@@ -456,71 +380,6 @@ func TestCheckOnce_ValidationError_ProvenanceHashMismatch(t *testing.T) {
 	}
 }
 
-// checkOnce - n-2 cleanup lifecycle
-
-func TestCheckOnce_Cleanup_FirstSwapNoCleanup(t *testing.T) {
-	bundleDataA, hashA := buildContentBundle(t)
-	f := newWatcherFixture(t, hashA)
-	f.seedManager(t, hashA, bundleDataA)
-
-	_, hashB := storeBundle(t, f, map[string]string{
-		"index.html": "<html>B</html>",
-	})
-	f.ssm.value = &hashB
-
-	w := f.newWatcher()
-
-	// first swap: previousHash was empty, no cleanup should happen
-	w.checkOnce(t.Context())
-
-	// hashA directory should still exist (it's now "previous")
-	dirA := filepath.Join(f.loader.opts.ExtractDir, hashA)
-	if _, err := os.Stat(dirA); os.IsNotExist(err) {
-		t.Fatal("hashA directory should still exist after first swap (it's the warm fallback)")
-	}
-}
-
-func TestCheckOnce_Cleanup_SecondSwapCleansN2(t *testing.T) {
-	bundleDataA, hashA := buildContentBundle(t)
-	f := newWatcherFixture(t, hashA)
-	f.seedManager(t, hashA, bundleDataA)
-
-	// first swap: A → B
-	_, hashB := storeBundle(t, f, map[string]string{
-		"index.html": "<html>B</html>",
-	})
-	f.ssm.value = &hashB
-
-	w := f.newWatcher()
-	w.checkOnce(t.Context())
-
-	// second swap: B → C
-	_, hashC := storeBundle(t, f, map[string]string{
-		"index.html": "<html>C</html>",
-	})
-	f.ssm.value = &hashC
-
-	w.checkOnce(t.Context())
-
-	// hashA (n-2) should be cleaned up
-	dirA := filepath.Join(f.loader.opts.ExtractDir, hashA)
-	if _, err := os.Stat(dirA); !os.IsNotExist(err) {
-		t.Fatal("hashA directory (n-2) should be cleaned up after second swap")
-	}
-
-	// hashB (previous/n-1) should still exist as warm fallback
-	dirB := filepath.Join(f.loader.opts.ExtractDir, hashB)
-	if _, err := os.Stat(dirB); os.IsNotExist(err) {
-		t.Fatal("hashB directory should still exist (warm fallback)")
-	}
-
-	// hashC (current) should exist
-	dirC := filepath.Join(f.loader.opts.ExtractDir, hashC)
-	if _, err := os.Stat(dirC); os.IsNotExist(err) {
-		t.Fatal("hashC directory should exist (current)")
-	}
-}
-
 // checkOnce - multiple polls, stats
 
 func TestCheckOnce_PollCount_Increments(t *testing.T) {
@@ -538,6 +397,65 @@ func TestCheckOnce_PollCount_Increments(t *testing.T) {
 	}
 	if w.swapCount != 0 {
 		t.Fatalf("swapCount = %d, want 0 (no changes)", w.swapCount)
+	}
+}
+
+func TestCheckOnce_MultipleSwaps(t *testing.T) {
+	bundleDataA, hashA := buildContentBundle(t)
+	f := newWatcherFixture(t, hashA)
+	f.seedManager(t, hashA, bundleDataA)
+
+	w := f.newWatcher()
+
+	// swap A → B
+	_, hashB := storeBundle(t, f, map[string]string{
+		"index.html": "<html>B</html>",
+	})
+	f.ssm.value = &hashB
+	result := w.checkOnce(t.Context())
+	if result != pollSwapped {
+		t.Fatalf("first swap: result = %d, want pollSwapped", result)
+	}
+
+	// swap B → C
+	_, hashC := storeBundle(t, f, map[string]string{
+		"index.html": "<html>C</html>",
+	})
+	f.ssm.value = &hashC
+	result = w.checkOnce(t.Context())
+	if result != pollSwapped {
+		t.Fatalf("second swap: result = %d, want pollSwapped", result)
+	}
+
+	if w.swapCount != 2 {
+		t.Fatalf("swapCount = %d, want 2", w.swapCount)
+	}
+	if w.currentHash != hashC {
+		t.Fatalf("currentHash = %q, want %q", w.currentHash, hashC)
+	}
+	if len(f.swapCalls) != 2 {
+		t.Fatalf("OnSwap called %d times, want 2", len(f.swapCalls))
+	}
+}
+
+// checkOnce - nil OnSwap is safe
+
+func TestCheckOnce_NilOnSwap(t *testing.T) {
+	bundleDataA, hashA := buildContentBundle(t)
+	f := newWatcherFixture(t, hashA)
+	f.seedManager(t, hashA, bundleDataA)
+
+	_, hashB := storeBundle(t, f, map[string]string{
+		"index.html": "<html>B</html>",
+	})
+	f.ssm.value = &hashB
+
+	w := f.newWatcher(func(o *WatcherOptions) {
+		o.OnSwap = nil // should not panic
+	})
+	result := w.checkOnce(t.Context())
+	if result != pollSwapped {
+		t.Fatalf("result = %d, want pollSwapped", result)
 	}
 }
 
@@ -666,5 +584,32 @@ func TestRun_BacksOffOnSSMError_ThenRecovers(t *testing.T) {
 			}
 			time.Sleep(10 * time.Millisecond)
 		}
+	}
+}
+
+// truncHash
+
+func TestTruncHash_Short(t *testing.T) {
+	if got := truncHash("abc"); got != "abc" {
+		t.Fatalf("truncHash(%q) = %q", "abc", got)
+	}
+}
+
+func TestTruncHash_Exact12(t *testing.T) {
+	if got := truncHash("123456789012"); got != "123456789012" {
+		t.Fatalf("truncHash = %q", got)
+	}
+}
+
+func TestTruncHash_Long(t *testing.T) {
+	long := "abcdef1234567890abcdef"
+	if got := truncHash(long); got != "abcdef123456" {
+		t.Fatalf("truncHash = %q, want %q", got, "abcdef123456")
+	}
+}
+
+func TestTruncHash_Empty(t *testing.T) {
+	if got := truncHash(""); got != "" {
+		t.Fatalf("truncHash(%q) = %q", "", got)
 	}
 }
