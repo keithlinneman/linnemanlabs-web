@@ -57,9 +57,6 @@ type LoaderOptions struct {
 	// ReleaseID to fetch evidence for (compiled into the binary via ldflags)
 	ReleaseID string
 
-	// AWS config (default if nil)
-	AWSConfig *aws.Config
-
 	// ReleaseVerifier verifies the sigstore bundle for release.json
 	Verifier BlobVerifier
 
@@ -98,7 +95,9 @@ func NewLoader(ctx context.Context, opts LoaderOptions) (*Loader, error) {
 	}
 
 	return &Loader{
-		opts: opts,
+		opts:     opts,
+		s3Client: opts.S3Client,
+		logger:   opts.Logger,
 	}, nil
 }
 

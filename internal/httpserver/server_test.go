@@ -62,9 +62,7 @@ func getFreePort(t *testing.T) int {
 	return port
 }
 
-// ---------------------------------------------------------------------------
 // NewHandler - middleware stack
-// ---------------------------------------------------------------------------
 
 func TestNewHandler_SecurityHeaders(t *testing.T) {
 	h := NewHandler(defaultOpts())
@@ -158,9 +156,7 @@ func TestNewHandler_RequestID_UniquePerRequest(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // NewHandler - APIRoutes
-// ---------------------------------------------------------------------------
 
 func TestNewHandler_APIRoutes(t *testing.T) {
 	opts := defaultOpts()
@@ -220,9 +216,7 @@ func TestNewHandler_APIRoutes_Nil(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // NewHandler - FallbackHandler
-// ---------------------------------------------------------------------------
 
 func TestNewHandler_FallbackHandler(t *testing.T) {
 	opts := defaultOpts()
@@ -299,9 +293,7 @@ func TestNewHandler_FallbackHandler_MethodNotAllowed(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // NewHandler - health and readiness
-// ---------------------------------------------------------------------------
 
 func TestNewHandler_HealthEndpoint(t *testing.T) {
 	opts := defaultOpts()
@@ -404,9 +396,7 @@ func TestNewHandler_HealthEndpoints_NotOverriddenByFallback(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // NewHandler - optional middleware
-// ---------------------------------------------------------------------------
 
 func TestNewHandler_ContentHeaders_WhenProvided(t *testing.T) {
 	opts := defaultOpts()
@@ -541,9 +531,7 @@ func TestNewHandler_RecoverMW_CallsOnPanic(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // NewHandler - middleware ordering
-// ---------------------------------------------------------------------------
 
 func TestNewHandler_MiddlewareOrder_SecurityHeadersOutermost(t *testing.T) {
 	opts := defaultOpts()
@@ -586,9 +574,7 @@ func TestNewHandler_ClientIP_InContext(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // NewHandler - compression
-// ---------------------------------------------------------------------------
 
 func TestNewHandler_CompressesJSON(t *testing.T) {
 	opts := defaultOpts()
@@ -639,9 +625,7 @@ func TestNewHandler_NoCompressionWithoutAcceptEncoding(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // NewHandler - no options
-// ---------------------------------------------------------------------------
 
 func TestNewHandler_NoOptions(t *testing.T) {
 	h := NewHandler(defaultOpts())
@@ -652,9 +636,7 @@ func TestNewHandler_NoOptions(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // NewServer
-// ---------------------------------------------------------------------------
 
 func TestNewServer_Configuration(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
@@ -700,9 +682,7 @@ func TestNewServer_TimeoutsNonZero(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
 // Start - lifecycle
-// ---------------------------------------------------------------------------
 
 func TestStart_CustomPort(t *testing.T) {
 	port := getFreePort(t)

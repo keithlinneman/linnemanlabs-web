@@ -31,9 +31,6 @@ type LoaderOptions struct {
 	// Local directory for extracted content
 	ExtractDir string
 
-	// AWS config (uses default if nil)
-	AWSConfig *aws.Config
-
 	// Verifier for bundle signatures
 	Verifier BlobVerifier
 
@@ -105,7 +102,10 @@ func NewLoader(ctx context.Context, opts LoaderOptions) (*Loader, error) {
 	}
 
 	return &Loader{
-		opts: opts,
+		opts:      opts,
+		s3Client:  opts.S3Client,
+		ssmClient: opts.SSMClient,
+		logger:    opts.Logger,
 	}, nil
 }
 

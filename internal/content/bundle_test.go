@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -752,5 +753,147 @@ func TestSanitizeTarPath_NullByte(t *testing.T) {
 		// If sanitizeTarPath doesn't reject it, the OS will. Either way
 		// the file won't be created. This test documents the behavior.
 		t.Log("sanitizeTarPath does not reject null bytes; OS syscall layer provides defense")
+	}
+}
+
+// errWriter is a test double that accepts n bytes then returns err.
+type errWriter struct {
+	n   int
+	err error
+}
+
+func (w *errWriter) Write(p []byte) (int, error) {
+	if len(p) <= w.n {
+		w.n -= len(p)
+		return len(p), nil
+	}
+	n := w.n
+	w.n = 0
+	return n, w.err
+}
+
+// errReader is a test double that returns n zero bytes then err.
+type errReader struct {
+	n   int
+	err error
+}
+
+func (r *errReader) Read(p []byte) (int, error) {
+	if r.n <= 0 {
+		return 0, r.err
+	}
+	n := len(p)
+	if n > r.n {
+		n = r.n
+	}
+	for i := 0; i < n; i++ {
+		p[i] = 0
+	}
+	r.n -= n
+	return n, nil
+}
+
+// copyWithHash - error propagation
+
+func TestCopyWithHash_FailingWriter(t *testing.T) {
+	src := bytes.NewReader([]byte("hello world"))
+	dst := &errWriter{n: 3, err: fmt.Errorf("disk full")}
+
+	_, hash, err := copyWithHash(dst, src)
+	if err == nil {
+		t.Fatal("expected error from failing writer")
+	}
+	if !strings.Contains(err.Error(), "disk full") {
+		t.Fatalf("error should propagate: %v", err)
+	}
+	if hash != "" {
+		t.Fatalf("hash should be empty on error, got %q", hash)
+	}
+}
+
+func TestCopyWithHash_FailingReader(t *testing.T) {
+	src := &errReader{n: 5, err: fmt.Errorf("connection reset")}
+	var dst bytes.Buffer
+
+	_, hash, err := copyWithHash(&dst, src)
+	if err == nil {
+		t.Fatal("expected error from failing reader")
+	}
+	if !strings.Contains(err.Error(), "connection reset") {
+		t.Fatalf("error should propagate: %v", err)
+	}
+	if hash != "" {
+		t.Fatalf("hash should be empty on error, got %q", hash)
+	}
+}
+
+// writeFile - error propagation
+
+func TestWriteFile_InvalidPath(t *testing.T) {
+	// path inside a nonexistent directory triggers the OpenFile error path
+	err := writeFile("/nonexistent/dir/file.txt", strings.NewReader("data"), 0640)
+	if err == nil {
+		t.Fatal("expected error for invalid path")
+	}
+	if !strings.Contains(err.Error(), "create") {
+		t.Fatalf("error should mention create: %v", err)
+	}
+}
+
+func TestWriteFile_FailingReader(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "fail.txt")
+
+	src := &errReader{n: 10, err: fmt.Errorf("read timeout")}
+	err := writeFile(path, src, 0640)
+	if err == nil {
+		t.Fatal("expected error from failing reader")
+	}
+	if !strings.Contains(err.Error(), "read timeout") {
+		t.Fatalf("error should propagate: %v", err)
+	}
+}
+
+// extractTarGz - decompression bomb (oversized file inside archive)
+
+func TestExtractTarGz_OversizedFile_DecompressionBomb(t *testing.T) {
+	// Build a tar.gz containing a single file exceeding the 10MB writeFile limit.
+	// This tests the end-to-end path: extractTarGz → writeFile → LimitReader rejection.
+	const maxFileSize = 10 * 1024 * 1024
+
+	var buf bytes.Buffer
+	gw := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gw)
+
+	tw.WriteHeader(&tar.Header{
+		Name: "bomb.bin",
+		Mode: 0640,
+		Size: maxFileSize + 1,
+	})
+
+	// write in 32KB chunks to avoid a single huge allocation
+	zeros := make([]byte, 32*1024)
+	remaining := int64(maxFileSize + 1)
+	for remaining > 0 {
+		chunk := int64(len(zeros))
+		if chunk > remaining {
+			chunk = remaining
+		}
+		tw.Write(zeros[:chunk])
+		remaining -= chunk
+	}
+
+	tw.Close()
+	gw.Close()
+
+	archivePath := writeTempFile(t, buf.Bytes())
+	dst := t.TempDir()
+
+	err := extractTarGz(archivePath, dst)
+	if err == nil {
+		t.Fatal("expected error for oversized file in archive")
+	}
+	if !strings.Contains(err.Error(), "file too large") {
+		t.Fatalf("expected 'file too large' error, got: %v", err)
 	}
 }
