@@ -1,4 +1,4 @@
-package probe
+package health
 
 import (
 	"context"
@@ -11,13 +11,13 @@ import (
 // nil = OK non-nil = FAIL with reason.
 type Probe interface{ Check(context.Context) error }
 
-// Func adapts a function into a Probe.
-type Func func(context.Context) error
+// CheckFunc adapts a function into a Probe.
+type CheckFunc func(context.Context) error
 
-func (f Func) Check(ctx context.Context) error { return f(ctx) }
+func (f CheckFunc) Check(ctx context.Context) error { return f(ctx) }
 
-// Static returns a probe that always returns ok or fails with the given reason
-func Static(ok bool, reason string) Func {
+// Fixed returns a probe that always returns ok or fails with the given reason
+func Fixed(ok bool, reason string) CheckFunc {
 	if ok {
 		return func(context.Context) error { return nil }
 	}
@@ -27,8 +27,8 @@ func Static(ok bool, reason string) Func {
 	return func(context.Context) error { return xerrors.New(reason) }
 }
 
-// Multi is AND: passes only if all probes pass; returns the first error.
-func Multi(ps ...Probe) Func {
+// All is AND: passes only if all probes pass; returns the first error.
+func All(ps ...Probe) CheckFunc {
 	return func(ctx context.Context) error {
 		for _, p := range ps {
 			if p == nil {
@@ -43,7 +43,7 @@ func Multi(ps ...Probe) Func {
 }
 
 // Any is OR: passes if any probe passes; otherwise returns the last error (or a generic one).
-func Any(ps ...Probe) Func {
+func Any(ps ...Probe) CheckFunc {
 	return func(ctx context.Context) error {
 		var last error
 		ok := false
@@ -81,7 +81,7 @@ func (g *ShutdownGate) Clear() {
 	g.draining.Store(false)
 	g.reason.Store("")
 }
-func (g *ShutdownGate) Probe() Func {
+func (g *ShutdownGate) Probe() CheckFunc {
 	return func(context.Context) error {
 		if !g.draining.Load() {
 			return nil

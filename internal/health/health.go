@@ -2,12 +2,10 @@ package health
 
 import (
 	"net/http"
-
-	"github.com/keithlinneman/linnemanlabs-web/internal/probe"
 )
 
 // HealthzHandler: 200 OK when probe passes, 503 otherwise (with reason)
-func HealthzHandler(p probe.Probe) http.HandlerFunc {
+func HealthzHandler(p Probe) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if p != nil {
 			if err := p.Check(r.Context()); err != nil {
@@ -21,7 +19,7 @@ func HealthzHandler(p probe.Probe) http.HandlerFunc {
 }
 
 // ReadyzHandler: 200 OK when probe passes, 503 otherwise (with reason)
-func ReadyzHandler(p probe.Probe) http.HandlerFunc {
+func ReadyzHandler(p Probe) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if p != nil {
 			if err := p.Check(r.Context()); err != nil {

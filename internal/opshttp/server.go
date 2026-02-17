@@ -24,7 +24,8 @@ func Start(ctx context.Context, L log.Logger, opts Options) (func(context.Contex
 
 	mux := http.NewServeMux()
 
-	// Health endpoints
+	// Health endpoints - we intentionally share the same health checks (shutdowngate+content readiness) on both http and ops listeners right now
+	// letting load balancer and prom monitor the production http server port is ideal, cheap to have on admin interface also
 	mux.Handle("/healthz", health.HealthzHandler(opts.Health))
 	mux.Handle("/readyz", health.ReadyzHandler(opts.Readiness))
 

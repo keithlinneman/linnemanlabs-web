@@ -16,6 +16,7 @@ import (
 	"github.com/keithlinneman/linnemanlabs-web/internal/content"
 	"github.com/keithlinneman/linnemanlabs-web/internal/cryptoutil"
 	"github.com/keithlinneman/linnemanlabs-web/internal/evidence"
+	"github.com/keithlinneman/linnemanlabs-web/internal/health"
 	"github.com/keithlinneman/linnemanlabs-web/internal/opshttp"
 	"github.com/keithlinneman/linnemanlabs-web/internal/provenancehttp"
 	"github.com/keithlinneman/linnemanlabs-web/internal/ratelimit"
@@ -26,7 +27,6 @@ import (
 	"github.com/keithlinneman/linnemanlabs-web/internal/log"
 	"github.com/keithlinneman/linnemanlabs-web/internal/metrics"
 	"github.com/keithlinneman/linnemanlabs-web/internal/otelx"
-	"github.com/keithlinneman/linnemanlabs-web/internal/probe"
 	"github.com/keithlinneman/linnemanlabs-web/internal/prof"
 	v "github.com/keithlinneman/linnemanlabs-web/internal/version"
 )
@@ -284,10 +284,13 @@ func main() {
 	}
 
 	// setup toggle for server shutdown
-	var gate probe.ShutdownGate
-	readiness := probe.Multi(
+	var gate health.ShutdownGate
+
+	// setup readiness checks, both shutdown gate and content readiness must pass.
+	// checks that we have successfully loaded content to serve
+	readiness := health.All(
 		gate.Probe(),
-		probe.Func(func(ctx context.Context) error {
+		health.CheckFunc(func(ctx context.Context) error {
 			return contentMgr.ReadyErr()
 		}),
 	)
@@ -309,7 +312,7 @@ func main() {
 		ctx,
 		httpserver.Options{
 			Port:         conf.HTTPPort,
-			Health:       probe.Static(true, ""),
+			Health:       health.Fixed(true, ""),
 			Readiness:    readiness,
 			APIRoutes:    provenanceAPI.RegisterRoutes,
 			SiteHandler:  siteHandler,
@@ -336,7 +339,7 @@ func main() {
 		Port:         conf.AdminPort,
 		Metrics:      m.Handler(),
 		EnablePprof:  conf.EnablePprof,
-		Health:       probe.Static(true, ""),
+		Health:       health.Fixed(true, ""),
 		Readiness:    readiness,
 		UseRecoverMW: true,
 		OnPanic:      m.IncHttpPanic,
