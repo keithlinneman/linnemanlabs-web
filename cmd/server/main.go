@@ -234,7 +234,7 @@ func main() {
 		Verifier:  contentBlobVerifier,
 	})
 	if err != nil {
-		L.Error(ctx, err, "failed to create content loader")
+		L.Error(ctx, err, "failed to create content loader, content updates will be disabled")
 	} else {
 		if err := contentLoader.LoadIntoManager(ctx, contentMgr); err != nil {
 			L.Error(ctx, err, "failed to load content bundle, falling back to seed")
@@ -249,6 +249,23 @@ func main() {
 	m.SetContentBundle(contentMgr.ContentHash())
 	if t := contentMgr.LoadedAt(); !t.IsZero() {
 		m.SetContentLoadedTimestamp(t)
+	}
+
+	if contentLoader != nil {
+		// setup content watcher to poll for new bundles, validate and swap into manager
+		watcher := content.NewWatcher(content.WatcherOptions{
+			Logger:       L,
+			Loader:       contentLoader,
+			Manager:      contentMgr,
+			PollInterval: 30 * time.Second,
+			OnSwap: func(hash, version string) {
+				m.SetContentBundle(hash)
+				m.SetContentSource(string(content.SourceS3))
+				m.SetContentLoadedTimestamp(time.Now())
+			},
+		})
+		// Run the watcher in a separate goroutine
+		go watcher.Run(ctx)
 	}
 
 	// setup evidence loading (fetch build attestations from S3 at startup)

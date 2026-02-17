@@ -218,7 +218,7 @@ func (l *Loader) LoadHash(ctx context.Context, hash string) (*Snapshot, error) {
 	} else {
 		// use hash subdirectory to allow atomic swaps
 		extractDir = filepath.Join(extractDir, hash)
-		if err := os.MkdirAll(extractDir, 0755); err != nil {
+		if err := os.MkdirAll(extractDir, 0750); err != nil {
 			return nil, xerrors.Wrapf(err, "create extract dir %s", extractDir)
 		}
 	}
@@ -289,4 +289,15 @@ func (l *Loader) LoadIntoManager(ctx context.Context, mgr *Manager) error {
 	}
 	mgr.Set(*snap)
 	return nil
+}
+
+// CleanupHash removes the extracted content directory for a given bundle hash.
+// No-op if hash is empty or ExtractDir is unset. Safe to call concurrently
+// with LoadHash (different hash subdirectories).
+func (l *Loader) CleanupHash(hash string) error {
+	if hash == "" || l.opts.ExtractDir == "" {
+		return nil
+	}
+	dir := filepath.Join(l.opts.ExtractDir, hash)
+	return os.RemoveAll(dir)
 }

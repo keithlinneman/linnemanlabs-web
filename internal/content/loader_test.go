@@ -829,3 +829,93 @@ func TestNewLoader_FieldsWired_DownloadWorks(t *testing.T) {
 	}
 	os.Remove(tmpPath)
 }
+
+// CleanupHash
+
+func TestCleanupHash_RemovesDirectory(t *testing.T) {
+	extractDir := t.TempDir()
+	hashDir := filepath.Join(extractDir, "abc123")
+	if err := os.MkdirAll(hashDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	// put a file inside to verify recursive removal
+	if err := os.WriteFile(filepath.Join(hashDir, "index.html"), []byte("hello"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	l := &Loader{
+		opts: LoaderOptions{ExtractDir: extractDir},
+	}
+
+	if err := l.CleanupHash("abc123"); err != nil {
+		t.Fatalf("CleanupHash: %v", err)
+	}
+
+	if _, err := os.Stat(hashDir); !os.IsNotExist(err) {
+		t.Fatal("expected hash directory to be removed")
+	}
+}
+
+func TestCleanupHash_NonexistentDir_NoError(t *testing.T) {
+	l := &Loader{
+		opts: LoaderOptions{ExtractDir: t.TempDir()},
+	}
+
+	// removing a directory that doesn't exist should not error
+	if err := l.CleanupHash("does-not-exist"); err != nil {
+		t.Fatalf("CleanupHash on nonexistent dir: %v", err)
+	}
+}
+
+func TestCleanupHash_EmptyHash_Noop(t *testing.T) {
+	l := &Loader{
+		opts: LoaderOptions{ExtractDir: t.TempDir()},
+	}
+
+	if err := l.CleanupHash(""); err != nil {
+		t.Fatalf("CleanupHash with empty hash: %v", err)
+	}
+}
+
+func TestCleanupHash_EmptyExtractDir_Noop(t *testing.T) {
+	l := &Loader{
+		opts: LoaderOptions{ExtractDir: ""},
+	}
+
+	if err := l.CleanupHash("abc123"); err != nil {
+		t.Fatalf("CleanupHash with empty ExtractDir: %v", err)
+	}
+}
+
+func TestCleanupHash_DoesNotAffectOtherHashes(t *testing.T) {
+	extractDir := t.TempDir()
+
+	// create two hash directories
+	for _, h := range []string{"hash-a", "hash-b"} {
+		dir := filepath.Join(extractDir, h)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "file.txt"), []byte("data"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	l := &Loader{
+		opts: LoaderOptions{ExtractDir: extractDir},
+	}
+
+	if err := l.CleanupHash("hash-a"); err != nil {
+		t.Fatalf("CleanupHash: %v", err)
+	}
+
+	// hash-a should be gone
+	if _, err := os.Stat(filepath.Join(extractDir, "hash-a")); !os.IsNotExist(err) {
+		t.Fatal("hash-a should be removed")
+	}
+
+	// hash-b should still exist
+	if _, err := os.Stat(filepath.Join(extractDir, "hash-b")); err != nil {
+		t.Fatal("hash-b should still exist")
+	}
+}
