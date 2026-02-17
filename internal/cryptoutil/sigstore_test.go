@@ -1,6 +1,7 @@
 package cryptoutil
 
 import (
+	"bytes"
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
@@ -8,28 +9,11 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
 // PAE
-
-func TestPAE_KnownVector(t *testing.T) {
-	// DSSE spec example: PAE("application/vnd.in-toto+json", "hello")
-	// = "DSSEv1 29 application/vnd.in-toto+json 5 hello"
-	got := PAE("application/vnd.in-toto+json", []byte("hello"))
-	want := "DSSEv1 28 application/vnd.in-toto+json 5 hello"
-	if string(got) != want {
-		t.Fatalf("PAE =\n  %q\nwant\n  %q", string(got), want)
-	}
-}
-
-func TestPAE_EmptyPayload(t *testing.T) {
-	got := PAE("application/vnd.in-toto+json", []byte{})
-	want := "DSSEv1 28 application/vnd.in-toto+json 0 "
-	if string(got) != want {
-		t.Fatalf("PAE = %q, want %q", string(got), want)
-	}
-}
 
 func TestPAE_EmptyType(t *testing.T) {
 	got := PAE("", []byte("data"))
@@ -39,13 +23,46 @@ func TestPAE_EmptyType(t *testing.T) {
 	}
 }
 
+func TestPAE_KnownVector(t *testing.T) {
+	// From DSSE spec: https://github.com/secure-systems-lab/dsse/blob/master/protocol.md
+	// PAE("application/vnd.in-toto+json", "{}") should produce:
+	// "DSSEv1 28 application/vnd.in-toto+json 2 {}"
+	payloadType := "application/vnd.in-toto+json"
+	payload := []byte("{}")
+
+	got := PAE(payloadType, payload)
+	want := []byte("DSSEv1 28 application/vnd.in-toto+json 2 {}")
+
+	if !bytes.Equal(got, want) {
+		t.Fatalf("PAE mismatch\n  got:  %q\n  want: %q", string(got), string(want))
+	}
+}
+
+func TestPAE_EmptyPayload(t *testing.T) {
+	got := PAE("type", []byte{})
+	want := []byte("DSSEv1 4 type 0 ")
+
+	if !bytes.Equal(got, want) {
+		t.Fatalf("PAE empty payload\n  got:  %q\n  want: %q", string(got), string(want))
+	}
+}
+
+func TestPAE_EmptyPayloadType(t *testing.T) {
+	got := PAE("", []byte("body"))
+	want := []byte("DSSEv1 0  4 body")
+
+	if !bytes.Equal(got, want) {
+		t.Fatalf("PAE empty type\n  got:  %q\n  want: %q", string(got), string(want))
+	}
+}
+
 func TestPAE_LengthIsDecimalNotHex(t *testing.T) {
-	// 256-byte payload should produce "256" not "100"
-	payload := make([]byte, 256)
-	got := PAE("t", payload)
-	// "DSSEv1 1 t 256 " + 256 zero bytes
-	if len(got) != len("DSSEv1 1 t 256 ")+256 {
-		t.Fatalf("PAE length = %d, want %d", len(got), len("DSSEv1 1 t 256 ")+256)
+	// 100-byte payload type should encode as "100", not "64"
+	longType := strings.Repeat("a", 100)
+	got := PAE(longType, []byte("x"))
+	prefix := "DSSEv1 100 "
+	if !bytes.HasPrefix(got, []byte(prefix)) {
+		t.Fatalf("PAE should use decimal length, got prefix: %q", string(got[:min(len(got), 20)]))
 	}
 }
 
@@ -723,4 +740,81 @@ func TestVerifyReleaseDSSE_TamperedPayload(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected signature verification failure for tampered payload")
 	}
+}
+
+// VerifyReleaseDSSE - wrong signing key
+
+func TestVerifyReleaseDSSE_WrongKey(t *testing.T) {
+	signingKey := generateTestKey(t)
+	wrongKey := generateTestKey(t)
+	v := newTestVerifier(t, &wrongKey.PublicKey)
+
+	artifact := []byte(`{"release_id":"v1.0.0"}`)
+	bundleJSON := buildDSSEBundle(t, signingKey, artifact)
+
+	_, err := VerifyReleaseDSSE(t.Context(), v, bundleJSON, artifact)
+	if err == nil {
+		t.Fatal("expected verification failure for wrong key")
+	}
+}
+
+// VerifyReleaseDSSE - bundle is a blob signature, not DSSE
+
+func TestVerifyReleaseDSSE_NotDSSEBundle(t *testing.T) {
+	key := generateTestKey(t)
+	v := newTestVerifier(t, &key.PublicKey)
+
+	artifact := []byte(`{"release_id":"v1.0.0"}`)
+	// buildBlobBundle produces a MessageSignature bundle, not DSSE
+	bundleJSON := buildBlobBundle(t, key, artifact)
+
+	_, err := VerifyReleaseDSSE(t.Context(), v, bundleJSON, artifact)
+	if err == nil {
+		t.Fatal("expected error when DSSE verification receives a blob bundle")
+	}
+}
+
+func buildDSSEBundle(t *testing.T, key *rsa.PrivateKey, artifact []byte) []byte {
+	t.Helper()
+
+	statement := InTotoStatement{
+		Type:          "https://in-toto.io/Statement/v0.1",
+		PredicateType: "https://example.com/predicate/v1",
+		Subject: []InTotoSubject{
+			{Name: "my-app", Digest: map[string]string{"sha256": SHA256Hex(artifact)}},
+		},
+		Predicate: json.RawMessage(`{"custom":"data"}`),
+	}
+
+	payload, err := json.Marshal(statement)
+	if err != nil {
+		t.Fatalf("marshal statement: %v", err)
+	}
+
+	pae := PAE("application/vnd.in-toto+json", payload)
+	paeDigest := sha256.Sum256(pae)
+	sig, err := rsa.SignPSS(rand.Reader, key, crypto.SHA256, paeDigest[:], &rsa.PSSOptions{
+		SaltLength: rsa.PSSSaltLengthEqualsHash,
+	})
+	if err != nil {
+		t.Fatalf("sign PAE: %v", err)
+	}
+
+	bundle := SigstoreBundle{
+		MediaType: "application/vnd.dev.sigstore.bundle.v0.3+json",
+		VerificationMaterial: VerificationMaterial{
+			PublicKey: PublicKeyRef{Hint: "dsse-test-hint"},
+		},
+		DSSEEnvelope: &DSSEEnvelope{
+			Payload:     base64.StdEncoding.EncodeToString(payload),
+			PayloadType: "application/vnd.in-toto+json",
+			Signatures:  []DSSESignature{{Sig: base64.StdEncoding.EncodeToString(sig)}},
+		},
+	}
+
+	raw, err := json.Marshal(bundle)
+	if err != nil {
+		t.Fatalf("marshal bundle: %v", err)
+	}
+	return raw
 }

@@ -163,6 +163,10 @@ func VerifyReleaseDSSE(ctx context.Context, v *KMSVerifier, bundleJSON, artifact
 		return nil, err
 	}
 
+	if bundle.DSSEEnvelope == nil {
+		return nil, xerrors.New("bundle is not a DSSE attestation (no dsseEnvelope)")
+	}
+
 	// decode the raw payload bytes (still base64 in the envelope)
 	payloadBytes, err := DecodeDSSEPayload(bundle.DSSEEnvelope)
 	if err != nil {
