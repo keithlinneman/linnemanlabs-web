@@ -342,9 +342,7 @@ func TestVerifySubjectDigest_NoSHA256Key(t *testing.T) {
 func signBlob(t *testing.T, key *rsa.PrivateKey, artifact []byte) []byte {
 	t.Helper()
 	digest := sha256.Sum256(artifact)
-	sig, err := rsa.SignPSS(rand.Reader, key, crypto.SHA256, digest[:], &rsa.PSSOptions{
-		SaltLength: rsa.PSSSaltLengthEqualsHash,
-	})
+	sig, err := rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, digest[:])
 	if err != nil {
 		t.Fatalf("sign blob: %v", err)
 	}
@@ -612,9 +610,7 @@ func TestVerifyReleaseDSSE_Valid(t *testing.T) {
 	// Compute PAE and sign it
 	pae := PAE("application/vnd.in-toto+json", payload)
 	paeDigest := sha256.Sum256(pae)
-	sig, err := rsa.SignPSS(rand.Reader, key, crypto.SHA256, paeDigest[:], &rsa.PSSOptions{
-		SaltLength: rsa.PSSSaltLengthEqualsHash,
-	})
+	sig, err := rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, paeDigest[:])
 	if err != nil {
 		t.Fatalf("sign PAE: %v", err)
 	}
@@ -672,9 +668,7 @@ func TestVerifyReleaseDSSE_TamperedArtifact(t *testing.T) {
 	payload, _ := json.Marshal(statement)
 	pae := PAE("application/vnd.in-toto+json", payload)
 	paeDigest := sha256.Sum256(pae)
-	sig, _ := rsa.SignPSS(rand.Reader, key, crypto.SHA256, paeDigest[:], &rsa.PSSOptions{
-		SaltLength: rsa.PSSSaltLengthEqualsHash,
-	})
+	sig, err := rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, paeDigest[:])
 
 	bundle := SigstoreBundle{
 		VerificationMaterial: VerificationMaterial{
@@ -690,7 +684,7 @@ func TestVerifyReleaseDSSE_TamperedArtifact(t *testing.T) {
 
 	// Signature is valid, but artifact doesn't match subject digest
 	tampered := []byte(`{"release_id":"v1.0.0","injected":true}`)
-	_, err := VerifyReleaseDSSE(t.Context(), v, bundleJSON, tampered)
+	_, err = VerifyReleaseDSSE(t.Context(), v, bundleJSON, tampered)
 	if err == nil {
 		t.Fatal("expected error for tampered artifact")
 	}
@@ -715,9 +709,7 @@ func TestVerifyReleaseDSSE_TamperedPayload(t *testing.T) {
 	payload, _ := json.Marshal(statement)
 	pae := PAE("application/vnd.in-toto+json", payload)
 	paeDigest := sha256.Sum256(pae)
-	sig, _ := rsa.SignPSS(rand.Reader, key, crypto.SHA256, paeDigest[:], &rsa.PSSOptions{
-		SaltLength: rsa.PSSSaltLengthEqualsHash,
-	})
+	sig, err := rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, paeDigest[:])
 
 	// But put a different payload in the envelope
 	tamperedStatement := statement
@@ -736,7 +728,7 @@ func TestVerifyReleaseDSSE_TamperedPayload(t *testing.T) {
 	}
 	bundleJSON, _ := json.Marshal(bundle)
 
-	_, err := VerifyReleaseDSSE(t.Context(), v, bundleJSON, artifact)
+	_, err = VerifyReleaseDSSE(t.Context(), v, bundleJSON, artifact)
 	if err == nil {
 		t.Fatal("expected signature verification failure for tampered payload")
 	}
@@ -793,9 +785,7 @@ func buildDSSEBundle(t *testing.T, key *rsa.PrivateKey, artifact []byte) []byte 
 
 	pae := PAE("application/vnd.in-toto+json", payload)
 	paeDigest := sha256.Sum256(pae)
-	sig, err := rsa.SignPSS(rand.Reader, key, crypto.SHA256, paeDigest[:], &rsa.PSSOptions{
-		SaltLength: rsa.PSSSaltLengthEqualsHash,
-	})
+	sig, err := rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, paeDigest[:])
 	if err != nil {
 		t.Fatalf("sign PAE: %v", err)
 	}

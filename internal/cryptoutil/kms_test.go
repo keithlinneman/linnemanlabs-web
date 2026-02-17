@@ -38,9 +38,7 @@ func TestVerifySignature_Valid(t *testing.T) {
 
 	message := []byte("hello world")
 	digest := sha256.Sum256(message)
-	sig, err := rsa.SignPSS(rand.Reader, key, crypto.SHA256, digest[:], &rsa.PSSOptions{
-		SaltLength: rsa.PSSSaltLengthEqualsHash,
-	})
+	sig, err := rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, digest[:])
 	if err != nil {
 		t.Fatalf("sign: %v", err)
 	}
@@ -58,9 +56,7 @@ func TestVerifySignature_WrongMessage(t *testing.T) {
 
 	message := []byte("hello world")
 	digest := sha256.Sum256(message)
-	sig, err := rsa.SignPSS(rand.Reader, key, crypto.SHA256, digest[:], &rsa.PSSOptions{
-		SaltLength: rsa.PSSSaltLengthEqualsHash,
-	})
+	sig, err := rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, digest[:])
 	if err != nil {
 		t.Fatalf("sign: %v", err)
 	}
@@ -79,9 +75,7 @@ func TestVerifySignature_WrongKey(t *testing.T) {
 
 	message := []byte("hello world")
 	digest := sha256.Sum256(message)
-	sig, err := rsa.SignPSS(rand.Reader, signingKey, crypto.SHA256, digest[:], &rsa.PSSOptions{
-		SaltLength: rsa.PSSSaltLengthEqualsHash,
-	})
+	sig, err := rsa.SignPKCS1v15(rand.Reader, signingKey, crypto.SHA256, digest[:])
 	if err != nil {
 		t.Fatalf("sign: %v", err)
 	}
@@ -99,9 +93,7 @@ func TestVerifySignature_CorruptedSignature(t *testing.T) {
 
 	message := []byte("hello world")
 	digest := sha256.Sum256(message)
-	sig, err := rsa.SignPSS(rand.Reader, key, crypto.SHA256, digest[:], &rsa.PSSOptions{
-		SaltLength: rsa.PSSSaltLengthEqualsHash,
-	})
+	sig, err := rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, digest[:])
 	if err != nil {
 		t.Fatalf("sign: %v", err)
 	}
@@ -123,9 +115,7 @@ func TestVerifySignature_EmptyMessage(t *testing.T) {
 	// sign empty message - should be valid
 	message := []byte{}
 	digest := sha256.Sum256(message)
-	sig, err := rsa.SignPSS(rand.Reader, key, crypto.SHA256, digest[:], &rsa.PSSOptions{
-		SaltLength: rsa.PSSSaltLengthEqualsHash,
-	})
+	sig, err := rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, digest[:])
 	if err != nil {
 		t.Fatalf("sign: %v", err)
 	}
