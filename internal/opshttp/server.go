@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/keithlinneman/linnemanlabs-web/internal/health"
 	"github.com/keithlinneman/linnemanlabs-web/internal/log"
 	"github.com/keithlinneman/linnemanlabs-web/internal/xerrors"
 )
@@ -24,8 +25,8 @@ func Start(ctx context.Context, L log.Logger, opts Options) (func(context.Contex
 	mux := http.NewServeMux()
 
 	// Health endpoints
-	mux.Handle("/-/healthy", HealthzHandler(opts.Health))
-	mux.Handle("/-/ready", ReadyzHandler(opts.Readiness))
+	mux.Handle("/healthz", health.HealthzHandler(opts.Health))
+	mux.Handle("/readyz", health.ReadyzHandler(opts.Readiness))
 
 	// Metrics
 	if opts.Metrics != nil {

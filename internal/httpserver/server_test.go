@@ -18,50 +18,6 @@ import (
 
 // test helpers
 
-// stubRegistrar implements RouteRegistrar for testing.
-type stubRegistrar struct {
-	method  string
-	path    string
-	status  int
-	body    string
-	headers map[string]string
-}
-
-func (s *stubRegistrar) RegisterRoutes(r chi.Router) {
-	r.Method(s.method, s.path, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		for k, v := range s.headers {
-			w.Header().Set(k, v)
-		}
-		w.WriteHeader(s.status)
-		w.Write([]byte(s.body))
-	}))
-}
-
-// nilRegistrar is a typed nil that implements RouteRegistrar
-// (matches the (*httpapi.API)(nil) pattern from the code).
-type nilRegistrar struct{}
-
-func (n *nilRegistrar) RegisterRoutes(r chi.Router) {
-	panic("should never be called on typed nil")
-}
-
-// multiRegistrar registers multiple routes.
-type multiRegistrar struct {
-	routes []struct {
-		method, path, body string
-	}
-}
-
-func (m *multiRegistrar) RegisterRoutes(r chi.Router) {
-	for _, rt := range m.routes {
-		body := rt.body
-		r.Method(rt.method, rt.path, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(body))
-		}))
-	}
-}
-
 // stubContentInfo implements httpmw.ContentInfo.
 type stubContentInfo struct {
 	version string
@@ -70,6 +26,13 @@ type stubContentInfo struct {
 
 func (s *stubContentInfo) ContentVersion() string { return s.version }
 func (s *stubContentInfo) ContentHash() string    { return s.hash }
+
+// stubProbe implements health.Probe for testing.
+type stubProbe struct {
+	err error
+}
+
+func (p *stubProbe) Check(ctx context.Context) error { return p.err }
 
 // defaultOpts returns minimal valid Options for testing.
 func defaultOpts() Options {
@@ -99,13 +62,14 @@ func getFreePort(t *testing.T) int {
 	return port
 }
 
+// ---------------------------------------------------------------------------
 // NewHandler - middleware stack
+// ---------------------------------------------------------------------------
 
 func TestNewHandler_SecurityHeaders(t *testing.T) {
 	h := NewHandler(defaultOpts())
 	rec := doRequest(t, h, "GET", "/anything")
 
-	// Security headers should be on EVERY response (outermost middleware)
 	required := []string{
 		"Strict-Transport-Security",
 		"Content-Security-Policy",
@@ -120,6 +84,37 @@ func TestNewHandler_SecurityHeaders(t *testing.T) {
 		if rec.Header().Get(hdr) == "" {
 			t.Errorf("missing security header: %s", hdr)
 		}
+	}
+}
+
+func TestNewHandler_SecurityHeaders_On404(t *testing.T) {
+	h := NewHandler(defaultOpts())
+	rec := doRequest(t, h, "GET", "/nonexistent-path-12345")
+
+	if rec.Header().Get("Strict-Transport-Security") == "" {
+		t.Fatal("HSTS missing on 404 response")
+	}
+	if rec.Header().Get("X-Content-Type-Options") == "" {
+		t.Fatal("X-Content-Type-Options missing on 404 response")
+	}
+}
+
+func TestNewHandler_SecurityHeaders_AllMethods(t *testing.T) {
+	opts := defaultOpts()
+	opts.APIRoutes = func(r chi.Router) {
+		r.Post("/api/submit", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+	}
+
+	h := NewHandler(opts)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("POST", "/api/submit", nil)
+	h.ServeHTTP(rec, req)
+
+	if rec.Header().Get("Strict-Transport-Security") == "" {
+		t.Fatal("HSTS missing on POST response")
 	}
 }
 
@@ -163,30 +158,20 @@ func TestNewHandler_RequestID_UniquePerRequest(t *testing.T) {
 	}
 }
 
-func TestNewHandler_SecurityHeaders_On404(t *testing.T) {
-	h := NewHandler(defaultOpts())
-	rec := doRequest(t, h, "GET", "/nonexistent-path-12345")
+// ---------------------------------------------------------------------------
+// NewHandler - APIRoutes
+// ---------------------------------------------------------------------------
 
-	// Security headers must be present even on 404s
-	if rec.Header().Get("Strict-Transport-Security") == "" {
-		t.Fatal("HSTS missing on 404 response")
-	}
-	if rec.Header().Get("X-Content-Type-Options") == "" {
-		t.Fatal("X-Content-Type-Options missing on 404 response")
-	}
-}
-
-// NewHandler - route registration
-
-func TestNewHandler_RegistersRoutes(t *testing.T) {
-	reg := &stubRegistrar{
-		method: "GET",
-		path:   "/api/test",
-		status: http.StatusOK,
-		body:   "test-ok",
+func TestNewHandler_APIRoutes(t *testing.T) {
+	opts := defaultOpts()
+	opts.APIRoutes = func(r chi.Router) {
+		r.Get("/api/test", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("test-ok"))
+		})
 	}
 
-	h := NewHandler(defaultOpts(), reg)
+	h := NewHandler(opts)
 	rec := doRequest(t, h, "GET", "/api/test")
 
 	if rec.Code != http.StatusOK {
@@ -197,11 +182,20 @@ func TestNewHandler_RegistersRoutes(t *testing.T) {
 	}
 }
 
-func TestNewHandler_MultipleRegistrars(t *testing.T) {
-	reg1 := &stubRegistrar{method: "GET", path: "/api/one", status: http.StatusOK, body: "one"}
-	reg2 := &stubRegistrar{method: "GET", path: "/api/two", status: http.StatusOK, body: "two"}
+func TestNewHandler_APIRoutes_MultipleRoutes(t *testing.T) {
+	opts := defaultOpts()
+	opts.APIRoutes = func(r chi.Router) {
+		r.Get("/api/one", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("one"))
+		})
+		r.Get("/api/two", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("two"))
+		})
+	}
 
-	h := NewHandler(defaultOpts(), reg1, reg2)
+	h := NewHandler(opts)
 
 	rec1 := doRequest(t, h, "GET", "/api/one")
 	if !strings.Contains(rec1.Body.String(), "one") {
@@ -214,23 +208,11 @@ func TestNewHandler_MultipleRegistrars(t *testing.T) {
 	}
 }
 
-func TestNewHandler_NilRegistrar(t *testing.T) {
-	// Nil registrar should be skipped without panic
-	h := NewHandler(defaultOpts(), nil)
-	rec := doRequest(t, h, "GET", "/")
+func TestNewHandler_APIRoutes_Nil(t *testing.T) {
+	opts := defaultOpts()
+	opts.APIRoutes = nil
 
-	// Should get a response (404 from chi, but no panic)
-	if rec.Code == 0 {
-		t.Fatal("no response")
-	}
-}
-
-func TestNewHandler_TypedNilRegistrar(t *testing.T) {
-	// This is the (*httpapi.API)(nil) pattern from the code
-	var reg *nilRegistrar // typed nil
-
-	// Should not panic - the reflect.ValueOf check should catch it
-	h := NewHandler(defaultOpts(), reg)
+	h := NewHandler(opts)
 	rec := doRequest(t, h, "GET", "/")
 
 	if rec.Code == 0 {
@@ -238,17 +220,193 @@ func TestNewHandler_TypedNilRegistrar(t *testing.T) {
 	}
 }
 
-func TestNewHandler_NoRegistrars(t *testing.T) {
-	h := NewHandler(defaultOpts())
-	rec := doRequest(t, h, "GET", "/")
+// ---------------------------------------------------------------------------
+// NewHandler - FallbackHandler
+// ---------------------------------------------------------------------------
 
-	// Should return something (404 from empty router) with security headers
-	if rec.Header().Get("Strict-Transport-Security") == "" {
-		t.Fatal("security headers missing with no registrars")
+func TestNewHandler_FallbackHandler(t *testing.T) {
+	opts := defaultOpts()
+	opts.FallbackHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("site-content"))
+	})
+
+	h := NewHandler(opts)
+	rec := doRequest(t, h, "GET", "/anything")
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "site-content") {
+		t.Fatalf("body = %q, want 'site-content'", rec.Body.String())
 	}
 }
 
+func TestNewHandler_FallbackHandler_Nil(t *testing.T) {
+	opts := defaultOpts()
+	opts.FallbackHandler = nil
+
+	h := NewHandler(opts)
+	rec := doRequest(t, h, "GET", "/unknown")
+
+	// chi default 404
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+}
+
+func TestNewHandler_APIRoutes_TakePrecedenceOverFallback(t *testing.T) {
+	opts := defaultOpts()
+	opts.APIRoutes = func(r chi.Router) {
+		r.Get("/api/data", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("api-response"))
+		})
+	}
+	opts.FallbackHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("fallback"))
+	})
+
+	h := NewHandler(opts)
+
+	// Explicit route should be served by APIRoutes
+	rec := doRequest(t, h, "GET", "/api/data")
+	if !strings.Contains(rec.Body.String(), "api-response") {
+		t.Fatalf("explicit route should hit APIRoutes, got: %q", rec.Body.String())
+	}
+
+	// Unknown route should fall through to FallbackHandler
+	rec = doRequest(t, h, "GET", "/unknown")
+	if !strings.Contains(rec.Body.String(), "fallback") {
+		t.Fatalf("unknown route should hit FallbackHandler, got: %q", rec.Body.String())
+	}
+}
+
+func TestNewHandler_FallbackHandler_MethodNotAllowed(t *testing.T) {
+	fallbackCalled := false
+	opts := defaultOpts()
+	opts.FallbackHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fallbackCalled = true
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	})
+
+	h := NewHandler(opts)
+	doRequest(t, h, "DELETE", "/anything")
+
+	if !fallbackCalled {
+		t.Fatal("FallbackHandler should handle MethodNotAllowed")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// NewHandler - health and readiness
+// ---------------------------------------------------------------------------
+
+func TestNewHandler_HealthEndpoint(t *testing.T) {
+	opts := defaultOpts()
+	opts.Health = &stubProbe{err: nil}
+
+	h := NewHandler(opts)
+	rec := doRequest(t, h, "GET", "/-/healthy")
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "ok") {
+		t.Fatalf("body = %q, want 'ok'", rec.Body.String())
+	}
+}
+
+func TestNewHandler_HealthEndpoint_Unhealthy(t *testing.T) {
+	opts := defaultOpts()
+	opts.Health = &stubProbe{err: fmt.Errorf("broken")}
+
+	h := NewHandler(opts)
+	rec := doRequest(t, h, "GET", "/-/healthy")
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", rec.Code)
+	}
+}
+
+func TestNewHandler_HealthEndpoint_NilProbe(t *testing.T) {
+	opts := defaultOpts()
+	opts.Health = nil
+
+	h := NewHandler(opts)
+	rec := doRequest(t, h, "GET", "/-/healthy")
+
+	// No probe registered, chi returns 404
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404 (no health probe registered)", rec.Code)
+	}
+}
+
+func TestNewHandler_ReadyEndpoint(t *testing.T) {
+	opts := defaultOpts()
+	opts.Readiness = &stubProbe{err: nil}
+
+	h := NewHandler(opts)
+	rec := doRequest(t, h, "GET", "/-/ready")
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "ready") {
+		t.Fatalf("body = %q, want 'ready'", rec.Body.String())
+	}
+}
+
+func TestNewHandler_ReadyEndpoint_NotReady(t *testing.T) {
+	opts := defaultOpts()
+	opts.Readiness = &stubProbe{err: fmt.Errorf("content: no active snapshot")}
+
+	h := NewHandler(opts)
+	rec := doRequest(t, h, "GET", "/-/ready")
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", rec.Code)
+	}
+}
+
+func TestNewHandler_ReadyEndpoint_NilProbe(t *testing.T) {
+	opts := defaultOpts()
+	opts.Readiness = nil
+
+	h := NewHandler(opts)
+	rec := doRequest(t, h, "GET", "/-/ready")
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404 (no readiness probe registered)", rec.Code)
+	}
+}
+
+func TestNewHandler_HealthEndpoints_NotOverriddenByFallback(t *testing.T) {
+	opts := defaultOpts()
+	opts.Health = &stubProbe{err: nil}
+	opts.Readiness = &stubProbe{err: nil}
+	opts.FallbackHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("site"))
+	})
+
+	h := NewHandler(opts)
+
+	rec := doRequest(t, h, "GET", "/-/healthy")
+	if !strings.Contains(rec.Body.String(), "ok") {
+		t.Fatalf("/-/healthy should be served by health probe, got: %q", rec.Body.String())
+	}
+
+	rec = doRequest(t, h, "GET", "/-/ready")
+	if !strings.Contains(rec.Body.String(), "ready") {
+		t.Fatalf("/-/ready should be served by readiness probe, got: %q", rec.Body.String())
+	}
+}
+
+// ---------------------------------------------------------------------------
 // NewHandler - optional middleware
+// ---------------------------------------------------------------------------
 
 func TestNewHandler_ContentHeaders_WhenProvided(t *testing.T) {
 	opts := defaultOpts()
@@ -302,7 +460,6 @@ func TestNewHandler_RateLimitMW_NilSkipped(t *testing.T) {
 	opts := defaultOpts()
 	opts.RateLimitMW = nil
 
-	// Should not panic
 	h := NewHandler(opts)
 	rec := doRequest(t, h, "GET", "/")
 	if rec.Code == 0 {
@@ -329,29 +486,33 @@ func TestNewHandler_MetricsMW_Applied(t *testing.T) {
 }
 
 func TestNewHandler_RecoverMW_Enabled(t *testing.T) {
-	panicReg := &panicRegistrar{path: "/panic"}
-
 	opts := defaultOpts()
 	opts.UseRecoverMW = true
+	opts.APIRoutes = func(r chi.Router) {
+		r.Get("/panic", func(w http.ResponseWriter, r *http.Request) {
+			panic("test panic")
+		})
+	}
 
-	h := NewHandler(opts, panicReg, panicReg)
+	h := NewHandler(opts)
 	rec := doRequest(t, h, "GET", "/panic")
 
-	// Should recover and return 500, not crash
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500 (recover should catch panic)", rec.Code)
 	}
 }
 
 func TestNewHandler_RecoverMW_Disabled(t *testing.T) {
-	panicReg := &panicRegistrar{path: "/panic"}
-
 	opts := defaultOpts()
 	opts.UseRecoverMW = false
+	opts.APIRoutes = func(r chi.Router) {
+		r.Get("/panic", func(w http.ResponseWriter, r *http.Request) {
+			panic("test panic")
+		})
+	}
 
-	h := NewHandler(opts, panicReg)
+	h := NewHandler(opts)
 
-	// Without recover middleware, panic should propagate
 	defer func() {
 		if r := recover(); r == nil {
 			t.Fatal("expected panic to propagate when recover MW is disabled")
@@ -361,49 +522,59 @@ func TestNewHandler_RecoverMW_Disabled(t *testing.T) {
 	doRequest(t, h, "GET", "/panic")
 }
 
-type panicRegistrar struct {
-	path string
-}
-
-func (p *panicRegistrar) RegisterRoutes(r chi.Router) {
-	r.Get(p.path, func(w http.ResponseWriter, r *http.Request) {
-		panic("test panic")
-	})
-}
-
-// NewHandler - middleware ordering
-
-func TestNewHandler_MiddlewareOrder_SecurityHeadersOutermost(t *testing.T) {
-	// Even if the handler panics and recover is on, security headers should be set
+func TestNewHandler_RecoverMW_CallsOnPanic(t *testing.T) {
+	var called bool
 	opts := defaultOpts()
 	opts.UseRecoverMW = true
+	opts.OnPanic = func() { called = true }
+	opts.APIRoutes = func(r chi.Router) {
+		r.Get("/panic", func(w http.ResponseWriter, r *http.Request) {
+			panic("test panic")
+		})
+	}
 
-	panicReg := &panicRegistrar{path: "/boom"}
-	h := NewHandler(opts, panicReg)
+	h := NewHandler(opts)
+	doRequest(t, h, "GET", "/panic")
+
+	if !called {
+		t.Fatal("OnPanic not called")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// NewHandler - middleware ordering
+// ---------------------------------------------------------------------------
+
+func TestNewHandler_MiddlewareOrder_SecurityHeadersOutermost(t *testing.T) {
+	opts := defaultOpts()
+	opts.UseRecoverMW = true
+	opts.APIRoutes = func(r chi.Router) {
+		r.Get("/boom", func(w http.ResponseWriter, r *http.Request) {
+			panic("test panic")
+		})
+	}
+
+	h := NewHandler(opts)
 	rec := doRequest(t, h, "GET", "/boom")
 
-	// Recover catches it → 500
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500", rec.Code)
 	}
 
-	// Security headers should still be present because they're outermost
 	if rec.Header().Get("Strict-Transport-Security") == "" {
 		t.Fatal("HSTS missing after panic recovery")
 	}
 }
 
 func TestNewHandler_ClientIP_InContext(t *testing.T) {
-	// Verify the ClientIP middleware runs by checking the handler can read it
-	ipReg := &funcRegistrar{
-		method: "GET",
-		path:   "/ip",
-		fn: func(w http.ResponseWriter, r *http.Request) {
+	opts := defaultOpts()
+	opts.APIRoutes = func(r chi.Router) {
+		r.Get("/ip", func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
-		},
+		})
 	}
 
-	h := NewHandler(defaultOpts(), ipReg)
+	h := NewHandler(opts)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/ip", nil)
@@ -415,17 +586,75 @@ func TestNewHandler_ClientIP_InContext(t *testing.T) {
 	}
 }
 
-type funcRegistrar struct {
-	method string
-	path   string
-	fn     http.HandlerFunc
+// ---------------------------------------------------------------------------
+// NewHandler - compression
+// ---------------------------------------------------------------------------
+
+func TestNewHandler_CompressesJSON(t *testing.T) {
+	opts := defaultOpts()
+	opts.APIRoutes = func(r chi.Router) {
+		r.Get("/api/data", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"data":"` + strings.Repeat("abcdefghij", 200) + `"}`))
+		})
+	}
+
+	h := NewHandler(opts)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/api/data", nil)
+	req.Header.Set("Accept-Encoding", "gzip")
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+
+	ce := rec.Header().Get("Content-Encoding")
+	if ce != "gzip" {
+		t.Fatalf("Content-Encoding = %q, want gzip", ce)
+	}
 }
 
-func (f *funcRegistrar) RegisterRoutes(r chi.Router) {
-	r.Method(f.method, f.path, f.fn)
+func TestNewHandler_NoCompressionWithoutAcceptEncoding(t *testing.T) {
+	opts := defaultOpts()
+	opts.APIRoutes = func(r chi.Router) {
+		r.Get("/api/data", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"data":"` + strings.Repeat("abcdefghij", 200) + `"}`))
+		})
+	}
+
+	h := NewHandler(opts)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/api/data", nil)
+	h.ServeHTTP(rec, req)
+
+	ce := rec.Header().Get("Content-Encoding")
+	if ce == "gzip" {
+		t.Fatal("should not compress without Accept-Encoding header")
+	}
 }
 
+// ---------------------------------------------------------------------------
+// NewHandler - no options
+// ---------------------------------------------------------------------------
+
+func TestNewHandler_NoOptions(t *testing.T) {
+	h := NewHandler(defaultOpts())
+	rec := doRequest(t, h, "GET", "/")
+
+	if rec.Header().Get("Strict-Transport-Security") == "" {
+		t.Fatal("security headers missing with no options set")
+	}
+}
+
+// ---------------------------------------------------------------------------
 // NewServer
+// ---------------------------------------------------------------------------
 
 func TestNewServer_Configuration(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
@@ -457,7 +686,6 @@ func TestNewServer_Configuration(t *testing.T) {
 func TestNewServer_TimeoutsNonZero(t *testing.T) {
 	srv := NewServer(":0", http.NotFoundHandler())
 
-	// All timeouts should be set (defense in depth against slowloris, etc.)
 	if srv.ReadHeaderTimeout == 0 {
 		t.Fatal("ReadHeaderTimeout is zero - vulnerable to slowloris")
 	}
@@ -472,16 +700,9 @@ func TestNewServer_TimeoutsNonZero(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
 // Start - lifecycle
-
-func TestStart_DefaultPort(t *testing.T) {
-	// We can't actually bind to 8080 in tests (might be in use),
-	// so just verify the addr logic through NewServer
-	handler := NewHandler(defaultOpts())
-	// The default port is 8080 when opts.Port == 0
-	// Tested indirectly through Start
-	_ = handler
-}
+// ---------------------------------------------------------------------------
 
 func TestStart_CustomPort(t *testing.T) {
 	port := getFreePort(t)
@@ -496,7 +717,6 @@ func TestStart_CustomPort(t *testing.T) {
 	}
 	defer stop(ctx)
 
-	// Server should be accepting connections
 	addr := fmt.Sprintf("http://127.0.0.1:%d/", port)
 	resp, err := http.Get(addr)
 	if err != nil {
@@ -504,7 +724,6 @@ func TestStart_CustomPort(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	// Should get security headers even on 404
 	if resp.Header.Get("Strict-Transport-Security") == "" {
 		t.Fatal("security headers missing from live server response")
 	}
@@ -522,7 +741,6 @@ func TestStart_GracefulShutdown(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 
-	// Verify it's up
 	addr := fmt.Sprintf("http://127.0.0.1:%d/", port)
 	resp, err := http.Get(addr)
 	if err != nil {
@@ -530,7 +748,6 @@ func TestStart_GracefulShutdown(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	// Graceful shutdown
 	shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
@@ -538,10 +755,8 @@ func TestStart_GracefulShutdown(t *testing.T) {
 		t.Fatalf("stop: %v", err)
 	}
 
-	// Give the OS a moment to release the port
 	time.Sleep(50 * time.Millisecond)
 
-	// Should no longer accept connections
 	_, err = http.Get(addr)
 	if err == nil {
 		t.Fatal("server still accepting connections after shutdown")
@@ -560,7 +775,6 @@ func TestStart_StopIdempotent(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 
-	// Multiple stop calls should not panic or error
 	if err := stop(ctx); err != nil {
 		t.Fatalf("first stop: %v", err)
 	}
@@ -580,14 +794,12 @@ func TestStart_PortConflict(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Start first server
 	stop1, err := Start(ctx, opts)
 	if err != nil {
 		t.Fatalf("first Start: %v", err)
 	}
 	defer stop1(ctx)
 
-	// Second server on same port should fail
 	_, err = Start(ctx, opts)
 	if err == nil {
 		t.Fatal("expected error for port conflict")
@@ -623,21 +835,20 @@ func TestStart_RequestID_OnLiveServer(t *testing.T) {
 	}
 }
 
-func TestStart_WithRouteRegistrar(t *testing.T) {
+func TestStart_WithAPIRoutes(t *testing.T) {
 	port := getFreePort(t)
 
 	opts := defaultOpts()
 	opts.Port = port
-
-	reg := &stubRegistrar{
-		method: "GET",
-		path:   "/api/health",
-		status: http.StatusOK,
-		body:   "alive",
+	opts.APIRoutes = func(r chi.Router) {
+		r.Get("/api/health", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("alive"))
+		})
 	}
 
 	ctx := context.Background()
-	stop, err := Start(ctx, opts, reg)
+	stop, err := Start(ctx, opts)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -656,96 +867,5 @@ func TestStart_WithRouteRegistrar(t *testing.T) {
 	}
 	if !strings.Contains(string(body), "alive") {
 		t.Fatalf("body = %q, want 'alive'", string(body))
-	}
-}
-
-// Integration - full stack behavior
-
-func TestNewHandler_CompressesJSON(t *testing.T) {
-	reg := &funcRegistrar{
-		method: "GET",
-		path:   "/api/data",
-		fn: func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			// Write enough data that compression kicks in
-			w.Write([]byte(`{"data":"` + strings.Repeat("abcdefghij", 200) + `"}`))
-		},
-	}
-
-	h := NewHandler(defaultOpts(), reg)
-
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/api/data", nil)
-	req.Header.Set("Accept-Encoding", "gzip")
-	h.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d", rec.Code)
-	}
-
-	// The chi compress middleware should set Content-Encoding when it compresses
-	ce := rec.Header().Get("Content-Encoding")
-	if ce != "gzip" {
-		t.Fatalf("Content-Encoding = %q, want gzip (compression should be active for JSON)", ce)
-	}
-}
-
-func TestNewHandler_NoCompressionWithoutAcceptEncoding(t *testing.T) {
-	reg := &funcRegistrar{
-		method: "GET",
-		path:   "/api/data",
-		fn: func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"data":"` + strings.Repeat("abcdefghij", 200) + `"}`))
-		},
-	}
-
-	h := NewHandler(defaultOpts(), reg)
-
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/api/data", nil)
-	// No Accept-Encoding header
-	h.ServeHTTP(rec, req)
-
-	ce := rec.Header().Get("Content-Encoding")
-	if ce == "gzip" {
-		t.Fatal("should not compress without Accept-Encoding header")
-	}
-}
-
-func TestNewHandler_SecurityHeaders_AllMethods(t *testing.T) {
-	reg := &funcRegistrar{
-		method: "POST",
-		path:   "/api/submit",
-		fn: func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
-		},
-	}
-
-	h := NewHandler(defaultOpts(), reg)
-
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("POST", "/api/submit", nil)
-	h.ServeHTTP(rec, req)
-
-	if rec.Header().Get("Strict-Transport-Security") == "" {
-		t.Fatal("HSTS missing on POST response")
-	}
-}
-
-func TestNewHandler_RecoverMW_CallsOnPanic(t *testing.T) {
-	var called bool
-	opts := defaultOpts()
-	opts.UseRecoverMW = true
-	opts.OnPanic = func() { called = true }
-
-	panicReg := &panicRegistrar{path: "/panic"}
-	h := NewHandler(opts, panicReg)
-	doRequest(t, h, "GET", "/panic")
-
-	if !called {
-		t.Fatal("OnPanic not called through Options")
 	}
 }

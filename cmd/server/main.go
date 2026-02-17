@@ -16,12 +16,10 @@ import (
 	"github.com/keithlinneman/linnemanlabs-web/internal/content"
 	"github.com/keithlinneman/linnemanlabs-web/internal/cryptoutil"
 	"github.com/keithlinneman/linnemanlabs-web/internal/evidence"
-	"github.com/keithlinneman/linnemanlabs-web/internal/healthhttp"
 	"github.com/keithlinneman/linnemanlabs-web/internal/opshttp"
 	"github.com/keithlinneman/linnemanlabs-web/internal/provenancehttp"
 	"github.com/keithlinneman/linnemanlabs-web/internal/ratelimit"
 	"github.com/keithlinneman/linnemanlabs-web/internal/sitehandler"
-	"github.com/keithlinneman/linnemanlabs-web/internal/sitehttp"
 	"github.com/keithlinneman/linnemanlabs-web/internal/webassets"
 
 	"github.com/keithlinneman/linnemanlabs-web/internal/httpserver"
@@ -118,6 +116,8 @@ func main() {
 		"content_ssm_param", conf.ContentSSMParam,
 		"content_s3_bucket", conf.ContentS3Bucket,
 		"content_s3_prefix", conf.ContentS3Prefix,
+		"content_signing_key_arn", conf.ContentSigningKeyARN,
+		"evidence_signing_key_arn", conf.EvidenceSigningKeyARN,
 	)
 
 	// Setup pyroscope profiling
@@ -292,13 +292,6 @@ func main() {
 		}),
 	)
 
-	// create application health/readiness checks
-	checker := healthhttp.StaticChecker{}
-	healthAPI := healthhttp.NewAPI(checker)
-
-	// register site handler routes
-	siteRoutes := sitehttp.New(siteHandler)
-
 	// Setup rate limiter middleware for site handler
 	limiter := ratelimit.New(ctx,
 		// increment prometheus counter on each denied request
@@ -318,6 +311,8 @@ func main() {
 			Port:         conf.HTTPPort,
 			Health:       probe.Static(true, ""),
 			Readiness:    readiness,
+			APIRoutes:    provenanceAPI.RegisterRoutes,
+			SiteHandler:  siteHandler,
 			UseRecoverMW: true,
 			OnPanic:      m.IncHttpPanic,
 			MetricsMW:    m.Middleware,
@@ -325,9 +320,6 @@ func main() {
 			Logger:       L,
 			ContentInfo:  contentMgr, // Pass content manager for headers
 		},
-		healthAPI,
-		provenanceAPI, // Register provenance API routes
-		siteRoutes,
 	)
 
 	if err != nil {

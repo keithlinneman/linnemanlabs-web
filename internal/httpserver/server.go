@@ -6,7 +6,6 @@ import (
 	"net"
 	"net/http"
 	"path"
-	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -15,17 +14,14 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 
+	"github.com/keithlinneman/linnemanlabs-web/internal/health"
 	"github.com/keithlinneman/linnemanlabs-web/internal/httpmw"
 	"github.com/keithlinneman/linnemanlabs-web/internal/xerrors"
 )
 
-type RouteRegistrar interface {
-	RegisterRoutes(r chi.Router)
-}
-
 // NewHandler builds an HTTP handler with routes + middleware
 // main() owns *http.Server so it can do graceful shutdown
-func NewHandler(opts Options, regs ...RouteRegistrar) http.Handler {
+func NewHandler(opts Options) http.Handler {
 	// chi router
 	r := chi.NewRouter()
 
@@ -49,17 +45,22 @@ func NewHandler(opts Options, regs ...RouteRegistrar) http.Handler {
 	// Access log middleware
 	r.Use(httpmw.AccessLog())
 
-	// Register routes from other packages
-	for _, reg := range regs {
-		if reg == nil {
-			continue
-		}
-		// Handle interface wrapping a typed nil, e.g. (*httpapi.API)(nil)
-		v := reflect.ValueOf(reg)
-		if v.Kind() == reflect.Ptr && v.IsNil() {
-			continue
-		}
-		reg.RegisterRoutes(r)
+	// Register health routes at /-/healthy and /-/ready if probes provided
+	if opts.Health != nil {
+		r.Get("/-/healthy", health.HealthzHandler(opts.Health))
+	}
+	if opts.Readiness != nil {
+		r.Get("/-/ready", health.ReadyzHandler(opts.Readiness))
+	}
+
+	if opts.APIRoutes != nil {
+		opts.APIRoutes(r)
+	}
+
+	// Catch-all 404 handler if provided, otherwise chi default
+	if opts.FallbackHandler != nil {
+		r.NotFound(opts.FallbackHandler.ServeHTTP)
+		r.MethodNotAllowed(opts.FallbackHandler.ServeHTTP)
 	}
 
 	// Middleware (outermost first in wrapping order)
@@ -152,14 +153,14 @@ func NewServer(addr string, handler http.Handler) *http.Server {
 
 // Start public HTTP server
 // Returns stop(ctx) for graceful shutdown
-func Start(ctx context.Context, opts Options, regs ...RouteRegistrar) (func(context.Context) error, error) {
+func Start(ctx context.Context, opts Options) (func(context.Context) error, error) {
 	port := opts.Port
 	if port == 0 {
 		port = 8080
 	}
 	addr := fmt.Sprintf(":%d", port)
 
-	handler := NewHandler(opts, regs...)
+	handler := NewHandler(opts)
 	srv := NewServer(addr, handler)
 
 	ln, err := net.Listen("tcp", addr)

@@ -1,4 +1,4 @@
-package opshttp
+package health
 
 import (
 	"net/http"
