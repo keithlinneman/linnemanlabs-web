@@ -216,11 +216,11 @@ func TestNewHandler_APIRoutes_Nil(t *testing.T) {
 	}
 }
 
-// NewHandler - FallbackHandler
+// NewHandler - SiteHandler
 
-func TestNewHandler_FallbackHandler(t *testing.T) {
+func TestNewHandler_SiteHandler(t *testing.T) {
 	opts := defaultOpts()
-	opts.FallbackHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	opts.SiteHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("site-content"))
 	})
@@ -236,9 +236,9 @@ func TestNewHandler_FallbackHandler(t *testing.T) {
 	}
 }
 
-func TestNewHandler_FallbackHandler_Nil(t *testing.T) {
+func TestNewHandler_SiteHandler_Nil(t *testing.T) {
 	opts := defaultOpts()
-	opts.FallbackHandler = nil
+	opts.SiteHandler = nil
 
 	h := NewHandler(opts)
 	rec := doRequest(t, h, "GET", "/unknown")
@@ -257,7 +257,7 @@ func TestNewHandler_APIRoutes_TakePrecedenceOverFallback(t *testing.T) {
 			w.Write([]byte("api-response"))
 		})
 	}
-	opts.FallbackHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	opts.SiteHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("fallback"))
 	})
@@ -270,17 +270,17 @@ func TestNewHandler_APIRoutes_TakePrecedenceOverFallback(t *testing.T) {
 		t.Fatalf("explicit route should hit APIRoutes, got: %q", rec.Body.String())
 	}
 
-	// Unknown route should fall through to FallbackHandler
+	// Unknown route should fall through to SiteHandler
 	rec = doRequest(t, h, "GET", "/unknown")
 	if !strings.Contains(rec.Body.String(), "fallback") {
-		t.Fatalf("unknown route should hit FallbackHandler, got: %q", rec.Body.String())
+		t.Fatalf("unknown route should hit SiteHandler, got: %q", rec.Body.String())
 	}
 }
 
-func TestNewHandler_FallbackHandler_MethodNotAllowed(t *testing.T) {
+func TestNewHandler_SiteHandler_MethodNotAllowed(t *testing.T) {
 	fallbackCalled := false
 	opts := defaultOpts()
-	opts.FallbackHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	opts.SiteHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fallbackCalled = true
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	})
@@ -289,7 +289,7 @@ func TestNewHandler_FallbackHandler_MethodNotAllowed(t *testing.T) {
 	doRequest(t, h, "DELETE", "/anything")
 
 	if !fallbackCalled {
-		t.Fatal("FallbackHandler should handle MethodNotAllowed")
+		t.Fatal("SiteHandler should handle MethodNotAllowed")
 	}
 }
 
@@ -378,7 +378,7 @@ func TestNewHandler_HealthEndpoints_NotOverriddenByFallback(t *testing.T) {
 	opts := defaultOpts()
 	opts.Health = &stubProbe{err: nil}
 	opts.Readiness = &stubProbe{err: nil}
-	opts.FallbackHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	opts.SiteHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("site"))
 	})

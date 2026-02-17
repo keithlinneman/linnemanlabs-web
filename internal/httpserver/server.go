@@ -58,9 +58,9 @@ func NewHandler(opts Options) http.Handler {
 	}
 
 	// Catch-all 404 handler if provided, otherwise chi default
-	if opts.FallbackHandler != nil {
-		r.NotFound(opts.FallbackHandler.ServeHTTP)
-		r.MethodNotAllowed(opts.FallbackHandler.ServeHTTP)
+	if opts.SiteHandler != nil {
+		r.NotFound(opts.SiteHandler.ServeHTTP)
+		r.MethodNotAllowed(opts.SiteHandler.ServeHTTP)
 	}
 
 	// Middleware (outermost first in wrapping order)
