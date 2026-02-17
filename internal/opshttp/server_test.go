@@ -471,3 +471,41 @@ func TestRequireNonPublicNetwork_InvalidIP(t *testing.T) {
 		t.Fatalf("invalid IP: status = %d, want 403", rec.Code)
 	}
 }
+
+func TestRequireNonPublicNetwork_IPv4MappedIPv6_Rejected(t *testing.T) {
+	// ::ffff:8.8.8.8 is an IPv4-mapped IPv6 address representing a public IP.
+	// net.IP.IsPrivate() correctly returns false. Test proves we handle it.
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("handler should not be called for IPv4-mapped public IP")
+	})
+
+	h := requireNonPublicNetwork(log.Nop(), inner)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/healthz", nil)
+	req.RemoteAddr = "[::ffff:8.8.8.8]:12345"
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("IPv4-mapped public IP: status = %d, want 403", rec.Code)
+	}
+}
+
+func TestRequireNonPublicNetwork_IPv4MappedIPv6_PrivateAllowed(t *testing.T) {
+	// ::ffff:10.0.0.1 is an IPv4-mapped IPv6 address representing a private IP.
+	// Should be allowed through.
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	h := requireNonPublicNetwork(log.Nop(), inner)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/healthz", nil)
+	req.RemoteAddr = "[::ffff:10.0.0.1]:12345"
+	h.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("IPv4-mapped private IP: status = %d, want 200", rec.Code)
+	}
+}
