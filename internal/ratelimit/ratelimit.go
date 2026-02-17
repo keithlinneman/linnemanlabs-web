@@ -41,6 +41,10 @@ type IPLimiter struct {
 	mu       sync.Mutex
 	visitors map[string]*visitor
 
+	// maxVisitors is the maximum number of unique IPs to track in the map, used to prevent unbounded memory growthin case of a
+	// large attack. Once the limit is reached, new visitors will be rejected until existing ones are evicted by the TTL-based cleanup.
+	maxVisitors int
+
 	// rate controls: requests per second and burst ceiling
 	perSecond rate.Limit
 	burst     int
@@ -54,6 +58,11 @@ type IPLimiter struct {
 
 	// OnDenied is called on every denied request, used for incrementing prometheus counter
 	OnDenied func(ip string)
+
+	// OnCapacity is called when the limiter reaches maxVisitors capacity and starts rejecting new visitors, used for logging and incrementing prometheus counter
+	OnCapacity func()
+
+	atCapacity bool // tracks whether we have hit capacity
 }
 
 type Option func(*IPLimiter)
@@ -90,13 +99,21 @@ func WithOnDenied(fn func(ip string)) Option {
 	}
 }
 
+// WithOnCapacity sets a callback for when the limiter reaches maxVisitors capacity and starts rejecting new visitors, used for logging and incrementing prometheus counter
+func WithOnCapacity(fn func()) Option {
+	return func(l *IPLimiter) {
+		l.OnCapacity = fn
+	}
+}
+
 // New creates an IPLimiter and starts the background cleanup goroutine
 func New(ctx context.Context, opts ...Option) *IPLimiter {
 	l := &IPLimiter{
-		visitors:  make(map[string]*visitor),
-		perSecond: 10,
-		burst:     30,
-		ttl:       5 * time.Minute,
+		visitors:    make(map[string]*visitor),
+		perSecond:   10,
+		burst:       30,
+		ttl:         5 * time.Minute,
+		maxVisitors: 100000, // default to 100k unique IPs, can be adjusted with WithMaxVisitors, 100k should work out to less than 20mb total memory with typical visitor struct size and overhead
 	}
 	for _, o := range opts {
 		o(l)
@@ -112,6 +129,17 @@ func (l *IPLimiter) allow(ip string) bool {
 	l.mu.Lock()
 	v, exists := l.visitors[ip]
 	if !exists {
+		if l.maxVisitors > 0 && len(l.visitors) >= l.maxVisitors {
+			atCap := !l.atCapacity
+			if atCap {
+				l.atCapacity = true
+			}
+			l.mu.Unlock()
+			if atCap && l.OnCapacity != nil {
+				l.OnCapacity()
+			}
+			return false
+		}
 		v = &visitor{
 			limiter: rate.NewLimiter(l.perSecond, l.burst),
 		}
@@ -180,4 +208,10 @@ func (l *IPLimiter) Middleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+func WithMaxVisitors(n int) Option {
+	return func(l *IPLimiter) {
+		l.maxVisitors = n
+	}
 }

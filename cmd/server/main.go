@@ -251,7 +251,7 @@ func main() {
 		m.SetContentLoadedTimestamp(t)
 	}
 
-	if contentLoader != nil {
+	if contentLoader != nil && conf.EnableContentUpdates {
 		// setup content watcher to poll for new bundles, validate and swap into manager
 		watcher := content.NewWatcher(content.WatcherOptions{
 			Logger:       L,
@@ -341,6 +341,10 @@ func main() {
 		// only log the first time an ip is denied each time it is cleaned from the bucket
 		ratelimit.WithOnFirstDenied(func(ip string) {
 			L.Warn(ctx, "rate limit triggered", "ip", ip)
+		}),
+		ratelimit.WithOnCapacity(func() {
+			m.IncRateLimitCapacity()
+			L.Warn(ctx, "rate limit capacity reached, rejecting new visitors until some are evicted")
 		}),
 	)
 

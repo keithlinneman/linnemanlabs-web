@@ -26,6 +26,7 @@ type ServerMetrics struct {
 	httpPanicTotal         prometheus.Counter
 	buildInfo              *prometheus.GaugeVec
 	ratelimitDeniedTotal   prometheus.Counter
+	ratelimitCapacityTotal prometheus.Counter
 	contentSource          *prometheus.GaugeVec
 	contentLoadedTimestamp prometheus.Gauge
 	contentBundleInfo      *prometheus.GaugeVec
@@ -72,6 +73,10 @@ func New() *ServerMetrics {
 			Name: "http_requests_rate_limited_total",
 			Help: "Total requests rejected by rate limiter",
 		}),
+		ratelimitCapacityTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "http_requests_rate_limited_capacity_total",
+			Help: "Total number of times rate limiter capacity reached",
+		}),
 		contentSource: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "content_source_info",
 			Help: "Current content source (label carries value, gauge is always 1)",
@@ -94,6 +99,7 @@ func New() *ServerMetrics {
 		m.httpPanicTotal,
 		m.buildInfo,
 		m.ratelimitDeniedTotal,
+		m.ratelimitCapacityTotal,
 		m.contentSource,
 		m.contentLoadedTimestamp,
 		m.contentBundleInfo,
@@ -136,6 +142,10 @@ func (m *ServerMetrics) SetBuildInfoFromVersion(app, component string, vi versio
 
 func (m *ServerMetrics) IncRateLimitDenied() {
 	m.ratelimitDeniedTotal.Inc()
+}
+
+func (m *ServerMetrics) IncRateLimitCapacity() {
+	m.ratelimitCapacityTotal.Inc()
 }
 
 func (m *ServerMetrics) SetContentSource(source string) {
