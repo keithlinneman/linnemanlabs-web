@@ -85,7 +85,5 @@ func (v *KMSVerifier) VerifySignature(ctx context.Context, message, signature []
 
 	digest := sha256.Sum256(message)
 
-	return rsa.VerifyPSS(rsaPub, crypto.SHA256, digest[:], signature, &rsa.PSSOptions{
-		SaltLength: rsa.PSSSaltLengthEqualsHash,
-	})
+	return rsa.VerifyPKCS1v15(rsaPub, crypto.SHA256, digest[:], signature)
 }
