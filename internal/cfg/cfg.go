@@ -164,7 +164,9 @@ func Validate(c App, hasProvenance bool) error {
 		}
 	}
 
-	// if build has provenance data then it is expected to have signing keys configured
+	// Fail-closed: when provenance is compiled in, both signing keys are mandatory.
+	// Dev builds without ldflags never reach this path - HasProvenance() is false
+	// and the content watcher doesn't start, so there's nothing to verify.
 	if hasProvenance {
 		if c.EvidenceSigningKeyARN == "" {
 			return fmt.Errorf("release build requires evidence-signing-key-arn")
