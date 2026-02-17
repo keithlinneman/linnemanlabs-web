@@ -61,6 +61,11 @@ func extractTarGz(src, dst string) error {
 		}
 
 		switch hdr.Typeflag {
+
+		// handle volume labels (ignore but dont error on unsupported type)
+		case 'V':
+			continue
+
 		// handle directories
 		case tar.TypeDir:
 			if err := os.MkdirAll(target, 0750); err != nil {
@@ -77,31 +82,6 @@ func extractTarGz(src, dst string) error {
 			if err := writeFile(target, tr, 0640); err != nil {
 				return err
 			}
-
-		// handle volume labels (ignore but dont error on unsupported type)
-		case 'V':
-			continue
-
-		// no need for symlinks currently
-		// case tar.TypeSymlink:
-		// 	// validate symlink target doesnt escape
-		// 	linkTarget := hdr.Linkname
-		// 	if filepath.IsAbs(linkTarget) {
-		// 		return xerrors.Newf("absolute symlink not allowed: %s -> %s", hdr.Name, linkTarget)
-		// 	}
-		// 	resolved := filepath.Join(filepath.Dir(target), linkTarget)
-		// 	if !strings.HasPrefix(filepath.Clean(resolved), filepath.Clean(dst)) {
-		// 		return xerrors.Newf("symlink escapes destination: %s -> %s", hdr.Name, linkTarget)
-		// 	}
-
-		// 	// ensure parent directory exists
-		// 	if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
-		// 		return xerrors.Wrapf(err, "mkdir parent of %s", target)
-		// 	}
-
-		// 	if err := os.Symlink(linkTarget, target); err != nil {
-		// 		return xerrors.Wrapf(err, "symlink %s -> %s", target, linkTarget)
-		// 	}
 
 		default:
 			// reject other types (symlinks, hard links, devices, fifos, etc).. need to replace tar with something simpler

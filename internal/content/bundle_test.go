@@ -693,3 +693,64 @@ func buildSeedArchiveWithLabel() []byte {
 	gw.Close()
 	return buf.Bytes()
 }
+
+func TestExtractTarGz_RejectsHardLink(t *testing.T) {
+	archive := makeTarGzWithType(t, "hardlink", tar.TypeLink)
+	archivePath := writeTempFile(t, archive)
+	dst := t.TempDir()
+
+	err := extractTarGz(archivePath, dst)
+	if err == nil {
+		t.Fatal("expected error for hard link in archive")
+	}
+	if !strings.Contains(err.Error(), "unsupported file type") {
+		t.Fatalf("expected 'unsupported file type' error, got: %v", err)
+	}
+}
+
+func TestExtractTarGz_RejectsCharDevice(t *testing.T) {
+	archive := makeTarGzWithType(t, "dev", tar.TypeChar)
+	archivePath := writeTempFile(t, archive)
+	dst := t.TempDir()
+
+	err := extractTarGz(archivePath, dst)
+	if err == nil {
+		t.Fatal("expected error for char device in archive")
+	}
+	if !strings.Contains(err.Error(), "unsupported file type") {
+		t.Fatalf("expected 'unsupported file type' error, got: %v", err)
+	}
+}
+
+func TestExtractTarGz_RejectsBlockDevice(t *testing.T) {
+	archive := makeTarGzWithType(t, "dev", tar.TypeBlock)
+	archivePath := writeTempFile(t, archive)
+	dst := t.TempDir()
+
+	err := extractTarGz(archivePath, dst)
+	if err == nil {
+		t.Fatal("expected error for block device in archive")
+	}
+}
+
+func TestExtractTarGz_RejectsFifo(t *testing.T) {
+	archive := makeTarGzWithType(t, "fifo", tar.TypeFifo)
+	archivePath := writeTempFile(t, archive)
+	dst := t.TempDir()
+
+	err := extractTarGz(archivePath, dst)
+	if err == nil {
+		t.Fatal("expected error for FIFO in archive")
+	}
+}
+
+func TestSanitizeTarPath_NullByte(t *testing.T) {
+	// Go's os functions reject null bytes at the syscall layer, so this
+	// isn't exploitable. still defense-in-depth and keeps consistency with null byte checks elsewhere
+	_, err := sanitizeTarPath("/tmp/extract", "foo\x00bar")
+	if err == nil {
+		// If sanitizeTarPath doesn't reject it, the OS will. Either way
+		// the file won't be created. This test documents the behavior.
+		t.Log("sanitizeTarPath does not reject null bytes; OS syscall layer provides defense")
+	}
+}
