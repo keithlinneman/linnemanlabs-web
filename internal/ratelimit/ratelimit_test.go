@@ -2,6 +2,7 @@ package ratelimit
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -447,5 +448,267 @@ func TestMiddleware_EmptyClientIP(t *testing.T) {
 	w := makeRequestWithIP(handler, "")
 	if w.Code != http.StatusTooManyRequests {
 		t.Fatalf("empty IP second request: got %d, want 429", w.Code)
+	}
+}
+
+// MaxVisitors unit tests
+
+func TestDefaults_MaxVisitors(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	l := New(ctx)
+
+	if l.maxVisitors != 100000 {
+		t.Fatalf("default maxVisitors = %d, want 100000", l.maxVisitors)
+	}
+}
+
+func TestWithMaxVisitors(t *testing.T) {
+	l, cancel := newTestLimiter(WithMaxVisitors(500))
+	defer cancel()
+
+	if l.maxVisitors != 500 {
+		t.Fatalf("maxVisitors = %d, want 500", l.maxVisitors)
+	}
+}
+
+func TestMaxVisitors_NewIPRejectedAtCapacity(t *testing.T) {
+	l, cancel := newTestLimiter(
+		WithRate(100, 100), // generous limits so denials are only from capacity
+		WithMaxVisitors(3),
+	)
+	defer cancel()
+
+	// fill the map with 3 unique IPs
+	for i := 0; i < 3; i++ {
+		ip := fmt.Sprintf("10.0.0.%d", i+1)
+		if !l.allow(ip) {
+			t.Fatalf("ip %s should be allowed (map not full)", ip)
+		}
+	}
+
+	// 4th unique IP should be rejected
+	if l.allow("10.0.0.99") {
+		t.Fatal("new IP should be rejected when map is at capacity")
+	}
+}
+
+func TestMaxVisitors_ExistingIPStillAllowedAtCapacity(t *testing.T) {
+	l, cancel := newTestLimiter(
+		WithRate(100, 100),
+		WithMaxVisitors(3),
+	)
+	defer cancel()
+
+	// fill the map
+	l.allow("10.0.0.1")
+	l.allow("10.0.0.2")
+	l.allow("10.0.0.3")
+
+	// existing IPs should still work
+	if !l.allow("10.0.0.1") {
+		t.Fatal("existing IP should still be allowed at capacity")
+	}
+	if !l.allow("10.0.0.2") {
+		t.Fatal("existing IP should still be allowed at capacity")
+	}
+	if !l.allow("10.0.0.3") {
+		t.Fatal("existing IP should still be allowed at capacity")
+	}
+}
+
+func TestMaxVisitors_OnCapacityFiredOnce(t *testing.T) {
+	var capCount atomic.Int32
+
+	l, cancel := newTestLimiter(
+		WithRate(100, 100),
+		WithMaxVisitors(2),
+		WithOnCapacity(func() {
+			capCount.Add(1)
+		}),
+	)
+	defer cancel()
+
+	// fill the map
+	l.allow("10.0.0.1")
+	l.allow("10.0.0.2")
+
+	// first rejection triggers OnCapacity
+	l.allow("10.0.0.10")
+	if got := capCount.Load(); got != 1 {
+		t.Fatalf("after first rejection: OnCapacity count = %d, want 1", got)
+	}
+
+	// subsequent rejections should NOT fire OnCapacity again
+	l.allow("10.0.0.11")
+	l.allow("10.0.0.12")
+	if got := capCount.Load(); got != 1 {
+		t.Fatalf("after repeated rejections: OnCapacity count = %d, want 1", got)
+	}
+}
+
+func TestMaxVisitors_OnCapacityNil_NoPanic(t *testing.T) {
+	l, cancel := newTestLimiter(
+		WithRate(100, 100),
+		WithMaxVisitors(1),
+		// no OnCapacity set
+	)
+	defer cancel()
+
+	l.allow("10.0.0.1")
+	// should not panic
+	l.allow("10.0.0.2")
+}
+
+func TestMaxVisitors_EvictionFreesCapacity(t *testing.T) {
+	l, cancel := newTestLimiter(
+		WithRate(100, 100),
+		WithMaxVisitors(2),
+		WithTTL(50*time.Millisecond),
+	)
+	defer cancel()
+
+	// fill the map
+	l.allow("10.0.0.1")
+	l.allow("10.0.0.2")
+
+	// new IP rejected
+	if l.allow("10.0.0.3") {
+		t.Fatal("should be rejected at capacity")
+	}
+
+	// wait for eviction
+	time.Sleep(120 * time.Millisecond)
+
+	// map should be empty now, new IP should be allowed
+	if !l.allow("10.0.0.3") {
+		t.Fatal("new IP should be allowed after eviction freed capacity")
+	}
+}
+
+func TestMaxVisitors_RateLimitStillAppliesAtCapacity(t *testing.T) {
+	l, cancel := newTestLimiter(
+		WithRate(1, 1), // tight rate limit
+		WithMaxVisitors(2),
+	)
+	defer cancel()
+
+	// fill map and exhaust rate limit for ip1
+	l.allow("10.0.0.1") // allowed, consumes token
+	l.allow("10.0.0.2")
+
+	// ip1 should be rate-limited (not capacity-limited)
+	if l.allow("10.0.0.1") {
+		t.Fatal("ip1 should be rate-limited even though it's an existing visitor")
+	}
+}
+
+func TestMaxVisitors_ZeroDisablesLimit(t *testing.T) {
+	l, cancel := newTestLimiter(
+		WithRate(100, 100),
+		WithMaxVisitors(0),
+	)
+	defer cancel()
+
+	// with maxVisitors=0 the check is `l.maxVisitors > 0 && ...`
+	// so no capacity limit should be enforced
+	for i := 0; i < 100; i++ {
+		ip := fmt.Sprintf("10.0.%d.%d", i/256, i%256)
+		if !l.allow(ip) {
+			t.Fatalf("ip %s rejected with maxVisitors=0 (should be unlimited)", ip)
+		}
+	}
+}
+
+func TestMaxVisitors_Middleware_Returns429ForNewIP(t *testing.T) {
+	l, cancel := newTestLimiter(
+		WithRate(100, 100),
+		WithMaxVisitors(2),
+	)
+	defer cancel()
+
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := l.Middleware(inner)
+
+	// fill the map via middleware
+	w1 := makeRequestWithIP(handler, "203.0.113.1")
+	w2 := makeRequestWithIP(handler, "203.0.113.2")
+	if w1.Code != http.StatusOK || w2.Code != http.StatusOK {
+		t.Fatalf("first two IPs should pass: got %d, %d", w1.Code, w2.Code)
+	}
+
+	// new IP should get 429
+	w3 := makeRequestWithIP(handler, "203.0.113.3")
+	if w3.Code != http.StatusTooManyRequests {
+		t.Fatalf("new IP at capacity: got %d, want 429", w3.Code)
+	}
+}
+
+func TestMaxVisitors_Middleware_ExistingIPStillServed(t *testing.T) {
+	l, cancel := newTestLimiter(
+		WithRate(100, 100),
+		WithMaxVisitors(2),
+	)
+	defer cancel()
+
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := l.Middleware(inner)
+
+	// fill the map
+	makeRequestWithIP(handler, "203.0.113.1")
+	makeRequestWithIP(handler, "203.0.113.2")
+
+	// existing IP should still get 200
+	w := makeRequestWithIP(handler, "203.0.113.1")
+	if w.Code != http.StatusOK {
+		t.Fatalf("existing IP at capacity: got %d, want 200", w.Code)
+	}
+}
+
+func TestMaxVisitors_ConcurrentAccess(t *testing.T) {
+	l, cancel := newTestLimiter(
+		WithRate(100, 100),
+		WithMaxVisitors(50),
+	)
+	defer cancel()
+
+	// hammer with 200 goroutines using unique IPs
+	var wg sync.WaitGroup
+	var allowed atomic.Int32
+	var rejected atomic.Int32
+
+	for i := 0; i < 200; i++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			ip := fmt.Sprintf("10.%d.%d.%d", n/65536, (n/256)%256, n%256)
+			if l.allow(ip) {
+				allowed.Add(1)
+			} else {
+				rejected.Add(1)
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	// exactly 50 should have been allowed (one per unique IP, all within burst)
+	if got := allowed.Load(); got != 50 {
+		t.Fatalf("allowed = %d, want 50", got)
+	}
+	if got := rejected.Load(); got != 150 {
+		t.Fatalf("rejected = %d, want 150", got)
+	}
+
+	l.mu.Lock()
+	mapSize := len(l.visitors)
+	l.mu.Unlock()
+	if mapSize != 50 {
+		t.Fatalf("map size = %d, want 50", mapSize)
 	}
 }
