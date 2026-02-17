@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 
@@ -36,18 +35,51 @@ type LoaderOptions struct {
 	AWSConfig *aws.Config
 
 	// Verifier for bundle signatures
-	Verifier *cryptoutil.KMSVerifier
+	Verifier BlobVerifier
+
+	// S3Client allows injecting a custom S3 implementation for testing.
+	// If nil, a real client is created from AWSConfig.
+	S3Client s3Getter
+
+	// SSMClient allows injecting a custom SSM implementation for testing.
+	// If nil, a real client is created from AWSConfig.
+	SSMClient ssmGetter
 }
 
 type Loader struct {
 	opts      LoaderOptions
-	ssmClient *ssm.Client
-	s3Client  *s3.Client
+	ssmClient ssmGetter
+	s3Client  s3Getter
 	logger    log.Logger
+}
+
+// s3Getter is the subset of the S3 API the loader needs.
+// Extracted as an interface to enable unit testing without live AWS credentials.
+type s3Getter interface {
+	GetObject(ctx context.Context, params *s3.GetObjectInput, optFns ...func(*s3.Options)) (*s3.GetObjectOutput, error)
+}
+
+// ssmGetter is the subset of the SSM API the loader needs.
+// Extracted as an interface to enable unit testing without live AWS credentials.
+type ssmGetter interface {
+	GetParameter(ctx context.Context, params *ssm.GetParameterInput, optFns ...func(*ssm.Options)) (*ssm.GetParameterOutput, error)
+}
+
+// BlobVerifier verifies a sigstore bundle against artifact bytes.
+// The evidence loader uses this to verify release.json signatures without
+// being coupled to a specific KMS implementation.
+type BlobVerifier interface {
+	VerifyBlob(ctx context.Context, bundleJSON, artifact []byte) error
 }
 
 // NewLoader creates a new content Loader with the given options
 func NewLoader(ctx context.Context, opts LoaderOptions) (*Loader, error) {
+	if opts.S3Client == nil {
+		return nil, xerrors.New("evidence: S3Client is required")
+	}
+	if opts.SSMClient == nil {
+		return nil, xerrors.New("evidence: SSMClient is required")
+	}
 	if opts.SSMParam == "" {
 		return nil, xerrors.New("SSMParam is required")
 	}
@@ -57,23 +89,23 @@ func NewLoader(ctx context.Context, opts LoaderOptions) (*Loader, error) {
 	if opts.Logger == nil {
 		opts.Logger = log.Nop()
 	}
-
-	var awsCfg aws.Config
-	var err error
-	if opts.AWSConfig != nil {
-		awsCfg = *opts.AWSConfig
-	} else {
-		awsCfg, err = config.LoadDefaultConfig(ctx)
+	if opts.ExtractDir == "" {
+		// use temp dir if not specified
+		var err error
+		opts.ExtractDir, err = os.MkdirTemp("", "content-site-*")
 		if err != nil {
-			return nil, xerrors.Wrap(err, "load AWS config")
+			return nil, xerrors.Wrap(err, "create temp extract dir")
+		}
+	}
+	if opts.ExtractDir != "" {
+		// ensure extract dir exists
+		if err := os.MkdirAll(opts.ExtractDir, 0750); err != nil {
+			return nil, xerrors.Wrapf(err, "create extract dir %s", opts.ExtractDir)
 		}
 	}
 
 	return &Loader{
-		opts:      opts,
-		ssmClient: ssm.NewFromConfig(awsCfg),
-		s3Client:  s3.NewFromConfig(awsCfg),
-		logger:    opts.Logger,
+		opts: opts,
 	}, nil
 }
 

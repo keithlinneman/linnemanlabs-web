@@ -12,6 +12,9 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/ssm"
+
 	"github.com/keithlinneman/linnemanlabs-web/internal/cfg"
 	"github.com/keithlinneman/linnemanlabs-web/internal/content"
 	"github.com/keithlinneman/linnemanlabs-web/internal/cryptoutil"
@@ -161,25 +164,39 @@ func main() {
 	var m *metrics.ServerMetrics = metrics.New()
 	m.SetBuildInfoFromVersion(v.AppName, "server", vi)
 
+	awsCfg, err := config.LoadDefaultConfig(ctx)
+	if err != nil {
+		L.Error(ctx, err, "failed to load AWS config")
+		os.Exit(1)
+	}
+
+	s3Client := s3.NewFromConfig(awsCfg)
+	ssmClient := ssm.NewFromConfig(awsCfg)
+
 	// create shared KMS client for signature verification of evidence and content bundles, separate keys may be used for each
 	var kmsClient *kms.Client
 	if conf.EvidenceSigningKeyARN != "" || conf.ContentSigningKeyARN != "" {
-		awsCfg, err := config.LoadDefaultConfig(ctx)
-		if err != nil {
-			L.Error(ctx, err, "failed to load AWS config for signature verification")
-		} else {
-			kmsClient = kms.NewFromConfig(awsCfg)
-		}
+		kmsClient = kms.NewFromConfig(awsCfg)
 	}
 
 	// create KMS verifiers for evidence and content if configured
-	var releaseVerifier *cryptoutil.KMSVerifier
+	var evidenceVerifier *cryptoutil.KMSVerifier
 	if kmsClient != nil && conf.EvidenceSigningKeyARN != "" {
-		releaseVerifier = cryptoutil.NewKMSVerifier(kmsClient, conf.EvidenceSigningKeyARN)
+		evidenceVerifier = cryptoutil.NewKMSVerifier(kmsClient, conf.EvidenceSigningKeyARN)
 	}
 	var contentVerifier *cryptoutil.KMSVerifier
 	if kmsClient != nil && conf.ContentSigningKeyARN != "" {
 		contentVerifier = cryptoutil.NewKMSVerifier(kmsClient, conf.ContentSigningKeyARN)
+	}
+
+	var evidenceBlobVerifier evidence.BlobVerifier
+	if evidenceVerifier != nil {
+		evidenceBlobVerifier = evidenceVerifier
+	}
+
+	var contentBlobVerifier content.BlobVerifier
+	if contentVerifier != nil {
+		contentBlobVerifier = contentVerifier
 	}
 
 	// initialize http content
@@ -208,11 +225,13 @@ func main() {
 
 	// setup content bundle loader
 	contentLoader, err := content.NewLoader(ctx, content.LoaderOptions{
-		Logger:   L,
-		SSMParam: conf.ContentSSMParam,
-		S3Bucket: conf.ContentS3Bucket,
-		S3Prefix: conf.ContentS3Prefix,
-		Verifier: contentVerifier,
+		Logger:    L,
+		SSMParam:  conf.ContentSSMParam,
+		S3Bucket:  conf.ContentS3Bucket,
+		S3Prefix:  conf.ContentS3Prefix,
+		S3Client:  s3Client,
+		SSMClient: ssmClient,
+		Verifier:  contentBlobVerifier,
 	})
 	if err != nil {
 		L.Error(ctx, err, "failed to create content loader")
@@ -237,11 +256,12 @@ func main() {
 	if hasProvenance {
 		evidenceStore = evidence.NewStore()
 		evidenceLoader, err := evidence.NewLoader(ctx, evidence.LoaderOptions{
-			Logger:          L,
-			Bucket:          vi.EvidenceBucket,
-			Prefix:          vi.EvidencePrefix,
-			ReleaseID:       vi.ReleaseId,
-			ReleaseVerifier: releaseVerifier,
+			Logger:    L,
+			Bucket:    vi.EvidenceBucket,
+			Prefix:    vi.EvidencePrefix,
+			ReleaseID: vi.ReleaseId,
+			S3Client:  s3Client,
+			Verifier:  evidenceBlobVerifier,
 		})
 		if err != nil {
 			// evidence is required for builds with provenance data, fail early at startup if we cant initiate loader

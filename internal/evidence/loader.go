@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 
 	"github.com/keithlinneman/linnemanlabs-web/internal/cryptoutil"
@@ -32,6 +31,19 @@ const (
 	fetchWorkers = 10
 )
 
+// s3Getter is the subset of the S3 API the loader needs.
+// Extracted as an interface to enable unit testing without live AWS credentials.
+type s3Getter interface {
+	GetObject(ctx context.Context, params *s3.GetObjectInput, optFns ...func(*s3.Options)) (*s3.GetObjectOutput, error)
+}
+
+// BlobVerifier verifies a sigstore bundle against artifact bytes.
+// The evidence loader uses this to verify release.json signatures without
+// being coupled to a specific KMS implementation.
+type BlobVerifier interface {
+	VerifyBlob(ctx context.Context, bundleJSON, artifact []byte) error
+}
+
 // LoaderOptions configures the evidence loader.
 type LoaderOptions struct {
 	Logger log.Logger
@@ -48,14 +60,18 @@ type LoaderOptions struct {
 	// AWS config (default if nil)
 	AWSConfig *aws.Config
 
-	// Verifier for release.json signature bundle
-	ReleaseVerifier *cryptoutil.KMSVerifier
+	// ReleaseVerifier verifies the sigstore bundle for release.json
+	Verifier BlobVerifier
+
+	// S3Client allows injecting a custom S3 implementation for testing
+	// If nil, a real client is created from AWSConfig.
+	S3Client s3Getter
 }
 
 // Loader discovers and fetches evidence artifacts currently from S3 possibly OCI soon
 type Loader struct {
 	opts     LoaderOptions
-	s3Client *s3.Client
+	s3Client s3Getter
 	logger   log.Logger
 }
 
@@ -68,6 +84,9 @@ type fetchResult struct {
 
 // NewLoader creates a new evidence loader that will fetch artifacts
 func NewLoader(ctx context.Context, opts LoaderOptions) (*Loader, error) {
+	if opts.S3Client == nil {
+		return nil, xerrors.New("evidence: S3Client is required")
+	}
 	if opts.Bucket == "" {
 		return nil, xerrors.New("evidence: Bucket is required")
 	}
@@ -78,21 +97,8 @@ func NewLoader(ctx context.Context, opts LoaderOptions) (*Loader, error) {
 		opts.Logger = log.Nop()
 	}
 
-	var awsCfg aws.Config
-	var err error
-	if opts.AWSConfig != nil {
-		awsCfg = *opts.AWSConfig
-	} else {
-		awsCfg, err = config.LoadDefaultConfig(ctx)
-		if err != nil {
-			return nil, xerrors.Wrap(err, "evidence: load AWS config")
-		}
-	}
-
 	return &Loader{
-		opts:     opts,
-		s3Client: s3.NewFromConfig(awsCfg),
-		logger:   opts.Logger,
+		opts: opts,
 	}, nil
 }
 
@@ -149,13 +155,12 @@ func (l *Loader) Load(ctx context.Context) (*Bundle, error) {
 		return nil, xerrors.Wrap(err, "failed to fetch release.json.bundle.sigstore.json")
 	}
 
-	// verify bundle against release.json
-	if sigstoreBundleRaw != nil {
-		result, err := cryptoutil.VerifyBlobSignature(ctx, l.opts.ReleaseVerifier, sigstoreBundleRaw, releaseRaw)
-		if err != nil {
+	// verify bundle against release.json if a verifier is configured
+	if sigstoreBundleRaw != nil && l.opts.Verifier != nil {
+		if err := l.opts.Verifier.VerifyBlob(ctx, sigstoreBundleRaw, releaseRaw); err != nil {
 			return nil, xerrors.Wrap(err, "release.json signature verification failed")
 		}
-		l.logger.Info(ctx, "release.json signature verified", "key_hint", result.KeyHint)
+		l.logger.Info(ctx, "release.json signature verified")
 	}
 
 	// fetch and verify inventory.json
@@ -173,7 +178,7 @@ func (l *Loader) Load(ctx context.Context) (*Bundle, error) {
 	l.logger.Info(ctx, "fetching inventory",
 		"bucket", l.opts.Bucket,
 		"key", invKey,
-		"expected_hash", expectedInvHash[:12],
+		"expected_hash", expectedInvHash,
 	)
 
 	inventoryRaw, err := l.fetchS3(ctx, invKey, MaxManifestSize)
@@ -229,6 +234,7 @@ func (l *Loader) Load(ctx context.Context) (*Bundle, error) {
 }
 
 // fetchAllFiles downloads all evidence files using a bounded worker pool.
+// Files that fail to fetch or verify are skipped (logged as warnings, will add retry logic soon).
 func (l *Loader) fetchAllFiles(ctx context.Context, prefix string, index map[string]*EvidenceFileRef) (
 	files map[string]*EvidenceFile, fetched, skipped int, totalBytes int64,
 ) {

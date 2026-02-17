@@ -23,6 +23,12 @@ type KMSVerifier struct {
 	pubKey crypto.PublicKey
 }
 
+func (v *KMSVerifier) VerifyBlob(ctx context.Context, bundleJSON, artifact []byte) error {
+	// we dont need the result with the predicate type or key hint here, just a pass/fail, err is either nil or an error
+	_, err := VerifyBlobSignature(ctx, v, bundleJSON, artifact)
+	return err
+}
+
 func NewKMSVerifier(client *kms.Client, keyARN string) *KMSVerifier {
 	return &KMSVerifier{client: client, keyARN: keyARN}
 }
