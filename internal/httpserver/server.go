@@ -66,6 +66,8 @@ func NewHandler(opts Options) http.Handler {
 	// Middleware (outermost first in wrapping order)
 	var h http.Handler = r
 
+	r.Use(httpmw.MaxBody(1024)) // 1KB - nobody should be sending bodies to our static site to begin with
+
 	// Request-scoped logging (inner so it sees trace_id, etc)
 	h = httpmw.WithLogger(opts.Logger)(h)
 
