@@ -45,6 +45,8 @@ func NewHandler(opts Options) http.Handler {
 	// Access log middleware
 	r.Use(httpmw.AccessLog())
 
+	r.Use(httpmw.MaxBody(1024)) // 1KB - nobody should be sending bodies to our static site to begin with
+
 	// Register health routes at /-/healthy and /-/ready if probes provided
 	if opts.Health != nil {
 		r.Get("/-/healthy", health.HealthzHandler(opts.Health))
@@ -65,8 +67,6 @@ func NewHandler(opts Options) http.Handler {
 
 	// Middleware (outermost first in wrapping order)
 	var h http.Handler = r
-
-	r.Use(httpmw.MaxBody(1024)) // 1KB - nobody should be sending bodies to our static site to begin with
 
 	// Request-scoped logging (inner so it sees trace_id, etc)
 	h = httpmw.WithLogger(opts.Logger)(h)
