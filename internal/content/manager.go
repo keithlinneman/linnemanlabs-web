@@ -6,21 +6,33 @@ import (
 )
 
 type Manager struct {
-	active atomic.Pointer[Snapshot]
+	active   atomic.Pointer[Snapshot]
+	previous atomic.Pointer[Snapshot]
 }
 
 func NewManager() *Manager { return &Manager{} }
 
 // Set sets the active snapshot safely
 func (m *Manager) Set(s Snapshot) {
-	// create a copy to avoid external mutation
 	cp := new(Snapshot)
 	*cp = s
-	// Set LoadedAt if not already set
 	if cp.LoadedAt.IsZero() {
 		cp.LoadedAt = time.Now().UTC()
 	}
+	// current becomes previous before we overwrite
+	if old := m.active.Load(); old != nil {
+		m.previous.Store(old)
+	}
 	m.active.Store(cp)
+}
+
+func (m *Manager) Rollback() bool {
+	prev := m.previous.Load()
+	if prev == nil {
+		return false
+	}
+	m.active.Store(prev)
+	return true
 }
 
 // Get retrieves the active snapshot value

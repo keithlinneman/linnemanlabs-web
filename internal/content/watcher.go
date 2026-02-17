@@ -3,20 +3,9 @@
 // Watcher polls SSM for content bundle hash changes and hot-swaps
 // the active content in the Manager when a new bundle is detected.
 //
-// Usage in main.go:
-//
-//	watcher := content.NewWatcher(content.WatcherOptions{
-//	    Logger:       L,
-//	    Loader:       contentLoader,
-//	    Manager:      contentMgr,
-//	    PollInterval: 30 * time.Second,
-//	    OnSwap: func(hash, version string) {
-//	        m.SetContentBundle(hash)
-//	        m.SetContentSource(string(content.SourceS3))
-//	        m.SetContentLoadedTimestamp(time.Now())
-//	    },
-//	})
-//	go watcher.Run(ctx)
+// Content bundles are extracted to in-memory filesystems (MemFS), so there
+// are no disk directories to clean up. Old snapshots are garbage-collected
+// when the atomic pointer in the Manager is swapped.
 package content
 
 import (
@@ -74,14 +63,15 @@ type Watcher struct {
 	validation ValidationOptions
 	onSwap     func(hash, version string)
 
-	// hash tracking for change detection and cleanup
-	currentHash  string // what's currently serving
-	previousHash string // one-deep warm fallback on disk
+	// hash tracking for change detection
+	currentHash string
 
-	// stats for shutdown log and future metrics
+	// backoff state
 	consecutiveErrs int
-	pollCount       int64
-	swapCount       int64
+
+	// stats for logging and future metrics
+	pollCount int64
+	swapCount int64
 }
 
 // NewWatcher creates a content watcher. Call Run to start the poll loop.
@@ -118,10 +108,11 @@ func NewWatcher(opts WatcherOptions) *Watcher {
 }
 
 // Run starts the poll loop. Blocks until ctx is cancelled.
+// Intended to be launched as: go watcher.Run(ctx)
 func (w *Watcher) Run(ctx context.Context) error {
 	w.logger.Info(ctx, "content watcher starting",
 		"poll_interval", w.interval.String(),
-		"current_hash", w.currentHash,
+		"current_hash", truncHash(w.currentHash),
 	)
 
 	ticker := time.NewTicker(w.interval)
@@ -178,15 +169,15 @@ func (w *Watcher) checkOnce(ctx context.Context) pollResult {
 
 	// new hash detected
 	w.logger.Info(ctx, "content watcher: new bundle hash detected",
-		"old_hash", w.currentHash,
-		"new_hash", hash,
+		"old_hash", truncHash(w.currentHash),
+		"new_hash", truncHash(hash),
 	)
 
-	// download, verify, extract, build snapshot
+	// download, verify, extract to memory
 	snap, err := w.loader.LoadHash(ctx, hash)
 	if err != nil {
 		w.logger.Error(ctx, err, "content watcher: failed to load bundle",
-			"hash", hash,
+			"hash", truncHash(hash),
 		)
 		return pollLoadError
 	}
@@ -194,45 +185,27 @@ func (w *Watcher) checkOnce(ctx context.Context) pollResult {
 	// validate the new bundle before swapping
 	if err := ValidateSnapshot(snap, w.validation); err != nil {
 		w.logger.Error(ctx, err, "content watcher: new bundle failed validation, keeping current content",
-			"rejected_hash", hash,
-			"current_hash", w.currentHash,
+			"rejected_hash", truncHash(hash),
+			"current_hash", truncHash(w.currentHash),
 		)
-		// clean up the rejected bundle's extracted directory
-		if cleanErr := w.loader.CleanupHash(hash); cleanErr != nil {
-			w.logger.Warn(ctx, "content watcher: failed to cleanup rejected bundle directory",
-				"hash", hash,
-				"error", cleanErr,
-			)
-		}
+		// no disk cleanup needed - MemFS is garbage collected
 		return pollValidationError
 	}
 
-	// atomic swap into manager
+	// atomic swap into manager - old MemFS becomes garbage
+	oldHash := w.currentHash
 	w.manager.Set(*snap)
 	w.swapCount++
 
-	oldHash := w.currentHash
 	version := w.manager.ContentVersion()
 
 	w.logger.Info(ctx, "content watcher: bundle swapped",
-		"old_hash", oldHash,
-		"new_hash", hash,
+		"old_hash", truncHash(oldHash),
+		"new_hash", truncHash(hash),
 		"version", version,
 		"total_swaps", w.swapCount,
 	)
 
-	// cleanup n-2 directory - keep one previous as warm fallback on disk
-	// first swap: previousHash is empty, nothing to clean
-	// second swap: clean the original startup bundle
-	if w.previousHash != "" {
-		if err := w.loader.CleanupHash(w.previousHash); err != nil {
-			w.logger.Warn(ctx, "content watcher: failed to cleanup old bundle directory",
-				"hash", w.previousHash,
-				"error", err,
-			)
-		}
-	}
-	w.previousHash = oldHash
 	w.currentHash = hash
 
 	// notify caller (metrics, etc.)
@@ -244,6 +217,7 @@ func (w *Watcher) checkOnce(ctx context.Context) pollResult {
 }
 
 // backoffDuration computes exponential backoff capped at maxBackoff.
+// consecutiveErrs=1 → 2x interval, =2 → 4x, =3 → 8x, etc.
 func (w *Watcher) backoffDuration() time.Duration {
 	mult := math.Pow(2, float64(w.consecutiveErrs))
 	d := time.Duration(float64(w.interval) * mult)
@@ -251,4 +225,12 @@ func (w *Watcher) backoffDuration() time.Duration {
 		d = maxBackoff
 	}
 	return d
+}
+
+// truncHash returns the first 12 characters of a hash for logging.
+func truncHash(h string) string {
+	if len(h) > 12 {
+		return h[:12]
+	}
+	return h
 }

@@ -4,8 +4,6 @@ package content
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -27,9 +25,6 @@ type LoaderOptions struct {
 	// S3 location for bundles: s3://{bucket}/{prefix}/{hash}.tar.gz
 	S3Bucket string
 	S3Prefix string
-
-	// Local directory for extracted content
-	ExtractDir string
 
 	// Verifier for bundle signatures
 	Verifier BlobVerifier
@@ -86,20 +81,6 @@ func NewLoader(ctx context.Context, opts LoaderOptions) (*Loader, error) {
 	if opts.Logger == nil {
 		opts.Logger = log.Nop()
 	}
-	if opts.ExtractDir == "" {
-		// use temp dir if not specified
-		var err error
-		opts.ExtractDir, err = os.MkdirTemp("", "content-site-*")
-		if err != nil {
-			return nil, xerrors.Wrap(err, "create temp extract dir")
-		}
-	}
-	if opts.ExtractDir != "" {
-		// ensure extract dir exists
-		if err := os.MkdirAll(opts.ExtractDir, 0750); err != nil {
-			return nil, xerrors.Wrapf(err, "create extract dir %s", opts.ExtractDir)
-		}
-	}
 
 	return &Loader{
 		opts:      opts,
@@ -138,55 +119,6 @@ func (l *Loader) s3Key(hash string) string {
 	return fmt.Sprintf("%s.tar.gz", hash)
 }
 
-// Download fetches and verifies a bundle from S3
-func (l *Loader) Download(ctx context.Context, hash string) (string, error) {
-	key := l.s3Key(hash)
-
-	l.logger.Info(ctx, "downloading content bundle",
-		"bucket", l.opts.S3Bucket,
-		"key", key,
-		"expected_hash", hash,
-	)
-
-	out, err := l.s3Client.GetObject(ctx, &s3.GetObjectInput{
-		Bucket: aws.String(l.opts.S3Bucket),
-		Key:    aws.String(key),
-	})
-	if err != nil {
-		return "", xerrors.Wrapf(err, "get S3 object s3://%s/%s", l.opts.S3Bucket, key)
-	}
-	defer out.Body.Close()
-
-	// create temp file for the download
-	tmpFile, err := os.CreateTemp("", "content-bundle-*.tar.gz")
-	if err != nil {
-		return "", xerrors.Wrap(err, "create temp file")
-	}
-	tmpPath := tmpFile.Name()
-
-	// copy and compute hash
-	written, actualHash, err := copyWithHash(tmpFile, out.Body)
-	tmpFile.Close()
-	if err != nil {
-		os.Remove(tmpPath)
-		return "", xerrors.Wrap(err, "download bundle")
-	}
-
-	l.logger.Info(ctx, "downloaded content bundle",
-		"bytes", written,
-		"actual_hash", actualHash,
-	)
-
-	// our policy is to always use cryptoutil/hashEqual for comparing hashes, even though
-	// this is not user-supplied or a secret value so timing attacks are not a concern here.
-	if !cryptoutil.HashEqual(actualHash, hash) {
-		os.Remove(tmpPath)
-		return "", xerrors.Newf("checksum mismatch: expected %s, got %s", hash, actualHash)
-	}
-
-	return tmpPath, nil
-}
-
 // Load fetches the current release and returns a Snapshot
 func (l *Loader) Load(ctx context.Context) (*Snapshot, error) {
 	hash, err := l.FetchCurrentBundleHash(ctx)
@@ -197,55 +129,60 @@ func (l *Loader) Load(ctx context.Context) (*Snapshot, error) {
 	return l.LoadHash(ctx, hash)
 }
 
-// LoadHash fetches a specific bundle by hash and returns a Snapshot
+// LoadHash fetches a specific bundle by hash, verifies integrity, extracts
+// to an in-memory filesystem, and returns a Snapshot. No files are written
+// to disk - the bundle is served directly from memory, eliminating disk
+// tampering threat surface entirely and improving performance.
 func (l *Loader) LoadHash(ctx context.Context, hash string) (*Snapshot, error) {
 	loadedAt := time.Now().UTC()
 
-	// Download the bundle
-	bundlePath, err := l.Download(ctx, hash)
-	if err != nil {
-		return nil, err
-	}
-	defer os.Remove(bundlePath)
-
-	// determine extraction directory
-	extractDir := l.opts.ExtractDir
-	if extractDir == "" {
-		extractDir, err = os.MkdirTemp("", "content-site-*")
-		if err != nil {
-			return nil, xerrors.Wrap(err, "create extract dir")
-		}
-	} else {
-		// use hash subdirectory to allow atomic swaps
-		extractDir = filepath.Join(extractDir, hash)
-		if err := os.MkdirAll(extractDir, 0750); err != nil {
-			return nil, xerrors.Wrapf(err, "create extract dir %s", extractDir)
-		}
-	}
-
-	l.logger.Info(ctx, "extracting content bundle",
-		"hash", hash,
-		"dest", extractDir,
+	key := l.s3Key(hash)
+	l.logger.Info(ctx, "fetching content bundle",
+		"bucket", l.opts.S3Bucket,
+		"key", key,
+		"expected_hash", hash,
 	)
 
-	if err := extractTarGz(bundlePath, extractDir); err != nil {
-		os.RemoveAll(extractDir)
+	out, err := l.s3Client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(l.opts.S3Bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return nil, xerrors.Wrapf(err, "get S3 object s3://%s/%s", l.opts.S3Bucket, key)
+	}
+	defer out.Body.Close()
+
+	// read and hash in one pass - no temp files
+	data, actualHash, err := readWithHash(out.Body, maxBundleSize)
+	if err != nil {
+		return nil, xerrors.Wrap(err, "read content bundle")
+	}
+
+	l.logger.Info(ctx, "downloaded content bundle",
+		"bytes", len(data),
+		"actual_hash", actualHash,
+	)
+
+	// our policy is to always use cryptoutil/hashEqual for comparing hashes, even though
+	// this is not user-supplied or a secret value so timing attacks are not a concern here.
+	if !cryptoutil.HashEqual(actualHash, hash) {
+		return nil, xerrors.Newf("checksum mismatch: expected %s, got %s", hash, actualHash)
+	}
+
+	// extract to in-memory filesystem
+	contentFS, err := extractTarGzToMem(data)
+	if err != nil {
 		return nil, xerrors.Wrap(err, "extract bundle")
 	}
 
-	l.logger.Info(ctx, "extracted content bundle",
+	l.logger.Info(ctx, "extracted content bundle to memory",
 		"hash", hash,
-		"dest", extractDir,
 	)
 
-	// Create the filesystem for the extracted content
-	contentFS := os.DirFS(extractDir)
-
-	// Attempt to load provenance.json
+	// load provenance from the in-memory FS
 	var provenance *Provenance
 	prov, err := LoadProvenance(contentFS)
 	if err != nil {
-		// Log warning but dont fail for now - in future will have this mean we fallback to previous snapshot
 		l.logger.Warn(ctx, "failed to load provenance.json, continuing without provenance data",
 			"hash", hash,
 			"error", err,
@@ -289,15 +226,4 @@ func (l *Loader) LoadIntoManager(ctx context.Context, mgr *Manager) error {
 	}
 	mgr.Set(*snap)
 	return nil
-}
-
-// CleanupHash removes the extracted content directory for a given bundle hash.
-// No-op if hash is empty or ExtractDir is unset. Safe to call concurrently
-// with LoadHash (different hash subdirectories).
-func (l *Loader) CleanupHash(hash string) error {
-	if hash == "" || l.opts.ExtractDir == "" {
-		return nil
-	}
-	dir := filepath.Join(l.opts.ExtractDir, hash)
-	return os.RemoveAll(dir)
 }

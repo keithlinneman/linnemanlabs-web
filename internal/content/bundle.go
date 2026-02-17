@@ -3,18 +3,52 @@ package content
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
+	"testing/fstest"
 
 	"github.com/keithlinneman/linnemanlabs-web/internal/cryptoutil"
 	"github.com/keithlinneman/linnemanlabs-web/internal/xerrors"
 )
+
+const (
+	// maxBundleSize is the maximum size of a compressed content bundle from s3
+	maxBundleSize int64 = 50 * 1024 * 1024 // 50MB
+
+	// maxSingleFile is the maximum size of a single file in the bundle
+	maxSingleFile int64 = 10 * 1024 * 1024 // 10MB
+
+	// maxTotalExtract is the maximum total size of extracted content
+	maxTotalExtract int64 = 100 * 1024 * 1024 // 100MB
+)
+
+// readWithHash reads all bytes from r up to maxSize, computing SHA256
+// as it reads. Returns the data, hex-encoded hash, and any error.
+// Used by LoadHash to verify bundle integrity without temp files.
+func readWithHash(r io.Reader, maxSize int64) ([]byte, string, error) {
+	h := sha256.New()
+	lr := io.LimitReader(r, maxSize+1)
+	tr := io.TeeReader(lr, h)
+
+	data, err := io.ReadAll(tr)
+	if err != nil {
+		return nil, "", err
+	}
+	if int64(len(data)) > maxSize {
+		return nil, "", fmt.Errorf("content exceeds max size (%d bytes, limit %d)", len(data), maxSize)
+	}
+
+	return data, hex.EncodeToString(h.Sum(nil)), nil
+}
 
 // copyWithHash copies from src to dst while computing SHA256
 func copyWithHash(dst io.Writer, src io.Reader) (written int64, hash string, err error) {
@@ -29,21 +63,18 @@ func copyWithHash(dst io.Writer, src io.Reader) (written int64, hash string, err
 	return written, hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// extractTarGz extracts a .tar.gz file to the destination directory
-func extractTarGz(src, dst string) error {
-	f, err := os.Open(src)
+// extractTarGzToMem extracts a .tar.gz file to an in-memory filesystem
+func extractTarGzToMem(data []byte) (fs.FS, error) {
+	gr, err := gzip.NewReader(bytes.NewReader(data))
 	if err != nil {
-		return xerrors.Wrapf(err, "open %s", src)
-	}
-	defer f.Close()
-
-	gr, err := gzip.NewReader(f)
-	if err != nil {
-		return xerrors.Wrap(err, "gzip reader")
+		return nil, fmt.Errorf("open gzip: %w", err)
 	}
 	defer gr.Close()
 
+	mfs := make(fstest.MapFS)
 	tr := tar.NewReader(gr)
+
+	var totalBytes int64
 
 	for {
 		hdr, err := tr.Next()
@@ -51,45 +82,59 @@ func extractTarGz(src, dst string) error {
 			break
 		}
 		if err != nil {
-			return xerrors.Wrap(err, "read tar header")
+			return nil, fmt.Errorf("read tar header: %w", err)
 		}
 
-		// sanitize path to prevent directory traversal
-		target, err := sanitizeTarPath(dst, hdr.Name)
-		if err != nil {
-			return err
+		// clean and validate the path - same rules as disk extraction
+		cleanName := path.Clean(hdr.Name)
+		if cleanName == "." || cleanName == "" {
+			continue
+		}
+		if path.IsAbs(cleanName) {
+			return nil, fmt.Errorf("absolute path in archive: %s", hdr.Name)
+		}
+		if strings.Contains(cleanName, "..") {
+			return nil, fmt.Errorf("path traversal in archive: %s", hdr.Name)
 		}
 
 		switch hdr.Typeflag {
-
-		// handle volume labels (ignore but dont error on unsupported type)
-		case 'V':
+		case tar.TypeDir:
+			// directories are implicit in MapFS - skip
 			continue
 
-		// handle directories
-		case tar.TypeDir:
-			if err := os.MkdirAll(target, 0750); err != nil {
-				return xerrors.Wrapf(err, "mkdir %s", target)
-			}
-
-		// handle regular files
 		case tar.TypeReg:
-			// ensure parent directory exists
-			if err := os.MkdirAll(filepath.Dir(target), 0750); err != nil {
-				return xerrors.Wrapf(err, "mkdir parent of %s", target)
+			if hdr.Size > maxSingleFile {
+				return nil, fmt.Errorf("file %s exceeds max size (%d > %d)",
+					cleanName, hdr.Size, maxSingleFile)
 			}
 
-			if err := writeFile(target, tr, 0640); err != nil {
-				return err
+			lr := io.LimitReader(tr, maxSingleFile+1)
+			content, err := io.ReadAll(lr)
+			if err != nil {
+				return nil, fmt.Errorf("read %s: %w", cleanName, err)
+			}
+			if int64(len(content)) > maxSingleFile {
+				return nil, fmt.Errorf("file %s exceeds max size after read", cleanName)
+			}
+
+			totalBytes += int64(len(content))
+			if totalBytes > maxTotalExtract {
+				return nil, fmt.Errorf("total extracted size exceeds limit (%d bytes, max %d)",
+					totalBytes, maxTotalExtract)
+			}
+
+			mfs[cleanName] = &fstest.MapFile{
+				Data: content,
+				Mode: hdr.FileInfo().Mode().Perm(),
 			}
 
 		default:
-			// reject other types (symlinks, hard links, devices, fifos, etc).. need to replace tar with something simpler
-			return xerrors.Newf("unsupported file type in archive: %s (type %c)", hdr.Name, hdr.Typeflag)
+			return nil, fmt.Errorf("unsupported file type in archive: %s (type=%d)",
+				cleanName, hdr.Typeflag)
 		}
 	}
 
-	return nil
+	return mfs, nil
 }
 
 // sanitizeTarPath prevents directory traversal attacks
