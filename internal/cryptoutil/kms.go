@@ -71,7 +71,7 @@ func (v *KMSVerifier) PublicKey(ctx context.Context) (crypto.PublicKey, error) {
 }
 
 // VerifySignature fetches the public key (cached) and verifies an
-// RSA-PSS SHA256 signature locally. This is for cosign signed with an AWS KMS RSA key.
+// RSA-PKCS1 SHA256 signature locally. This is for cosign signed with an AWS KMS RSA key.
 func (v *KMSVerifier) VerifySignature(ctx context.Context, message, signature []byte) error {
 	pub, err := v.PublicKey(ctx)
 	if err != nil {
