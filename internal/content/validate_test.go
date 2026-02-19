@@ -193,111 +193,16 @@ func TestValidateSnapshot_ProvenanceNotRequired_MissingOK(t *testing.T) {
 	}
 }
 
-// Provenance - RequireProvenanceHashMatch
-
-func TestValidateSnapshot_ProvenanceHashMatch_Success(t *testing.T) {
-	snap := &Snapshot{
-		FS: fstest.MapFS{
-			"index.html": &fstest.MapFile{Data: []byte("<html>")},
-		},
-		Meta:       Meta{SHA256: "abc123def456"},
-		Provenance: &Provenance{ContentHash: "abc123def456"},
-	}
-	err := ValidateSnapshot(snap, ValidationOptions{RequireProvenanceHashMatch: true})
-	if err != nil {
-		t.Fatalf("expected no error for matching hashes: %v", err)
-	}
-}
-
-func TestValidateSnapshot_ProvenanceHashMatch_Mismatch(t *testing.T) {
-	snap := &Snapshot{
-		FS: fstest.MapFS{
-			"index.html": &fstest.MapFile{Data: []byte("<html>")},
-		},
-		Meta:       Meta{SHA256: "bundle-hash-aaa"},
-		Provenance: &Provenance{ContentHash: "provenance-hash-bbb"},
-	}
-	err := ValidateSnapshot(snap, ValidationOptions{RequireProvenanceHashMatch: true})
-	if err == nil {
-		t.Fatal("expected error for hash mismatch")
-	}
-	if !strings.Contains(err.Error(), "does not match") {
-		t.Fatalf("error should mention mismatch: %v", err)
-	}
-}
-
-func TestValidateSnapshot_ProvenanceHashMatch_EmptyProvenanceHash_Skips(t *testing.T) {
-	snap := &Snapshot{
-		FS: fstest.MapFS{
-			"index.html": &fstest.MapFile{Data: []byte("<html>")},
-		},
-		Meta:       Meta{SHA256: "abc123"},
-		Provenance: &Provenance{ContentHash: ""},
-	}
-	// empty provenance hash - can't compare, should skip
-	err := ValidateSnapshot(snap, ValidationOptions{RequireProvenanceHashMatch: true})
-	if err != nil {
-		t.Fatalf("expected skip when provenance hash is empty: %v", err)
-	}
-}
-
-func TestValidateSnapshot_ProvenanceHashMatch_EmptyBundleHash_Skips(t *testing.T) {
-	snap := &Snapshot{
-		FS: fstest.MapFS{
-			"index.html": &fstest.MapFile{Data: []byte("<html>")},
-		},
-		Meta:       Meta{SHA256: ""},
-		Provenance: &Provenance{ContentHash: "abc123"},
-	}
-	// empty bundle hash - can't compare, should skip
-	err := ValidateSnapshot(snap, ValidationOptions{RequireProvenanceHashMatch: true})
-	if err != nil {
-		t.Fatalf("expected skip when bundle hash is empty: %v", err)
-	}
-}
-
-func TestValidateSnapshot_ProvenanceHashMatch_Disabled(t *testing.T) {
-	snap := &Snapshot{
-		FS: fstest.MapFS{
-			"index.html": &fstest.MapFile{Data: []byte("<html>")},
-		},
-		Meta:       Meta{SHA256: "aaa"},
-		Provenance: &Provenance{ContentHash: "bbb"},
-	}
-	// mismatched hashes, but check is disabled
-	err := ValidateSnapshot(snap, ValidationOptions{RequireProvenanceHashMatch: false})
-	if err != nil {
-		t.Fatalf("expected no error when hash match check disabled: %v", err)
-	}
-}
-
-func TestValidateSnapshot_ProvenanceHashMatch_NoProvenance_Skips(t *testing.T) {
-	snap := &Snapshot{
-		FS: fstest.MapFS{
-			"index.html": &fstest.MapFile{Data: []byte("<html>")},
-		},
-		Meta: Meta{SHA256: "abc123"},
-	}
-	// RequireProvenanceHashMatch is on but provenance is nil - nothing to compare
-	err := ValidateSnapshot(snap, ValidationOptions{RequireProvenanceHashMatch: true})
-	if err != nil {
-		t.Fatalf("expected skip when no provenance: %v", err)
-	}
-}
-
 // DefaultValidationOptions
 
 func TestDefaultValidationOptions(t *testing.T) {
 	opts := DefaultValidationOptions()
 
-	if opts.MinFiles != 1 {
-		t.Fatalf("MinFiles = %d, want 1", opts.MinFiles)
+	if opts.MinFiles != 10 {
+		t.Fatalf("MinFiles = %d, want 10", opts.MinFiles)
 	}
-	if opts.RequireProvenance {
-		t.Fatal("RequireProvenance should be false by default")
-	}
-	if !opts.RequireProvenanceHashMatch {
-		t.Fatal("RequireProvenanceHashMatch should be true by default")
+	if !opts.RequireProvenance {
+		t.Fatal("RequireProvenance should be true by default")
 	}
 }
 
@@ -306,12 +211,18 @@ func TestDefaultValidationOptions(t *testing.T) {
 func TestValidateSnapshot_DefaultOpts_ValidBundle(t *testing.T) {
 	snap := &Snapshot{
 		FS: fstest.MapFS{
-			"index.html":      &fstest.MapFile{Data: []byte("<html>hello</html>")},
-			"css/style.css":   &fstest.MapFile{Data: []byte("body{}")},
-			"js/app.js":       &fstest.MapFile{Data: []byte("//js")},
-			"provenance.json": &fstest.MapFile{Data: []byte("{}")},
+			"index.html":       &fstest.MapFile{Data: []byte("<html>hello</html>")},
+			"css/style.css":    &fstest.MapFile{Data: []byte("body{}")},
+			"css/reset.css":    &fstest.MapFile{Data: []byte("*{margin:0}")},
+			"js/app.js":        &fstest.MapFile{Data: []byte("//js")},
+			"js/vendor.js":     &fstest.MapFile{Data: []byte("//vendor")},
+			"img/logo.png":     &fstest.MapFile{Data: []byte("png")},
+			"img/favicon.ico":  &fstest.MapFile{Data: []byte("ico")},
+			"about/index.html": &fstest.MapFile{Data: []byte("<html>about</html>")},
+			"provenance.json":  &fstest.MapFile{Data: []byte("{}")},
+			"robots.txt":       &fstest.MapFile{Data: []byte("User-agent: *")},
 		},
-		Meta:       Meta{SHA256: "abc123"},
+		Meta:       Meta{Hash: "abc123"},
 		Provenance: &Provenance{Version: "1.0.0", ContentHash: "abc123"},
 	}
 	err := ValidateSnapshot(snap, DefaultValidationOptions())
@@ -320,17 +231,42 @@ func TestValidateSnapshot_DefaultOpts_ValidBundle(t *testing.T) {
 	}
 }
 
-func TestValidateSnapshot_DefaultOpts_NoProvenance_OK(t *testing.T) {
+func TestValidateSnapshot_DefaultOpts_TooFewFiles(t *testing.T) {
 	snap := &Snapshot{
 		FS: fstest.MapFS{
 			"index.html": &fstest.MapFile{Data: []byte("<html>hello</html>")},
 		},
-		Meta: Meta{SHA256: "abc123"},
+		Meta: Meta{Hash: "abc123"},
 	}
-	// defaults don't require provenance
 	err := ValidateSnapshot(snap, DefaultValidationOptions())
-	if err != nil {
-		t.Fatalf("expected no error without provenance under defaults: %v", err)
+	if err == nil {
+		t.Fatal("expected error: 1 file is below MinFiles=10 default")
+	}
+	if !strings.Contains(err.Error(), "minimum is 10") {
+		t.Fatalf("error should mention minimum: %v", err)
+	}
+}
+
+func TestValidateSnapshot_DefaultOpts_NoProvenance_OK(t *testing.T) {
+	snap := &Snapshot{
+		FS: fstest.MapFS{
+			"index.html":         &fstest.MapFile{Data: []byte("<html>hello</html>")},
+			"css/style.css":      &fstest.MapFile{Data: []byte("body{}")},
+			"css/reset.css":      &fstest.MapFile{Data: []byte("*{margin:0}")},
+			"js/app.js":          &fstest.MapFile{Data: []byte("//js")},
+			"js/vendor.js":       &fstest.MapFile{Data: []byte("//vendor")},
+			"img/logo.png":       &fstest.MapFile{Data: []byte("png")},
+			"img/favicon.ico":    &fstest.MapFile{Data: []byte("ico")},
+			"about/index.html":   &fstest.MapFile{Data: []byte("<html>about</html>")},
+			"contact/index.html": &fstest.MapFile{Data: []byte("<html>contact</html>")},
+			"robots.txt":         &fstest.MapFile{Data: []byte("User-agent: *")},
+		},
+		Meta: Meta{Hash: "abc123"},
+	}
+	// defaults require provenance
+	err := ValidateSnapshot(snap, DefaultValidationOptions())
+	if err == nil {
+		t.Fatal("expected error without provenance under defaults")
 	}
 }
 

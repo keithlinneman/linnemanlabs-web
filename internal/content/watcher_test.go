@@ -2,7 +2,6 @@ package content
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"sync/atomic"
 	"testing"
@@ -31,12 +30,12 @@ type swapRecord struct {
 }
 
 // newWatcherFixture creates a full test harness with fakes wired in.
-// The SSM starts returning initialHash so the startup content is "known".
-func newWatcherFixture(t *testing.T, initialHash string) *watcherFixture {
+// The SSM starts returning initialSSMValue so the startup content is "known".
+func newWatcherFixture(t *testing.T, initialSSMValue string) *watcherFixture {
 	t.Helper()
 
 	s3fake := newFakeS3()
-	ssmFake := ssmWithValue(initialHash)
+	ssmFake := ssmWithValue(initialSSMValue)
 
 	loader := &Loader{
 		opts: LoaderOptions{
@@ -63,10 +62,10 @@ func newWatcherFixture(t *testing.T, initialHash string) *watcherFixture {
 }
 
 // seedManager loads a bundle into the manager so it has a known current hash.
-func (f *watcherFixture) seedManager(t *testing.T, hash string, data []byte) {
+func (f *watcherFixture) seedManager(t *testing.T, algorithm, hash string, data []byte) {
 	t.Helper()
-	putBundle(f.s3, hash, data)
-	snap, err := f.loader.LoadHash(t.Context(), hash)
+	putBundle(f.s3, algorithm, hash, data)
+	snap, err := f.loader.LoadHash(t.Context(), algorithm, hash)
 	if err != nil {
 		t.Fatalf("seedManager LoadHash: %v", err)
 	}
@@ -75,11 +74,13 @@ func (f *watcherFixture) seedManager(t *testing.T, hash string, data []byte) {
 
 // newWatcher creates a Watcher from the fixture with optional overrides.
 func (f *watcherFixture) newWatcher(opts ...func(*WatcherOptions)) *Watcher {
+	permissive := &ValidationOptions{MinFiles: 1}
 	wopts := WatcherOptions{
 		Logger:       log.Nop(),
 		Loader:       f.loader,
 		Manager:      f.mgr,
 		PollInterval: time.Second, // won't tick in checkOnce tests
+		Validation:   permissive,
 		OnSwap: func(hash, version string) {
 			f.swapCalls = append(f.swapCalls, swapRecord{hash, version})
 		},
@@ -91,12 +92,12 @@ func (f *watcherFixture) newWatcher(opts ...func(*WatcherOptions)) *Watcher {
 }
 
 // storeBundle creates a valid content bundle, stores it in fakeS3, and returns
-// the raw bytes and hash.
+// the raw bytes and SHA-384 hash.
 func storeBundle(t *testing.T, f *watcherFixture, files map[string]string) ([]byte, string) {
 	t.Helper()
 	data := makeTarGz(t, files)
-	hash := cryptoutil.SHA256Hex(data)
-	putBundle(f.s3, hash, data)
+	hash := cryptoutil.SHA384Hex(data)
+	putBundle(f.s3, "sha384", hash, data)
 	return data, hash
 }
 
@@ -170,8 +171,8 @@ func TestNewWatcher_NegativeInterval_UsesDefault(t *testing.T) {
 
 func TestNewWatcher_SeedsCurrentHash(t *testing.T) {
 	bundleData, bundleHash := buildContentBundle(t)
-	f := newWatcherFixture(t, bundleHash)
-	f.seedManager(t, bundleHash, bundleData)
+	f := newWatcherFixture(t, ssmValue("sha384", bundleHash))
+	f.seedManager(t, "sha384", bundleHash, bundleData)
 
 	w := f.newWatcher()
 	if w.currentHash != bundleHash {
@@ -199,8 +200,9 @@ func TestNewWatcher_NilLogger_UsesNop(t *testing.T) {
 
 func TestNewWatcher_DefaultValidation(t *testing.T) {
 	f := newWatcherFixture(t, "")
-	w := f.newWatcher()
-
+	w := f.newWatcher(func(o *WatcherOptions) {
+		o.Validation = nil // test that nil falls back to defaults
+	})
 	defaults := DefaultValidationOptions()
 	if w.validation.MinFiles != defaults.MinFiles {
 		t.Fatalf("MinFiles = %d, want %d", w.validation.MinFiles, defaults.MinFiles)
@@ -226,8 +228,8 @@ func TestNewWatcher_CustomValidation(t *testing.T) {
 
 func TestCheckOnce_NoChange(t *testing.T) {
 	bundleData, bundleHash := buildContentBundle(t)
-	f := newWatcherFixture(t, bundleHash)
-	f.seedManager(t, bundleHash, bundleData)
+	f := newWatcherFixture(t, ssmValue("sha384", bundleHash))
+	f.seedManager(t, "sha384", bundleHash, bundleData)
 
 	w := f.newWatcher()
 	result := w.checkOnce(t.Context())
@@ -242,7 +244,7 @@ func TestCheckOnce_NoChange(t *testing.T) {
 // checkOnce - SSM error
 
 func TestCheckOnce_SSMError(t *testing.T) {
-	f := newWatcherFixture(t, "initial")
+	f := newWatcherFixture(t, "sha384:initial")
 	f.ssm.err = errors.New("SSM timeout")
 
 	w := f.newWatcher()
@@ -256,12 +258,12 @@ func TestCheckOnce_SSMError(t *testing.T) {
 
 func TestCheckOnce_LoadError(t *testing.T) {
 	bundleData, hashA := buildContentBundle(t)
-	f := newWatcherFixture(t, hashA)
-	f.seedManager(t, hashA, bundleData)
+	f := newWatcherFixture(t, ssmValue("sha384", hashA))
+	f.seedManager(t, "sha384", hashA, bundleData)
 
 	// point SSM at a hash that doesn't exist in S3
-	newHash := "0000000000000000000000000000000000000000000000000000000000000000"
-	f.ssm.value = &newHash
+	newSSM := "sha384:" + "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+	f.ssm.value = &newSSM
 
 	w := f.newWatcher()
 	result := w.checkOnce(t.Context())
@@ -271,8 +273,8 @@ func TestCheckOnce_LoadError(t *testing.T) {
 
 	// manager should still serve old content
 	snap, _ := f.mgr.Get()
-	if snap.Meta.SHA256 != hashA {
-		t.Fatalf("manager hash = %q, want %q (old content preserved)", snap.Meta.SHA256, hashA)
+	if snap.Meta.Hash != hashA {
+		t.Fatalf("manager hash = %q, want %q (old content preserved)", snap.Meta.Hash, hashA)
 	}
 }
 
@@ -280,13 +282,14 @@ func TestCheckOnce_LoadError(t *testing.T) {
 
 func TestCheckOnce_Swap(t *testing.T) {
 	bundleDataA, hashA := buildContentBundle(t)
-	f := newWatcherFixture(t, hashA)
-	f.seedManager(t, hashA, bundleDataA)
+	f := newWatcherFixture(t, ssmValue("sha384", hashA))
+	f.seedManager(t, "sha384", hashA, bundleDataA)
 
 	_, hashB := storeBundle(t, f, map[string]string{
 		"index.html": "<html>updated</html>",
 	})
-	f.ssm.value = &hashB
+	newSSM := ssmValue("sha384", hashB)
+	f.ssm.value = &newSSM
 
 	w := f.newWatcher()
 	result := w.checkOnce(t.Context())
@@ -299,8 +302,8 @@ func TestCheckOnce_Swap(t *testing.T) {
 	if !ok {
 		t.Fatal("manager should have content")
 	}
-	if snap.Meta.SHA256 != hashB {
-		t.Fatalf("manager hash = %q, want %q", snap.Meta.SHA256, hashB)
+	if snap.Meta.Hash != hashB {
+		t.Fatalf("manager hash = %q, want %q", snap.Meta.Hash, hashB)
 	}
 
 	// OnSwap callback should have fired
@@ -324,14 +327,15 @@ func TestCheckOnce_Swap(t *testing.T) {
 
 func TestCheckOnce_ValidationError_NoIndexHTML(t *testing.T) {
 	bundleDataA, hashA := buildContentBundle(t)
-	f := newWatcherFixture(t, hashA)
-	f.seedManager(t, hashA, bundleDataA)
+	f := newWatcherFixture(t, ssmValue("sha384", hashA))
+	f.seedManager(t, "sha384", hashA, bundleDataA)
 
 	// new bundle has NO index.html - will fail validation
 	_, hashB := storeBundle(t, f, map[string]string{
 		"about.html": "<html>no index</html>",
 	})
-	f.ssm.value = &hashB
+	newSSM := ssmValue("sha384", hashB)
+	f.ssm.value = &newSSM
 
 	w := f.newWatcher()
 	result := w.checkOnce(t.Context())
@@ -341,8 +345,8 @@ func TestCheckOnce_ValidationError_NoIndexHTML(t *testing.T) {
 
 	// manager should still serve old content
 	snap, _ := f.mgr.Get()
-	if snap.Meta.SHA256 != hashA {
-		t.Fatalf("manager hash = %q, want %q (old content preserved)", snap.Meta.SHA256, hashA)
+	if snap.Meta.Hash != hashA {
+		t.Fatalf("manager hash = %q, want %q (old content preserved)", snap.Meta.Hash, hashA)
 	}
 
 	// currentHash should NOT be updated - next poll will retry
@@ -356,36 +360,12 @@ func TestCheckOnce_ValidationError_NoIndexHTML(t *testing.T) {
 	}
 }
 
-func TestCheckOnce_ValidationError_ProvenanceHashMismatch(t *testing.T) {
-	bundleDataA, hashA := buildContentBundle(t)
-	f := newWatcherFixture(t, hashA)
-	f.seedManager(t, hashA, bundleDataA)
-
-	// bundle with provenance that has a mismatched content_hash
-	prov, _ := json.Marshal(Provenance{
-		Version:     "2.0.0",
-		ContentHash: "wrong-hash-does-not-match-bundle",
-		Summary:     ProvenanceSummary{TotalFiles: 1},
-	})
-	_, hashB := storeBundle(t, f, map[string]string{
-		"index.html":      "<html>new</html>",
-		"provenance.json": string(prov),
-	})
-	f.ssm.value = &hashB
-
-	w := f.newWatcher()
-	result := w.checkOnce(t.Context())
-	if result != pollValidationError {
-		t.Fatalf("result = %d, want pollValidationError", result)
-	}
-}
-
 // checkOnce - multiple polls, stats
 
 func TestCheckOnce_PollCount_Increments(t *testing.T) {
 	bundleData, bundleHash := buildContentBundle(t)
-	f := newWatcherFixture(t, bundleHash)
-	f.seedManager(t, bundleHash, bundleData)
+	f := newWatcherFixture(t, ssmValue("sha384", bundleHash))
+	f.seedManager(t, "sha384", bundleHash, bundleData)
 
 	w := f.newWatcher()
 
@@ -402,8 +382,8 @@ func TestCheckOnce_PollCount_Increments(t *testing.T) {
 
 func TestCheckOnce_MultipleSwaps(t *testing.T) {
 	bundleDataA, hashA := buildContentBundle(t)
-	f := newWatcherFixture(t, hashA)
-	f.seedManager(t, hashA, bundleDataA)
+	f := newWatcherFixture(t, ssmValue("sha384", hashA))
+	f.seedManager(t, "sha384", hashA, bundleDataA)
 
 	w := f.newWatcher()
 
@@ -411,7 +391,8 @@ func TestCheckOnce_MultipleSwaps(t *testing.T) {
 	_, hashB := storeBundle(t, f, map[string]string{
 		"index.html": "<html>B</html>",
 	})
-	f.ssm.value = &hashB
+	newSSM := ssmValue("sha384", hashB)
+	f.ssm.value = &newSSM
 	result := w.checkOnce(t.Context())
 	if result != pollSwapped {
 		t.Fatalf("first swap: result = %d, want pollSwapped", result)
@@ -421,7 +402,8 @@ func TestCheckOnce_MultipleSwaps(t *testing.T) {
 	_, hashC := storeBundle(t, f, map[string]string{
 		"index.html": "<html>C</html>",
 	})
-	f.ssm.value = &hashC
+	newSSM = ssmValue("sha384", hashC)
+	f.ssm.value = &newSSM
 	result = w.checkOnce(t.Context())
 	if result != pollSwapped {
 		t.Fatalf("second swap: result = %d, want pollSwapped", result)
@@ -442,13 +424,14 @@ func TestCheckOnce_MultipleSwaps(t *testing.T) {
 
 func TestCheckOnce_NilOnSwap(t *testing.T) {
 	bundleDataA, hashA := buildContentBundle(t)
-	f := newWatcherFixture(t, hashA)
-	f.seedManager(t, hashA, bundleDataA)
+	f := newWatcherFixture(t, ssmValue("sha384", hashA))
+	f.seedManager(t, "sha384", hashA, bundleDataA)
 
 	_, hashB := storeBundle(t, f, map[string]string{
 		"index.html": "<html>B</html>",
 	})
-	f.ssm.value = &hashB
+	newSSM := ssmValue("sha384", hashB)
+	f.ssm.value = &newSSM
 
 	w := f.newWatcher(func(o *WatcherOptions) {
 		o.OnSwap = nil // should not panic
@@ -462,7 +445,7 @@ func TestCheckOnce_NilOnSwap(t *testing.T) {
 // Run - integration
 
 func TestRun_StopsOnContextCancel(t *testing.T) {
-	f := newWatcherFixture(t, "initial")
+	f := newWatcherFixture(t, "sha384:initial")
 
 	w := f.newWatcher(func(o *WatcherOptions) {
 		o.PollInterval = 10 * time.Millisecond
@@ -490,9 +473,11 @@ func TestRun_StopsOnContextCancel(t *testing.T) {
 }
 
 func TestRun_DetectsChange(t *testing.T) {
+	permissive := &ValidationOptions{MinFiles: 1}
+
 	bundleDataA, hashA := buildContentBundle(t)
-	f := newWatcherFixture(t, hashA)
-	f.seedManager(t, hashA, bundleDataA)
+	f := newWatcherFixture(t, ssmValue("sha384", hashA))
+	f.seedManager(t, "sha384", hashA, bundleDataA)
 
 	// store bundle B
 	_, hashB := storeBundle(t, f, map[string]string{
@@ -506,6 +491,7 @@ func TestRun_DetectsChange(t *testing.T) {
 		Loader:       f.loader,
 		Manager:      f.mgr,
 		PollInterval: 10 * time.Millisecond,
+		Validation:   permissive,
 		OnSwap: func(hash, version string) {
 			swapCount.Add(1)
 		},
@@ -520,7 +506,8 @@ func TestRun_DetectsChange(t *testing.T) {
 	time.Sleep(30 * time.Millisecond)
 
 	// update SSM to point at bundle B
-	f.ssm.value = &hashB
+	newSSM := ssmValue("sha384", hashB)
+	f.ssm.value = &newSSM
 
 	// wait for the watcher to detect and swap
 	deadline := time.After(2 * time.Second)
@@ -534,8 +521,8 @@ func TestRun_DetectsChange(t *testing.T) {
 				if !ok {
 					t.Fatal("manager should have content")
 				}
-				if snap.Meta.SHA256 != hashB {
-					t.Fatalf("manager hash = %q, want %q", snap.Meta.SHA256, hashB)
+				if snap.Meta.Hash != hashB {
+					t.Fatalf("manager hash = %q, want %q", snap.Meta.Hash, hashB)
 				}
 				return // success
 			}
@@ -546,8 +533,8 @@ func TestRun_DetectsChange(t *testing.T) {
 
 func TestRun_BacksOffOnSSMError_ThenRecovers(t *testing.T) {
 	bundleDataA, hashA := buildContentBundle(t)
-	f := newWatcherFixture(t, hashA)
-	f.seedManager(t, hashA, bundleDataA)
+	f := newWatcherFixture(t, ssmValue("sha384", hashA))
+	f.seedManager(t, "sha384", hashA, bundleDataA)
 
 	w := f.newWatcher(func(o *WatcherOptions) {
 		o.PollInterval = 10 * time.Millisecond
@@ -570,7 +557,8 @@ func TestRun_BacksOffOnSSMError_ThenRecovers(t *testing.T) {
 
 	// fix SSM - point at existing bundle (no change)
 	f.ssm.err = nil
-	f.ssm.value = &hashA
+	newSSM := ssmValue("sha384", hashA)
+	f.ssm.value = &newSSM
 
 	// wait for recovery
 	deadline := time.After(2 * time.Second)

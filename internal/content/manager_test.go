@@ -29,9 +29,10 @@ func TestManager_SetAndGet(t *testing.T) {
 	m.Set(Snapshot{
 		FS: fs,
 		Meta: Meta{
-			SHA256:  "abc123",
-			Source:  SourceS3,
-			Version: "1.0.0",
+			Hash:          "abc123",
+			HashAlgorithm: "sha384",
+			Source:        SourceS3,
+			Version:       "1.0.0",
 		},
 	})
 
@@ -42,8 +43,11 @@ func TestManager_SetAndGet(t *testing.T) {
 	if snap == nil {
 		t.Fatal("expected non-nil snapshot")
 	}
-	if snap.Meta.SHA256 != "abc123" {
-		t.Fatalf("SHA256 = %q, want abc123", snap.Meta.SHA256)
+	if snap.Meta.Hash != "abc123" {
+		t.Fatalf("Hash = %q, want abc123", snap.Meta.Hash)
+	}
+	if snap.Meta.HashAlgorithm != "sha384" {
+		t.Fatalf("HashAlgorithm = %q, want sha384", snap.Meta.HashAlgorithm)
 	}
 	if snap.Meta.Version != "1.0.0" {
 		t.Fatalf("Version = %q, want 1.0.0", snap.Meta.Version)
@@ -55,7 +59,7 @@ func TestManager_Get_RequiresFS(t *testing.T) {
 
 	// Set snapshot with nil FS
 	m.Set(Snapshot{
-		Meta: Meta{SHA256: "abc123"},
+		Meta: Meta{Hash: "abc123"},
 	})
 
 	snap, ok := m.Get()
@@ -72,19 +76,19 @@ func TestManager_Set_CopiesSnapshot(t *testing.T) {
 
 	original := Snapshot{
 		FS:   fs,
-		Meta: Meta{SHA256: "abc123", Version: "1.0.0"},
+		Meta: Meta{Hash: "abc123", Version: "1.0.0"},
 	}
 	m.Set(original)
 
 	// mutate the original - should not affect stored snapshot
-	original.Meta.SHA256 = "mutated"
+	original.Meta.Hash = "mutated"
 
 	snap, ok := m.Get()
 	if !ok {
 		t.Fatal("expected true")
 	}
-	if snap.Meta.SHA256 != "abc123" {
-		t.Fatalf("SHA256 = %q, want abc123 (should be a copy)", snap.Meta.SHA256)
+	if snap.Meta.Hash != "abc123" {
+		t.Fatalf("Hash = %q, want abc123 (should be a copy)", snap.Meta.Hash)
 	}
 }
 
@@ -95,7 +99,7 @@ func TestManager_Set_SetsLoadedAt(t *testing.T) {
 	before := time.Now().UTC().Add(-time.Second)
 	m.Set(Snapshot{
 		FS:   fs,
-		Meta: Meta{SHA256: "abc"},
+		Meta: Meta{Hash: "abc"},
 	})
 	after := time.Now().UTC().Add(time.Second)
 
@@ -112,7 +116,7 @@ func TestManager_Set_PreservesExistingLoadedAt(t *testing.T) {
 	explicit := time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC)
 	m.Set(Snapshot{
 		FS:       fs,
-		Meta:     Meta{SHA256: "abc"},
+		Meta:     Meta{Hash: "abc"},
 		LoadedAt: explicit,
 	})
 
@@ -136,6 +140,36 @@ func TestManager_Set_Replace(t *testing.T) {
 	}
 	if snap.Meta.Version != "2.0" {
 		t.Fatalf("Version = %q, want 2.0", snap.Meta.Version)
+	}
+}
+
+// Rollback
+
+func TestManager_Rollback_NoPrevious(t *testing.T) {
+	m := NewManager()
+	if m.Rollback() {
+		t.Fatal("expected Rollback to return false with no previous snapshot")
+	}
+}
+
+func TestManager_Rollback_RestoresPrevious(t *testing.T) {
+	m := NewManager()
+	fs1 := fstest.MapFS{"v1.html": &fstest.MapFile{Data: []byte("v1")}}
+	fs2 := fstest.MapFS{"v2.html": &fstest.MapFile{Data: []byte("v2")}}
+
+	m.Set(Snapshot{FS: fs1, Meta: Meta{Version: "1.0", Hash: "hash1"}})
+	m.Set(Snapshot{FS: fs2, Meta: Meta{Version: "2.0", Hash: "hash2"}})
+
+	if !m.Rollback() {
+		t.Fatal("expected Rollback to return true")
+	}
+
+	snap, ok := m.Get()
+	if !ok {
+		t.Fatal("expected true after rollback")
+	}
+	if snap.Meta.Version != "1.0" {
+		t.Fatalf("Version = %q, want 1.0 after rollback", snap.Meta.Version)
 	}
 }
 
@@ -208,7 +242,7 @@ func TestManager_ContentHash_FromMeta(t *testing.T) {
 
 	m.Set(Snapshot{
 		FS:   fs,
-		Meta: Meta{SHA256: "deadbeef1234"},
+		Meta: Meta{Hash: "deadbeef1234"},
 	})
 
 	if h := m.ContentHash(); h != "deadbeef1234" {
@@ -216,33 +250,20 @@ func TestManager_ContentHash_FromMeta(t *testing.T) {
 	}
 }
 
-func TestManager_ContentHash_PrefersProvenance(t *testing.T) {
+func TestManager_ContentHash_AlwaysReturnsMeta(t *testing.T) {
 	m := NewManager()
 	fs := fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html>")}}
 
+	// ContentHash always returns Meta.Hash (the verified download hash),
+	// regardless of what provenance contains
 	m.Set(Snapshot{
 		FS:         fs,
-		Meta:       Meta{SHA256: "meta_hash"},
+		Meta:       Meta{Hash: "meta_hash"},
 		Provenance: &Provenance{ContentHash: "prov_hash"},
 	})
 
-	if h := m.ContentHash(); h != "prov_hash" {
-		t.Fatalf("ContentHash = %q, want prov_hash (provenance preferred)", h)
-	}
-}
-
-func TestManager_ContentHash_FallsBackToMeta(t *testing.T) {
-	m := NewManager()
-	fs := fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html>")}}
-
-	m.Set(Snapshot{
-		FS:         fs,
-		Meta:       Meta{SHA256: "meta_hash"},
-		Provenance: &Provenance{ContentHash: ""},
-	})
-
 	if h := m.ContentHash(); h != "meta_hash" {
-		t.Fatalf("ContentHash = %q, want meta_hash (fallback when provenance hash empty)", h)
+		t.Fatalf("ContentHash = %q, want meta_hash (always uses verified Meta.Hash)", h)
 	}
 }
 
@@ -259,7 +280,7 @@ func TestManager_Provenance_NilWhenNoProvenance(t *testing.T) {
 	m := NewManager()
 	fs := fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html>")}}
 
-	m.Set(Snapshot{FS: fs, Meta: Meta{SHA256: "abc"}})
+	m.Set(Snapshot{FS: fs, Meta: Meta{Hash: "abc"}})
 
 	if p := m.Provenance(); p != nil {
 		t.Fatal("expected nil provenance when snapshot has none")
@@ -283,7 +304,7 @@ func TestManager_Provenance_Present(t *testing.T) {
 		},
 	}
 
-	m.Set(Snapshot{FS: fs, Meta: Meta{SHA256: "abc"}, Provenance: prov})
+	m.Set(Snapshot{FS: fs, Meta: Meta{Hash: "abc"}, Provenance: prov})
 
 	got := m.Provenance()
 	if got == nil {
@@ -309,7 +330,7 @@ func TestManager_ReadyErr_NoSnapshot(t *testing.T) {
 func TestManager_ReadyErr_WithSnapshot(t *testing.T) {
 	m := NewManager()
 	fs := fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html>")}}
-	m.Set(Snapshot{FS: fs, Meta: Meta{SHA256: "abc"}})
+	m.Set(Snapshot{FS: fs, Meta: Meta{Hash: "abc"}})
 
 	if err := m.ReadyErr(); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -318,7 +339,7 @@ func TestManager_ReadyErr_WithSnapshot(t *testing.T) {
 
 func TestManager_ReadyErr_NilFS(t *testing.T) {
 	m := NewManager()
-	m.Set(Snapshot{Meta: Meta{SHA256: "abc"}}) // nil FS
+	m.Set(Snapshot{Meta: Meta{Hash: "abc"}}) // nil FS
 
 	if err := m.ReadyErr(); err == nil {
 		t.Fatal("expected error when FS is nil")

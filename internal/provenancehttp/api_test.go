@@ -38,7 +38,7 @@ func contentProvider() *stubSnapshotProvider {
 	return &stubSnapshotProvider{
 		snap: &content.Snapshot{
 			Meta: content.Meta{
-				SHA256:  "abc123def456",
+				Hash:    "abc123def456",
 				Source:  content.SourceS3,
 				Version: "v1.0.0",
 			},
@@ -65,7 +65,7 @@ func contentProviderNoProvenance() *stubSnapshotProvider {
 	return &stubSnapshotProvider{
 		snap: &content.Snapshot{
 			Meta: content.Meta{
-				SHA256:  "deadbeef",
+				Hash:    "deadbeef",
 				Source:  content.SourceS3,
 				Version: "v0.9.0",
 			},

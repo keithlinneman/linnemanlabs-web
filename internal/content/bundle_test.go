@@ -215,7 +215,7 @@ func TestCopyWithHash_FailingReader(t *testing.T) {
 
 func TestReadWithHash_Basic(t *testing.T) {
 	input := []byte("test content for hashing")
-	data, hash, err := readWithHash(bytes.NewReader(input), maxBundleSize)
+	data, hash, err := readWithHash(bytes.NewReader(input), maxBundleSize, "sha256")
 	if err != nil {
 		t.Fatalf("readWithHash: %v", err)
 	}
@@ -231,7 +231,7 @@ func TestReadWithHash_Basic(t *testing.T) {
 func TestReadWithHash_ExceedsMaxSize(t *testing.T) {
 	// use a small limit to test the size check
 	bigData := bytes.Repeat([]byte("x"), 100)
-	_, _, err := readWithHash(bytes.NewReader(bigData), 50)
+	_, _, err := readWithHash(bytes.NewReader(bigData), 50, "sha256")
 	if err == nil {
 		t.Fatal("expected error for oversized content")
 	}
@@ -242,7 +242,7 @@ func TestReadWithHash_ExceedsMaxSize(t *testing.T) {
 
 func TestReadWithHash_ExactlyAtLimit(t *testing.T) {
 	data := bytes.Repeat([]byte("x"), 50)
-	got, _, err := readWithHash(bytes.NewReader(data), 50)
+	got, _, err := readWithHash(bytes.NewReader(data), 50, "sha256")
 	if err != nil {
 		t.Fatalf("readWithHash at exact limit should succeed: %v", err)
 	}
@@ -252,7 +252,7 @@ func TestReadWithHash_ExactlyAtLimit(t *testing.T) {
 }
 
 func TestReadWithHash_Empty(t *testing.T) {
-	data, hash, err := readWithHash(bytes.NewReader(nil), maxBundleSize)
+	data, hash, err := readWithHash(bytes.NewReader(nil), maxBundleSize, "sha256")
 	if err != nil {
 		t.Fatalf("readWithHash: %v", err)
 	}
