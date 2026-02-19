@@ -8,7 +8,6 @@ package content
 import (
 	"io/fs"
 
-	"github.com/keithlinneman/linnemanlabs-web/internal/cryptoutil"
 	"github.com/keithlinneman/linnemanlabs-web/internal/xerrors"
 )
 
@@ -24,19 +23,13 @@ type ValidationOptions struct {
 	// or unparseable. When false, missing provenance is a warning, not
 	// an error.
 	RequireProvenance bool
-
-	// RequireProvenanceHashMatch fails validation if provenance.json is
-	// present and its ContentHash does not match the bundle's SHA256.
-	// Only evaluated when provenance is present.
-	RequireProvenanceHashMatch bool
 }
 
 // DefaultValidationOptions returns the recommended production defaults.
 func DefaultValidationOptions() ValidationOptions {
 	return ValidationOptions{
-		MinFiles:                   1,
-		RequireProvenance:          false,
-		RequireProvenanceHashMatch: true,
+		MinFiles:          10,
+		RequireProvenance: true,
 	}
 }
 
@@ -72,11 +65,6 @@ func ValidateSnapshot(snap *Snapshot, opts ValidationOptions) error {
 	if snap.Provenance == nil && opts.RequireProvenance {
 		return xerrors.New("validate: provenance.json is required but missing")
 	}
-	if snap.Provenance != nil && opts.RequireProvenanceHashMatch {
-		if err := checkProvenanceHash(snap); err != nil {
-			return err
-		}
-	}
 
 	return nil
 }
@@ -104,7 +92,7 @@ func checkIndexHTML(fsys fs.FS) error {
 // (not counting directories).
 func countFiles(fsys fs.FS) (int, error) {
 	count := 0
-	err := fs.WalkDir(fsys, ".", func(_ string, d fs.DirEntry, err error) error {
+	err := fs.WalkDir(fsys, ".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -114,28 +102,4 @@ func countFiles(fsys fs.FS) (int, error) {
 		return nil
 	})
 	return count, err
-}
-
-// checkProvenanceHash verifies the provenance ContentHash matches the
-// bundle's SHA256. This catches mismatched builds where the provenance
-// was generated for a different bundle.
-func checkProvenanceHash(snap *Snapshot) error {
-	provHash := snap.Provenance.ContentHash
-	bundleHash := snap.Meta.SHA256
-
-	// skip if either side is empty - cant compare what we dont have
-	if provHash == "" || bundleHash == "" {
-		return nil
-	}
-
-	// compare hashes, our policy is to always use equal-time hash comparison to prevent timing side-channel attacks, even
-	// though in this case the hash values are not secret and its not attacker controllable/viewable timing
-	if !cryptoutil.HashEqual(provHash, bundleHash) {
-		return xerrors.Newf(
-			"validate: provenance content_hash (%s) does not match bundle SHA256 (%s)",
-			provHash, bundleHash,
-		)
-	}
-
-	return nil
 }

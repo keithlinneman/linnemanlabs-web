@@ -458,7 +458,7 @@ func (api *API) HandleContentProvenance(w http.ResponseWriter, r *http.Request) 
 			LoadedAt:   snap.LoadedAt.Truncate(time.Second),
 			ServerTime: time.Now().UTC().Truncate(time.Second),
 			Source:     snap.Meta.Source,
-			Hash:       snap.Meta.SHA256,
+			Hash:       snap.Meta.Hash,
 			Version:    snap.Meta.Version,
 		},
 	}
@@ -494,7 +494,7 @@ func (api *API) HandleContentSummary(w http.ResponseWriter, r *http.Request) {
 		resp.TotalSize = p.Summary.TotalSize
 	} else {
 		resp.Version = snap.Meta.Version
-		resp.ContentHash = snap.Meta.SHA256
+		resp.ContentHash = snap.Meta.Hash
 	}
 
 	api.writeJSON(ctx, w, http.StatusOK, resp)

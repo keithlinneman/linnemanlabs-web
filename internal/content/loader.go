@@ -4,6 +4,7 @@ package content
 import (
 	"context"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -16,17 +17,20 @@ import (
 	"github.com/keithlinneman/linnemanlabs-web/internal/xerrors"
 )
 
+// maxSigBundleSize is the maximum size of a sigstore bundle JSON file
+const maxSigBundleSize int64 = 1 * 1024 * 1024 // 1MB
+
 type LoaderOptions struct {
 	Logger log.Logger
 
-	// SSM parameter containing the bundle SHA256 hash
+	// SSM parameter containing the bundle algorithm and hash
 	SSMParam string
 
 	// S3 location for bundles: s3://{bucket}/{prefix}/{hash}.tar.gz
 	S3Bucket string
 	S3Prefix string
 
-	// Verifier for bundle signatures
+	// Verifier for bundle hash signatures
 	Verifier BlobVerifier
 
 	// S3Client allows injecting a custom S3 implementation for testing.
@@ -91,52 +95,94 @@ func NewLoader(ctx context.Context, opts LoaderOptions) (*Loader, error) {
 }
 
 // FetchCurrentBundleHash gets the current bundle hash from SSM
-func (l *Loader) FetchCurrentBundleHash(ctx context.Context) (string, error) {
+// returns the hash algorithm, hash value, and error if any
+func (l *Loader) FetchCurrentBundleHash(ctx context.Context) (string, string, error) {
 	out, err := l.ssmClient.GetParameter(ctx, &ssm.GetParameterInput{
 		Name:           aws.String(l.opts.SSMParam),
 		WithDecryption: aws.Bool(true),
 	})
 	if err != nil {
-		return "", xerrors.Wrapf(err, "get SSM parameter %s", l.opts.SSMParam)
+		return "", "", xerrors.Wrapf(err, "get SSM parameter %s", l.opts.SSMParam)
 	}
 	if out.Parameter == nil || out.Parameter.Value == nil {
-		return "", xerrors.Newf("SSM parameter %s has no value", l.opts.SSMParam)
+		return "", "", xerrors.Newf("SSM parameter %s has no value", l.opts.SSMParam)
 	}
 
-	hash := strings.TrimSpace(*out.Parameter.Value)
-	if hash == "" {
-		return "", xerrors.Newf("SSM parameter %s is empty", l.opts.SSMParam)
+	raw := strings.TrimSpace(*out.Parameter.Value)
+	if raw == "" {
+		return "", "", xerrors.Newf("SSM parameter %s is empty", l.opts.SSMParam)
 	}
 
-	return hash, nil
+	algorithm, hash, ok := strings.Cut(raw, ":")
+	if !ok {
+		return "", "", xerrors.Newf("SSM parameter %s missing algorithm prefix (expected algo:hex)", l.opts.SSMParam)
+	}
+
+	return algorithm, hash, nil
 }
 
 // s3Key returns the S3 object key for a given hash
-func (l *Loader) s3Key(hash string) string {
+func (l *Loader) s3Key(algorithm, hash string) string {
 	if l.opts.S3Prefix != "" {
-		return fmt.Sprintf("%s/%s.tar.gz", l.opts.S3Prefix, hash)
+		return fmt.Sprintf("%s/%s/%s.tar.gz", l.opts.S3Prefix, algorithm, hash)
 	}
-	return fmt.Sprintf("%s.tar.gz", hash)
+	return fmt.Sprintf("%s/%s.tar.gz", algorithm, hash)
+}
+
+// sigBundleKey returns the S3 object key for the sigstore bundle
+// for a given content bundle hash.
+func (l *Loader) sigBundleKey(algorithm, hash string) string {
+	return l.s3Key(algorithm, hash) + ".sigstore.json"
+}
+
+// fetchS3 fetches an S3 object and returns its contents, limited to maxSize.
+func (l *Loader) fetchS3(ctx context.Context, key string, maxSize int64) ([]byte, error) {
+	out, err := l.s3Client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(l.opts.S3Bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return nil, xerrors.Wrapf(err, "get S3 object s3://%s/%s", l.opts.S3Bucket, key)
+	}
+	defer out.Body.Close()
+
+	lr := io.LimitReader(out.Body, maxSize+1)
+	data, err := io.ReadAll(lr)
+	if err != nil {
+		return nil, xerrors.Wrapf(err, "read S3 object s3://%s/%s", l.opts.S3Bucket, key)
+	}
+	if int64(len(data)) > maxSize {
+		return nil, xerrors.Newf("S3 object s3://%s/%s exceeds max size (%d bytes)", l.opts.S3Bucket, key, maxSize)
+	}
+
+	return data, nil
 }
 
 // Load fetches the current release and returns a Snapshot
 func (l *Loader) Load(ctx context.Context) (*Snapshot, error) {
-	hash, err := l.FetchCurrentBundleHash(ctx)
+	algorithm, hash, err := l.FetchCurrentBundleHash(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	return l.LoadHash(ctx, hash)
+	return l.LoadHash(ctx, algorithm, hash)
 }
 
-// LoadHash fetches a specific bundle by hash, verifies integrity, extracts
-// to an in-memory filesystem, and returns a Snapshot. No files are written
-// to disk - the bundle is served directly from memory, eliminating disk
-// tampering threat surface entirely and improving performance.
-func (l *Loader) LoadHash(ctx context.Context, hash string) (*Snapshot, error) {
+// LoadHash fetches a specific bundle by hash, verifies the hash signature
+// against a trusted key, downloads the bundle, verifies its SHA-384 integrity,
+// extracts to an in-memory filesystem, and returns a Snapshot. No files are
+// written to disk - the bundle is served directly from memory, eliminating
+// disk tampering threat surface entirely and improving performance.
+func (l *Loader) LoadHash(ctx context.Context, algorithm, hash string) (*Snapshot, error) {
 	loadedAt := time.Now().UTC()
 
-	key := l.s3Key(hash)
+	// verify the hash is signed by a trusted key before downloading the bundle
+	if err := l.verifyHashSignature(ctx, algorithm, hash); err != nil {
+		return nil, err
+	}
+
+	// download the bundle
+	key := l.s3Key(algorithm, hash)
 	l.logger.Info(ctx, "fetching content bundle",
 		"bucket", l.opts.S3Bucket,
 		"key", key,
@@ -153,7 +199,7 @@ func (l *Loader) LoadHash(ctx context.Context, hash string) (*Snapshot, error) {
 	defer out.Body.Close()
 
 	// read and hash in one pass - no temp files
-	data, actualHash, err := readWithHash(out.Body, maxBundleSize)
+	data, actualHash, err := readWithHash(out.Body, maxBundleSize, algorithm)
 	if err != nil {
 		return nil, xerrors.Wrap(err, "read content bundle")
 	}
@@ -161,10 +207,10 @@ func (l *Loader) LoadHash(ctx context.Context, hash string) (*Snapshot, error) {
 	l.logger.Info(ctx, "downloaded content bundle",
 		"bytes", len(data),
 		"actual_hash", actualHash,
+		"algorithm", algorithm,
 	)
 
-	// our policy is to always use cryptoutil/hashEqual for comparing hashes, even though
-	// this is not user-supplied or a secret value so timing attacks are not a concern here.
+	// verify hash of downloaded bundle matches the signed hash
 	if !cryptoutil.HashEqual(actualHash, hash) {
 		return nil, xerrors.Newf("checksum mismatch: expected %s, got %s", hash, actualHash)
 	}
@@ -191,7 +237,6 @@ func (l *Loader) LoadHash(ctx context.Context, hash string) (*Snapshot, error) {
 		provenance = prov
 		l.logger.Info(ctx, "loaded content provenance",
 			"version", provenance.Version,
-			"content_hash", provenance.ContentHash,
 			"total_files", provenance.Summary.TotalFiles,
 			"commit", provenance.Source.CommitShort,
 		)
@@ -200,14 +245,47 @@ func (l *Loader) LoadHash(ctx context.Context, hash string) (*Snapshot, error) {
 	return &Snapshot{
 		FS: contentFS,
 		Meta: Meta{
-			SHA256:     hash,
-			Source:     SourceS3,
-			VerifiedAt: time.Now().UTC(),
-			Version:    provenanceVersion(provenance),
+			Hash:          hash,
+			HashAlgorithm: algorithm,
+			Source:        SourceS3,
+			VerifiedAt:    time.Now().UTC(),
+			Version:       provenanceVersion(provenance),
 		},
 		Provenance: provenance,
 		LoadedAt:   loadedAt,
 	}, nil
+}
+
+// verifyHashSignature fetches the sigstore bundle for the content bundle hash
+// and verifies the hash is signed by a trusted key. If no verifier is
+// configured, this is a no-op (dev/local builds).
+func (l *Loader) verifyHashSignature(ctx context.Context, algorithm, hash string) error {
+	if l.opts.Verifier == nil {
+		l.logger.Info(ctx, "no content verifier configured, skipping hash signature verification")
+		return nil
+	}
+
+	sigKey := l.sigBundleKey(algorithm, hash)
+	l.logger.Info(ctx, "fetching content bundle signature",
+		"bucket", l.opts.S3Bucket,
+		"key", sigKey,
+	)
+
+	bundleJSON, err := l.fetchS3(ctx, sigKey, maxSigBundleSize)
+	if err != nil {
+		return xerrors.Wrap(err, "fetch content bundle sigstore bundle")
+	}
+
+	// the signed artifact is the hash string itself (hex-encoded)
+	if err := l.opts.Verifier.VerifyBlob(ctx, bundleJSON, []byte(hash)); err != nil {
+		return xerrors.Wrap(err, "content bundle hash signature verification failed")
+	}
+
+	l.logger.Info(ctx, "content bundle hash signature verified",
+		"hash", hash,
+	)
+
+	return nil
 }
 
 // provenanceVersion extracts version from provenance or returns empty string

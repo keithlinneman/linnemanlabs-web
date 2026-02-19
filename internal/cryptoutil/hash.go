@@ -2,6 +2,7 @@ package cryptoutil
 
 import (
 	"crypto/sha256"
+	"crypto/sha512"
 	"crypto/subtle"
 	"encoding/hex"
 )
@@ -15,5 +16,11 @@ func HashEqual(a, b string) bool {
 // SHA256Hex computes the SHA-256 hash of the input data and returns it as a hex string
 func SHA256Hex(data []byte) string {
 	h := sha256.Sum256(data)
+	return hex.EncodeToString(h[:])
+}
+
+// SHA384Hex computes the SHA-384 hash of the input data and returns it as a hex string
+func SHA384Hex(data []byte) string {
+	h := sha512.Sum384(data)
 	return hex.EncodeToString(h[:])
 }

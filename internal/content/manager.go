@@ -55,18 +55,15 @@ func (m *Manager) ContentVersion() string {
 	return s.Meta.Version
 }
 
-// ContentHash returns the current content hash for headers
+// ContentHash returns the current content hash for headers.
+// Uses Meta.Hash which is the verified hash from the bundle download.
 // Implements httpmw.ContentInfo interface
 func (m *Manager) ContentHash() string {
 	s := m.active.Load()
 	if s == nil {
 		return ""
 	}
-	// Prefer provenance hash if available
-	if s.Provenance != nil && s.Provenance.ContentHash != "" {
-		return s.Provenance.ContentHash
-	}
-	return s.Meta.SHA256
+	return s.Meta.Hash
 }
 
 // Provenance returns the current provenance data, if available

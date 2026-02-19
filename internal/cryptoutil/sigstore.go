@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"crypto/sha512"
 	"encoding/base64"
 	"encoding/json"
 	"strconv"
@@ -240,8 +241,15 @@ func VerifyBlobSignature(ctx context.Context, v *KMSVerifier, bundleJSON, artifa
 		if err != nil {
 			return nil, xerrors.Wrap(err, "decode bundle digest")
 		}
-		artifactDigest := sha256.Sum256(artifact)
-		if !bytes.Equal(bundleDigest, artifactDigest[:]) {
+
+		artifactDigest, err := computeDigestForAlgorithm(
+			bundle.MessageSignature.MessageDigest.Algorithm, artifact,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if !bytes.Equal(bundleDigest, artifactDigest) {
 			return nil, xerrors.New("bundle digest does not match artifact")
 		}
 	}
@@ -250,4 +258,20 @@ func VerifyBlobSignature(ctx context.Context, v *KMSVerifier, bundleJSON, artifa
 		Verified: true,
 		KeyHint:  bundle.VerificationMaterial.PublicKey.Hint,
 	}, nil
+}
+
+// computeDigestForAlgorithm computes the hash of data using the algorithm
+// specified in the sigstore bundle's messageDigest field.
+// Supports SHA2_256 and SHA2_384 (the algorithms cosign uses with KMS keys).
+func computeDigestForAlgorithm(algorithm string, data []byte) ([]byte, error) {
+	switch algorithm {
+	case "SHA2_256", "SHA_256", "sha256":
+		d := sha256.Sum256(data)
+		return d[:], nil
+	case "SHA2_384", "SHA_384", "sha384":
+		d := sha512.Sum384(data)
+		return d[:], nil
+	default:
+		return nil, xerrors.Newf("unsupported digest algorithm in bundle: %s", algorithm)
+	}
 }

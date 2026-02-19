@@ -18,11 +18,12 @@ type Signature struct {
 }
 
 type Meta struct {
-	Version    string    `json:"version,omitempty"`
-	SHA256     string    `json:"sha256,omitempty"`
-	BuiltAt    time.Time `json:"built_at,omitempty"`
-	VerifiedAt time.Time `json:"verified_at,omitempty"`
-	Source     Source    `json:"source,omitempty"`
+	Version       string    `json:"version,omitempty"`
+	Hash          string    `json:"hash,omitempty"`
+	HashAlgorithm string    `json:"hash_algorithm,omitempty"`
+	BuiltAt       time.Time `json:"built_at,omitempty"`
+	VerifiedAt    time.Time `json:"verified_at,omitempty"`
+	Source        Source    `json:"source,omitempty"`
 
 	Signatures []Signature `json:"signatures,omitempty"`
 }

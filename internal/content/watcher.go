@@ -88,7 +88,7 @@ func NewWatcher(opts WatcherOptions) *Watcher {
 	// what was already loaded at startup
 	currentHash := ""
 	if snap, ok := opts.Manager.Get(); ok {
-		currentHash = snap.Meta.SHA256
+		currentHash = snap.Meta.Hash
 	}
 
 	validation := DefaultValidationOptions()
@@ -156,7 +156,7 @@ func (w *Watcher) checkOnce(ctx context.Context) pollResult {
 	w.pollCount++
 
 	// poll SSM for the current bundle hash
-	hash, err := w.loader.FetchCurrentBundleHash(ctx)
+	algorithm, hash, err := w.loader.FetchCurrentBundleHash(ctx)
 	if err != nil {
 		w.logger.Error(ctx, err, "content watcher: SSM poll failed")
 		return pollSSMError
@@ -174,7 +174,7 @@ func (w *Watcher) checkOnce(ctx context.Context) pollResult {
 	)
 
 	// download, verify, extract to memory
-	snap, err := w.loader.LoadHash(ctx, hash)
+	snap, err := w.loader.LoadHash(ctx, algorithm, hash)
 	if err != nil {
 		w.logger.Error(ctx, err, "content watcher: failed to load bundle",
 			"hash", truncHash(hash),

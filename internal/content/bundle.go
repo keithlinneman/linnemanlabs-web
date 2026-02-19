@@ -6,8 +6,10 @@ import (
 	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
+	"crypto/sha512"
 	"encoding/hex"
 	"fmt"
+	"hash"
 	"io"
 	"io/fs"
 	"os"
@@ -31,13 +33,22 @@ const (
 	maxTotalExtract int64 = 100 * 1024 * 1024 // 100MB
 )
 
-// readWithHash reads all bytes from r up to maxSize, computing SHA256
+// readWithHash reads all bytes from r up to maxSize, computing hash
 // as it reads. Returns the data, hex-encoded hash, and any error.
 // Used by LoadHash to verify bundle integrity without temp files.
-func readWithHash(r io.Reader, maxSize int64) ([]byte, string, error) {
-	h := sha256.New()
+func readWithHash(r io.Reader, maxSize int64, algorithm string) ([]byte, string, error) {
+	var hasher hash.Hash
+	switch algorithm {
+	case "sha256":
+		hasher = sha256.New()
+	case "sha384":
+		hasher = sha512.New384()
+	default:
+		return nil, "", xerrors.Newf("unsupported hash algorithm: %s", algorithm)
+	}
+
 	lr := io.LimitReader(r, maxSize+1)
-	tr := io.TeeReader(lr, h)
+	tr := io.TeeReader(lr, hasher)
 
 	data, err := io.ReadAll(tr)
 	if err != nil {
@@ -47,7 +58,7 @@ func readWithHash(r io.Reader, maxSize int64) ([]byte, string, error) {
 		return nil, "", fmt.Errorf("content exceeds max size (%d bytes, limit %d)", len(data), maxSize)
 	}
 
-	return data, hex.EncodeToString(h.Sum(nil)), nil
+	return data, hex.EncodeToString(hasher.Sum(nil)), nil
 }
 
 // copyWithHash copies from src to dst while computing SHA256
