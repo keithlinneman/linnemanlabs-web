@@ -233,25 +233,29 @@ func VerifyBlobSignature(ctx context.Context, v *KMSVerifier, bundleJSON, artifa
 		return nil, xerrors.Wrap(err, "blob signature verification failed")
 	}
 
-	// cross-check: bundle's embedded digest should match artifact
-	if bundle.MessageSignature.MessageDigest.Digest != "" {
-		bundleDigest, err := base64.StdEncoding.DecodeString(
-			bundle.MessageSignature.MessageDigest.Digest,
-		)
-		if err != nil {
-			return nil, xerrors.Wrap(err, "decode bundle digest")
-		}
+	// cross-check: bundle's embedded digest must match artifact
+	// cosign always includes the digest when signing with KMS keys;
+	// empty means the bundle is malformed or tampered
+	if bundle.MessageSignature.MessageDigest.Digest == "" {
+		return nil, xerrors.New("bundle messageDigest.digest is empty, expected non-empty digest from cosign")
+	}
 
-		artifactDigest, err := computeDigestForAlgorithm(
-			bundle.MessageSignature.MessageDigest.Algorithm, artifact,
-		)
-		if err != nil {
-			return nil, err
-		}
+	bundleDigest, err := base64.StdEncoding.DecodeString(
+		bundle.MessageSignature.MessageDigest.Digest,
+	)
+	if err != nil {
+		return nil, xerrors.Wrap(err, "decode bundle digest")
+	}
 
-		if !bytes.Equal(bundleDigest, artifactDigest) {
-			return nil, xerrors.New("bundle digest does not match artifact")
-		}
+	artifactDigest, err := computeDigestForAlgorithm(
+		bundle.MessageSignature.MessageDigest.Algorithm, artifact,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if !bytes.Equal(bundleDigest, artifactDigest) {
+		return nil, xerrors.New("bundle digest does not match artifact")
 	}
 
 	return &BlobVerifyResult{

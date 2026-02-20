@@ -543,9 +543,9 @@ func TestVerifyBlobSignature_DigestMismatchInBundle(t *testing.T) {
 	}
 }
 
-// VerifyBlobSignature - missing digest is not an error (belt-and-suspenders check is optional)
+// VerifyBlobSignature - empty digest is an error (cosign always includes digest with KMS keys)
 
-func TestVerifyBlobSignature_EmptyDigestOK(t *testing.T) {
+func TestVerifyBlobSignature_EmptyDigestFails(t *testing.T) {
 	key := generateTestKey(t)
 	v := newTestVerifier(t, &key.PublicKey)
 
@@ -564,12 +564,12 @@ func TestVerifyBlobSignature_EmptyDigestOK(t *testing.T) {
 	}
 	raw, _ := json.Marshal(bundle)
 
-	result, err := VerifyBlobSignature(t.Context(), v, raw, artifact)
-	if err != nil {
-		t.Fatalf("expected success when digest field is empty: %v", err)
+	_, err := VerifyBlobSignature(t.Context(), v, raw, artifact)
+	if err == nil {
+		t.Fatal("expected error when digest field is empty")
 	}
-	if !result.Verified {
-		t.Fatal("expected Verified = true")
+	if !strings.Contains(err.Error(), "messageDigest.digest is empty") {
+		t.Fatalf("error should mention empty digest: %v", err)
 	}
 }
 
