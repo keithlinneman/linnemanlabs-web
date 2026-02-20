@@ -178,7 +178,6 @@ func (m *ServerMetrics) SetBuildInfoFromVersion(app, component string, vi versio
 	if vi.VCSDirty != nil {
 		dirty = strconv.FormatBool(*vi.VCSDirty)
 	}
-	//m.BuildInfo.WithLabelValues(app, component, vi.Version, vi.Commit, vi.CommitDate, vi.BuildId, vi.BuildDate, dirty, vi.GoVersion).Set(1)
 	m.buildInfo.With(prometheus.Labels{
 		"app":         app,
 		"component":   component,
