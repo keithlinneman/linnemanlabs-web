@@ -40,7 +40,12 @@ func Init(ctx context.Context, o Options) (func(context.Context) error, error) {
 		opts = append(opts, otlptracegrpc.WithInsecure())
 	}
 
-	exp, err := otlptracegrpc.New(ctx, opts...)
+	// by default this is a blocking call with no timeout
+	// we are using a local collector that forwards to otlp
+	// backends so setting this to 3 seconds is safe
+	dialCtx, dialCancel := context.WithTimeout(ctx, 3*time.Second)
+	defer dialCancel()
+	exp, err := otlptracegrpc.New(dialCtx, opts...)
 	if err != nil {
 		return nil, err
 	}

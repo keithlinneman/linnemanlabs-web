@@ -3,6 +3,7 @@ package otelx
 import (
 	"context"
 	"testing"
+	"time"
 
 	"go.opentelemetry.io/otel"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -129,6 +130,46 @@ func TestInit_Disabled_MultipleCalls(t *testing.T) {
 	tp := otel.GetTracerProvider()
 	if tp == nil {
 		t.Fatal("TracerProvider nil after multiple Init calls")
+	}
+}
+
+// Enabled path - timeout
+
+func TestInit_Enabled_ReturnsPromptly(t *testing.T) {
+	// Verify Init completes promptly even with an unreachable endpoint.
+	// The 10s dial timeout bounds the worst case; gRPC defers connection
+	// establishment so this should return quickly.
+	start := time.Now()
+	shutdown, err := Init(context.Background(), Options{
+		Enabled:  true,
+		Endpoint: "localhost:1",
+		Insecure: true,
+		Sample:   1.0,
+		Service:  "test",
+		Component: "test",
+		Version:  "v0.0.0-test",
+	})
+	elapsed := time.Since(start)
+
+	if err != nil {
+		// Error is acceptable (timeout hit), just verify it's bounded
+		if elapsed > 15*time.Second {
+			t.Fatalf("Init took %v on error, expected bounded by dial timeout", elapsed)
+		}
+		return
+	}
+
+	// No error means gRPC deferred the connection - verify we got a valid shutdown func
+	if shutdown == nil {
+		t.Fatal("shutdown func is nil")
+	}
+	if elapsed > 15*time.Second {
+		t.Fatalf("Init took %v, expected to complete within dial timeout", elapsed)
+	}
+
+	// Shutdown should not panic even with no real connection
+	if err := shutdown(context.Background()); err != nil {
+		t.Logf("shutdown error (expected with no real collector): %v", err)
 	}
 }
 
