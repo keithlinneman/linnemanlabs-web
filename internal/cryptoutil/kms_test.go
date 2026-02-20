@@ -43,10 +43,12 @@ func generateTestECKey(t *testing.T, curve elliptic.Curve) *ecdsa.PrivateKey {
 }
 
 // newTestVerifier creates a KMSVerifier with a pre-cached public key.
+// AllowPKCS1v15 defaults to true to preserve backward-compatible test behavior.
 func newTestVerifier(t *testing.T, pub crypto.PublicKey) *KMSVerifier {
 	t.Helper()
 	v := &KMSVerifier{
-		keyARN: "arn:aws:kms:us-east-2:000000000000:key/test-key-id",
+		keyARN:        "arn:aws:kms:us-east-2:000000000000:key/test-key-id",
+		AllowPKCS1v15: true,
 	}
 	v.pubKey = pub
 	return v
@@ -186,6 +188,52 @@ func TestVerifySignature_RSA_PSS_WrongMessage(t *testing.T) {
 
 	if err := v.VerifySignature(t.Context(), []byte("wrong message"), sig); err == nil {
 		t.Fatal("expected verification failure for wrong message with PSS")
+	}
+}
+
+// --- RSA PSS-only mode (AllowPKCS1v15 = false) ---
+
+func TestVerifySignature_RSA_PSSOnly_RejectsPKCS1v15(t *testing.T) {
+	key := generateTestRSAKey(t)
+	v := &KMSVerifier{
+		keyARN:        "arn:aws:kms:us-east-2:000000000000:key/test-key-id",
+		AllowPKCS1v15: false,
+	}
+	v.pubKey = &key.PublicKey
+
+	message := []byte("hello world")
+	digest := sha256.Sum256(message)
+	sig, err := rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, digest[:])
+	if err != nil {
+		t.Fatalf("sign: %v", err)
+	}
+
+	err = v.VerifySignature(t.Context(), message, sig)
+	if err == nil {
+		t.Fatal("expected error: PKCS1v15 should be rejected when AllowPKCS1v15 is false")
+	}
+	if !strings.Contains(err.Error(), "PKCS1v15 fallback disabled") {
+		t.Fatalf("error should mention fallback disabled: %v", err)
+	}
+}
+
+func TestVerifySignature_RSA_PSSOnly_AcceptsPSS(t *testing.T) {
+	key := generateTestRSAKey(t)
+	v := &KMSVerifier{
+		keyARN:        "arn:aws:kms:us-east-2:000000000000:key/test-key-id",
+		AllowPKCS1v15: false,
+	}
+	v.pubKey = &key.PublicKey
+
+	message := []byte("hello world")
+	digest := sha256.Sum256(message)
+	sig, err := rsa.SignPSS(rand.Reader, key, crypto.SHA256, digest[:], nil)
+	if err != nil {
+		t.Fatalf("sign PSS: %v", err)
+	}
+
+	if err := v.VerifySignature(t.Context(), message, sig); err != nil {
+		t.Fatalf("PSS should be accepted in PSS-only mode: %v", err)
 	}
 }
 

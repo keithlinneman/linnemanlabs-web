@@ -28,6 +28,11 @@ type KMSVerifier struct {
 	client kmsKeyFetcher
 	keyARN string
 
+	// AllowPKCS1v15 controls whether RSA PKCS1v15 is accepted as a fallback
+	// when PSS verification fails. Default false (PSS-only). Set true to
+	// preserve backward compatibility with existing PKCS1v15 signatures.
+	AllowPKCS1v15 bool
+
 	// cached public key for local verification
 	mu     sync.RWMutex
 	pubKey crypto.PublicKey
@@ -40,7 +45,7 @@ func (v *KMSVerifier) VerifyBlob(ctx context.Context, bundleJSON, artifact []byt
 }
 
 func NewKMSVerifier(client *kms.Client, keyARN string) *KMSVerifier {
-	return &KMSVerifier{client: client, keyARN: keyARN}
+	return &KMSVerifier{client: client, keyARN: keyARN, AllowPKCS1v15: false}
 }
 
 // PublicKey fetches and caches the KMS public key for local verification.
@@ -86,12 +91,12 @@ func (v *KMSVerifier) PublicKey(ctx context.Context) (crypto.PublicKey, error) {
 }
 
 // VerifySignature fetches the public key (cached) and verifies the signature
-// locally. Supports ECDSA (P-256/P-384) and RSA (PSS with fallback to PKCS1v15).
+// locally. Supports ECDSA (P-256/P-384) and RSA (PSS-only by default).
 //
 // Key type determines the hash algorithm:
 //   - ECDSA P-384: SHA-384
 //   - ECDSA P-256: SHA-256
-//   - RSA: SHA-256 (PSS first, then PKCS1v15 fallback)
+//   - RSA: SHA-256 (PSS only; PKCS1v15 fallback when AllowPKCS1v15 is true)
 func (v *KMSVerifier) VerifySignature(ctx context.Context, message, signature []byte) error {
 	pub, err := v.PublicKey(ctx)
 	if err != nil {
@@ -102,7 +107,7 @@ func (v *KMSVerifier) VerifySignature(ctx context.Context, message, signature []
 	case *ecdsa.PublicKey:
 		return verifyECDSA(key, message, signature)
 	case *rsa.PublicKey:
-		return verifyRSA(key, message, signature)
+		return verifyRSA(key, message, signature, v.AllowPKCS1v15)
 	default:
 		return xerrors.Newf("unsupported public key type: %T", pub)
 	}
@@ -135,15 +140,19 @@ func ecdsaDigest(key *ecdsa.PublicKey, message []byte) (crypto.Hash, []byte, err
 	}
 }
 
-// verifyRSA verifies an RSA signature. Tries PSS first (preferred for new
-// keys), then falls back to PKCS1v15 for backward compatibility with
-// existing signatures.
-func verifyRSA(key *rsa.PublicKey, message, signature []byte) error {
+// verifyRSA verifies an RSA signature using PSS. When allowFallback is true,
+// falls back to PKCS1v15 for backward compatibility with existing signatures.
+// When false (default), only PSS is accepted.
+func verifyRSA(key *rsa.PublicKey, message, signature []byte, allowFallback bool) error {
 	digest := sha256.Sum256(message)
 
-	// try PSS first - this is the preferred scheme for new RSA keys
-	if err := rsa.VerifyPSS(key, crypto.SHA256, digest[:], signature, nil); err == nil {
+	pssErr := rsa.VerifyPSS(key, crypto.SHA256, digest[:], signature, nil)
+	if pssErr == nil {
 		return nil
+	}
+
+	if !allowFallback {
+		return xerrors.Newf("RSA-PSS verification failed (PKCS1v15 fallback disabled): %v", pssErr)
 	}
 
 	// fall back to PKCS1v15 for backward compatibility
