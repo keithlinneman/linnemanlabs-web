@@ -601,6 +601,20 @@ func TestExtractTarGzToMem_DotPath_Skipped(t *testing.T) {
 	}
 }
 
+func TestExtractTarGzToMem_VolumeLabel_Skipped(t *testing.T) {
+	archive := buildSeedArchiveWithLabel()
+
+	fsys, err := extractTarGzToMem(archive)
+	if err != nil {
+		t.Fatalf("extractTarGzToMem: %v", err)
+	}
+
+	got := readFileFromFS(t, fsys, "file.txt")
+	if got != "after label" {
+		t.Fatalf("content = %q, want %q", got, "after label")
+	}
+}
+
 // Fuzz tests for in-memory extraction
 
 func FuzzExtractTarGzToMem(f *testing.F) {

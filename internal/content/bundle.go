@@ -113,6 +113,10 @@ func extractTarGzToMem(data []byte) (fs.FS, error) {
 			// directories are implicit in MapFS - skip
 			continue
 
+		case 'V':
+			// volume label - metadata only, skip
+			continue
+
 		case tar.TypeReg:
 			if hdr.Size > maxSingleFile {
 				return nil, fmt.Errorf("file %s exceeds max size (%d > %d)",
