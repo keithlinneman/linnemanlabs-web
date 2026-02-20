@@ -72,7 +72,7 @@ func (m *ServerMetrics) Middleware(next http.Handler) http.Handler {
 			}
 		}
 		if route == "" {
-			route = r.URL.Path
+			route = "unmatched"
 		}
 
 		status := strconv.Itoa(statusCode)

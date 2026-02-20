@@ -129,8 +129,8 @@ func TestMiddleware_CorrectLabels(t *testing.T) {
 	if labels["status"] != "404" {
 		t.Fatalf("status = %q, want 404", labels["status"])
 	}
-	if labels["route"] != "/api/missing" {
-		t.Fatalf("route = %q, want /api/missing", labels["route"])
+	if labels["route"] != "unmatched" {
+		t.Fatalf("route = %q, want unmatched", labels["route"])
 	}
 }
 
@@ -282,7 +282,7 @@ func TestMiddleware_ChiRoutePattern(t *testing.T) {
 	}
 }
 
-func TestMiddleware_FallsBackToURLPath(t *testing.T) {
+func TestMiddleware_FallsBackToUnmatched(t *testing.T) {
 	m := New()
 
 	// No chi router - middleware creates its own route context
@@ -298,8 +298,8 @@ func TestMiddleware_FallsBackToURLPath(t *testing.T) {
 		labels[lp.GetName()] = lp.GetValue()
 	}
 
-	if labels["route"] != "/custom/path" {
-		t.Fatalf("route = %q, want /custom/path", labels["route"])
+	if labels["route"] != "unmatched" {
+		t.Fatalf("route = %q, want unmatched", labels["route"])
 	}
 }
 
