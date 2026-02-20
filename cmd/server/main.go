@@ -202,7 +202,23 @@ func main() {
 		contentBlobVerifier = contentVerifier
 	}
 
-	// initialize http content
+	// Startup content loading strategy:
+	//
+	// Content loads synchronously before HTTP servers bind their ports.
+	// This guarantees that when the site server starts accepting connections,
+	// there is always content to serve. The loading order is:
+	//
+	//   1. Embedded seed content (tar.gz in webassets) provides an immediate fallback
+	//      that is always available, even if S3 is unreachable at startup.
+	//   2. The Loader attempts to fetch the current bundle from S3, verified via KMS.
+	//      If this succeeds it replaces the seed content in the Manager.
+	//   3. HTTP servers bind and start accepting traffic.
+	//   4. The Watcher starts polling SSM for hash changes AFTER servers are bound,
+	//      so hot-swaps happen in the background without blocking startup.
+	//
+	// This means the readiness probe (health.All of ShutdownGate + content check)
+	// only passes once content is loaded and servers are listening.
+
 	// setup maintenance fallback fs
 	fallbackFS := webassets.FallbackFS()
 
@@ -411,36 +427,39 @@ func main() {
 	gate.Set("draining")
 	L.Info(context.Background(), "shutdown gate closed")
 
-	// sleep for 60s to allow in-flight requests to finish and for load balancer
-	// to detect unhealthy and stop sending new requests
-	L.Info(context.Background(), "sleeping 60s for in-flight and load balancer health checks to drain")
+	// Wait for in-flight requests to finish and for load balancer
+	// to detect unhealthy and stop sending new requests.
+	drainDuration := time.Duration(conf.DrainSeconds) * time.Second
+	L.Info(context.Background(), "sleeping for drain period", "drain_seconds", conf.DrainSeconds)
 	forceCh := make(chan os.Signal, 1)
 	signal.Notify(forceCh, os.Interrupt, syscall.SIGTERM)
 	select {
-	case <-time.After(60 * time.Second):
+	case <-time.After(drainDuration):
 		L.Info(context.Background(), "drain period complete")
 	case <-forceCh:
 		L.Warn(context.Background(), "second signal received, skipping drain")
 	}
 	signal.Stop(forceCh)
 
-	// 30s total shutdown budget, each component gets its own 10s slice
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// Total shutdown budget split evenly across components
+	budget := time.Duration(conf.ShutdownBudgetSeconds) * time.Second
+	perComponent := budget / 3
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), budget)
 	defer cancel()
 
-	siteCtx, siteCancel := context.WithTimeout(shutdownCtx, 10*time.Second)
+	siteCtx, siteCancel := context.WithTimeout(shutdownCtx, perComponent)
 	defer siteCancel()
 	if err := siteHTTPStop(siteCtx); err != nil {
 		L.Error(context.Background(), err, "app http server shutdown")
 	}
 
-	opsCtx, opsCancel := context.WithTimeout(shutdownCtx, 10*time.Second)
+	opsCtx, opsCancel := context.WithTimeout(shutdownCtx, perComponent)
 	defer opsCancel()
 	if err := opsHTTPStop(opsCtx); err != nil {
 		L.Error(context.Background(), err, "ops http server shutdown")
 	}
 
-	otelCtx, otelCancel := context.WithTimeout(shutdownCtx, 10*time.Second)
+	otelCtx, otelCancel := context.WithTimeout(shutdownCtx, perComponent)
 	defer otelCancel()
 	if err := shutdownOTEL(otelCtx); err != nil {
 		L.Error(context.Background(), err, "otel shutdown")
@@ -462,7 +481,10 @@ func notifySystemd() error {
 	if err != nil {
 		return fmt.Errorf("systemd notify failed: dial failed: %w", err)
 	}
-	conn.Write([]byte("READY=1"))
+	if _, err := conn.Write([]byte("READY=1")); err != nil {
+		conn.Close()
+		return fmt.Errorf("systemd notify failed: write failed: %w", err)
+	}
 	if err := conn.Close(); err != nil {
 		return fmt.Errorf("systemd notify failed: close failed: %w", err)
 	}

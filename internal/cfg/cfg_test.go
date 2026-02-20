@@ -64,6 +64,12 @@ func TestRegister_Defaults(t *testing.T) {
 	if c.StacktraceLevel != "error" {
 		t.Errorf("StacktraceLevel: want %q, got %q", "error", c.StacktraceLevel)
 	}
+	if c.DrainSeconds != 60 {
+		t.Errorf("DrainSeconds: want 60, got %d", c.DrainSeconds)
+	}
+	if c.ShutdownBudgetSeconds != 30 {
+		t.Errorf("ShutdownBudgetSeconds: want 30, got %d", c.ShutdownBudgetSeconds)
+	}
 }
 
 func TestRegister_CLIOverrides(t *testing.T) {
@@ -85,6 +91,8 @@ func TestRegister_CLIOverrides(t *testing.T) {
 		"-content-ssm-param=/custom/param",
 		"-content-s3-bucket=my-bucket",
 		"-content-s3-prefix=my/prefix",
+		"-drain-seconds=120",
+		"-shutdown-budget-seconds=45",
 	})
 
 	if c.LogJSON != false {
@@ -137,6 +145,12 @@ func TestRegister_CLIOverrides(t *testing.T) {
 	}
 	if c.ContentS3Prefix != "my/prefix" {
 		t.Errorf("ContentS3Prefix: want %q, got %q", "my/prefix", c.ContentS3Prefix)
+	}
+	if c.DrainSeconds != 120 {
+		t.Errorf("DrainSeconds: want 120, got %d", c.DrainSeconds)
+	}
+	if c.ShutdownBudgetSeconds != 45 {
+		t.Errorf("ShutdownBudgetSeconds: want 45, got %d", c.ShutdownBudgetSeconds)
 	}
 }
 
@@ -338,6 +352,8 @@ func validConfig() App {
 		TraceSample:           0.1,
 		EvidenceSigningKeyARN: "arn:aws:kms:us-east-2:000000000000:key/evidence-key",
 		ContentSigningKeyARN:  "arn:aws:kms:us-east-2:000000000000:key/content-key",
+		DrainSeconds:          60,
+		ShutdownBudgetSeconds: 30,
 	}
 }
 
@@ -384,6 +400,24 @@ func TestValidate_ProvenanceRequiresBothKeys(t *testing.T) {
 			t.Fatalf("unexpected error with both keys: %v", err)
 		}
 	})
+}
+
+func TestValidate_DrainSeconds_Invalid(t *testing.T) {
+	c := validConfig()
+	c.DrainSeconds = 0
+	wantErrContains(t, Validate(c, false), "invalid DRAIN_SECONDS")
+
+	c.DrainSeconds = -5
+	wantErrContains(t, Validate(c, false), "invalid DRAIN_SECONDS")
+}
+
+func TestValidate_ShutdownBudgetSeconds_Invalid(t *testing.T) {
+	c := validConfig()
+	c.ShutdownBudgetSeconds = 0
+	wantErrContains(t, Validate(c, false), "invalid SHUTDOWN_BUDGET_SECONDS")
+
+	c.ShutdownBudgetSeconds = -1
+	wantErrContains(t, Validate(c, false), "invalid SHUTDOWN_BUDGET_SECONDS")
 }
 
 func TestValidate_NoProvenanceSkipsKeyCheck(t *testing.T) {

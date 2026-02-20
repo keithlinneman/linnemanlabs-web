@@ -33,6 +33,8 @@ type App struct {
 	ContentS3Prefix       string
 	EvidenceSigningKeyARN string
 	ContentSigningKeyARN  string
+	DrainSeconds          int
+	ShutdownBudgetSeconds int
 }
 
 // Register binds all config fields to the given FlagSet with defaults inline
@@ -57,6 +59,8 @@ func Register(fs *flag.FlagSet, c *App) {
 	fs.StringVar(&c.ContentS3Prefix, "content-s3-prefix", "apps/linnemanlabs-web/server/content/bundles", "s3 prefix (key) to get content bundle from")
 	fs.StringVar(&c.ContentSigningKeyARN, "content-signing-key-arn", "", "KMS key ARN for content bundle signature verification")
 	fs.StringVar(&c.EvidenceSigningKeyARN, "evidence-signing-key-arn", "", "KMS key ARN for evidence signature verification")
+	fs.IntVar(&c.DrainSeconds, "drain-seconds", 60, "seconds to wait for in-flight requests to drain before shutdown (1..300)")
+	fs.IntVar(&c.ShutdownBudgetSeconds, "shutdown-budget-seconds", 30, "total seconds for component shutdown after drain (1..300)")
 }
 
 // FillFromEnv sets any flag not explicitly passed on the CLI from
@@ -177,6 +181,14 @@ func Validate(c App, hasProvenance bool) error {
 		if c.ContentSigningKeyARN == "" {
 			errs = append(errs, fmt.Errorf("release build requires content-signing-key-arn"))
 		}
+	}
+
+	// Drain and shutdown budgets
+	if c.DrainSeconds <= 0 {
+		errs = append(errs, fmt.Errorf("invalid DRAIN_SECONDS %d (must be > 0)", c.DrainSeconds))
+	}
+	if c.ShutdownBudgetSeconds <= 0 {
+		errs = append(errs, fmt.Errorf("invalid SHUTDOWN_BUDGET_SECONDS %d (must be > 0)", c.ShutdownBudgetSeconds))
 	}
 
 	if len(errs) > 0 {
