@@ -52,7 +52,7 @@ func readWithHash(r io.Reader, maxSize int64, algorithm string) ([]byte, string,
 
 	data, err := io.ReadAll(tr)
 	if err != nil {
-		return nil, "", err
+		return nil, "", xerrors.Wrap(err, "read bundle content")
 	}
 	if int64(len(data)) > maxSize {
 		return nil, "", fmt.Errorf("content exceeds max size (%d bytes, limit %d)", len(data), maxSize)
