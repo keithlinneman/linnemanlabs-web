@@ -14,6 +14,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/keithlinneman/linnemanlabs-web/internal/cryptoutil"
 	"github.com/keithlinneman/linnemanlabs-web/internal/log"
 )
 
@@ -237,7 +238,7 @@ func (w *Watcher) checkOnce(ctx context.Context) pollResult {
 	}
 
 	// no change - most common path
-	if hash == w.currentHash {
+	if cryptoutil.HashEqual(hash, w.currentHash) {
 		return pollNoChange
 	}
 
