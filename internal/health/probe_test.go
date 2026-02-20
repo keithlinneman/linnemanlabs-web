@@ -398,19 +398,19 @@ func TestAll_WithShutdownGateAndContentCheck(t *testing.T) {
 
 	p := All(g.Probe(), contentProbe)
 
-	// No content, gate open → fail (content)
+	// No content, gate open -> fail (content)
 	err := p.Check(context.Background())
 	if err == nil || err.Error() != "content: no active snapshot" {
 		t.Fatalf("should fail on content, got %v", err)
 	}
 
-	// Content loaded, gate open → pass
+	// Content loaded, gate open -> pass
 	contentLoaded = true
 	if err := p.Check(context.Background()); err != nil {
 		t.Fatalf("should pass, got %v", err)
 	}
 
-	// Content loaded, gate closed → fail (gate)
+	// Content loaded, gate closed -> fail (gate)
 	g.Set("shutting down")
 	err = p.Check(context.Background())
 	if err == nil || err.Error() != "shutting down" {

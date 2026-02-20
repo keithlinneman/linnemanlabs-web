@@ -321,7 +321,7 @@ func TestServeHTTP_PrettyURL_Redirect(t *testing.T) {
 	req := httptest.NewRequest("GET", "/about", nil)
 	h.ServeHTTP(rec, req)
 
-	// Should redirect /about → /about/ (pretty URL with trailing slash)
+	// Should redirect /about -> /about/ (pretty URL with trailing slash)
 	if rec.Code != http.StatusPermanentRedirect {
 		t.Fatalf("status = %d, want 308", rec.Code)
 	}
@@ -368,7 +368,7 @@ func TestServeHTTP_NotFound_Site404(t *testing.T) {
 }
 
 func TestServeHTTP_NotFound_FallbackTo404(t *testing.T) {
-	// Site FS has no 404.html → should fall back to fallback FS 404
+	// Site FS has no 404.html -> should fall back to fallback FS 404
 	h := newTestHandler(activeProvider(testSiteFSNo404()), testFallbackFS())
 
 	rec := httptest.NewRecorder()
@@ -384,7 +384,7 @@ func TestServeHTTP_NotFound_FallbackTo404(t *testing.T) {
 }
 
 func TestServeHTTP_NotFound_PlainText(t *testing.T) {
-	// Neither site nor fallback has 404.html → plain text
+	// Neither site nor fallback has 404.html -> plain text
 	h := newTestHandler(activeProvider(testSiteFSNo404()), testFallbackFSNo404())
 
 	rec := httptest.NewRecorder()

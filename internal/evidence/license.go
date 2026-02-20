@@ -123,10 +123,10 @@ func NewLicenseEvaluator(policy *ReleasePolicy) *LicenseEvaluator {
 }
 
 // Evaluate returns the license_status for a single license string.
-//   - empty license → "unknown"
-//   - matches denied pattern → "denied"
-//   - allowed list exists and license not in it → "denied"
-//   - otherwise → "allowed"
+//   - empty license -> "unknown"
+//   - matches denied pattern -> "denied"
+//   - allowed list exists and license not in it -> "denied"
+//   - otherwise -> "allowed"
 func (e *LicenseEvaluator) Evaluate(license string) LicenseStatus {
 	if license == "" {
 		return LicenseUnknown
@@ -221,7 +221,7 @@ func BuildPackageList(report *LicenseReport, eval *LicenseEvaluator) ([]PackageI
 }
 
 // detectEcosystem infers the package ecosystem from a purl string.
-// e.g. "pkg:golang/..." → "go", "pkg:npm/..." → "npm"
+// e.g. "pkg:golang/..." -> "go", "pkg:npm/..." -> "npm"
 func detectEcosystem(purl string) string {
 	if purl == "" {
 		return ""
