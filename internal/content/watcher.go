@@ -36,6 +36,14 @@ const (
 	pollValidationError                   // bundle loaded but failed health checks
 )
 
+// BundleFetcher is the interface the Watcher needs from a Loader. Extracted to
+// decouple the Watcher from the concrete *Loader type, enabling simpler test
+// doubles and future alternative implementations (e.g. OCI-based fetching).
+type BundleFetcher interface {
+	FetchCurrentBundleHash(ctx context.Context) (algorithm string, hash string, err error)
+	LoadHash(ctx context.Context, algorithm, hash string) (*Snapshot, error)
+}
+
 // WatcherMetrics is implemented by the metrics package to observe watcher behavior.
 type WatcherMetrics interface {
 	IncWatcherPolls()
@@ -48,7 +56,7 @@ type WatcherMetrics interface {
 // WatcherOptions configures the content bundle watcher.
 type WatcherOptions struct {
 	Logger       log.Logger
-	Loader       *Loader
+	Loader       BundleFetcher
 	Manager      *Manager
 	PollInterval time.Duration
 
@@ -73,7 +81,7 @@ type WatcherOptions struct {
 // Watcher polls SSM for content bundle hash changes and hot-swaps
 // the active content when a new bundle is detected.
 type Watcher struct {
-	loader     *Loader
+	loader     BundleFetcher
 	manager    *Manager
 	logger     log.Logger
 	interval   time.Duration
@@ -303,7 +311,7 @@ func (w *Watcher) checkOnce(ctx context.Context) pollResult {
 }
 
 // backoffDuration computes exponential backoff capped at maxBackoff.
-// consecutiveErrs=1 → 2x interval, =2 → 4x, =3 → 8x, etc.
+// consecutiveErrs=1 -> 2x interval, =2 -> 4x, =3 -> 8x, etc.
 func (w *Watcher) backoffDuration() time.Duration {
 	mult := math.Pow(2, float64(w.consecutiveErrs))
 	d := time.Duration(float64(w.interval) * mult)

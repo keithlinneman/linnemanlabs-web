@@ -29,22 +29,26 @@ func (c *capturingLogger) With(_ ...any) log.Logger { return c }
 
 // fakeWatcherMetrics implements WatcherMetrics for testing.
 type fakeWatcherMetrics struct {
-	polls          int
-	swaps          int
-	errors         map[string]int
-	loadDurations  []float64
-	lastSuccessTs  float64
+	polls         int
+	swaps         int
+	errors        map[string]int
+	loadDurations []float64
+	lastSuccessTs float64
 }
 
 func newFakeWatcherMetrics() *fakeWatcherMetrics {
 	return &fakeWatcherMetrics{errors: make(map[string]int)}
 }
 
-func (f *fakeWatcherMetrics) IncWatcherPolls()                        { f.polls++ }
-func (f *fakeWatcherMetrics) IncWatcherSwaps()                        { f.swaps++ }
-func (f *fakeWatcherMetrics) IncWatcherError(errType string)          { f.errors[errType]++ }
-func (f *fakeWatcherMetrics) ObserveBundleLoadDuration(seconds float64) { f.loadDurations = append(f.loadDurations, seconds) }
-func (f *fakeWatcherMetrics) SetWatcherLastSuccess(unixSeconds float64) { f.lastSuccessTs = unixSeconds }
+func (f *fakeWatcherMetrics) IncWatcherPolls()               { f.polls++ }
+func (f *fakeWatcherMetrics) IncWatcherSwaps()               { f.swaps++ }
+func (f *fakeWatcherMetrics) IncWatcherError(errType string) { f.errors[errType]++ }
+func (f *fakeWatcherMetrics) ObserveBundleLoadDuration(seconds float64) {
+	f.loadDurations = append(f.loadDurations, seconds)
+}
+func (f *fakeWatcherMetrics) SetWatcherLastSuccess(unixSeconds float64) {
+	f.lastSuccessTs = unixSeconds
+}
 
 // watcher test helpers
 
@@ -425,7 +429,7 @@ func TestCheckOnce_MultipleSwaps(t *testing.T) {
 
 	w := f.newWatcher()
 
-	// swap A → B
+	// swap A -> B
 	_, hashB := storeBundle(t, f, map[string]string{
 		"index.html": "<html>B</html>",
 	})
@@ -436,7 +440,7 @@ func TestCheckOnce_MultipleSwaps(t *testing.T) {
 		t.Fatalf("first swap: result = %d, want pollSwapped", result)
 	}
 
-	// swap B → C
+	// swap B -> C
 	_, hashC := storeBundle(t, f, map[string]string{
 		"index.html": "<html>C</html>",
 	})
