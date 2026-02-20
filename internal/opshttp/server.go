@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/keithlinneman/linnemanlabs-web/internal/health"
+	"github.com/keithlinneman/linnemanlabs-web/internal/httpserver"
 	"github.com/keithlinneman/linnemanlabs-web/internal/log"
 	"github.com/keithlinneman/linnemanlabs-web/internal/xerrors"
 )
@@ -48,11 +49,11 @@ func Start(ctx context.Context, L log.Logger, opts Options) (func(context.Contex
 	srv := &http.Server{
 		Addr:              addr,
 		Handler:           handler,
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       10 * time.Second,
-		WriteTimeout:      10 * time.Second,
-		IdleTimeout:       60 * time.Second,
-		MaxHeaderBytes:    1 << 20,
+		ReadHeaderTimeout: httpserver.DefaultReadHeaderTimeout,
+		ReadTimeout:       httpserver.DefaultReadTimeout,
+		WriteTimeout:      httpserver.DefaultWriteTimeout,
+		IdleTimeout:       httpserver.DefaultIdleTimeout,
+		MaxHeaderBytes:    httpserver.DefaultMaxHeaderBytes,
 	}
 
 	ln, err := net.Listen("tcp4", addr)

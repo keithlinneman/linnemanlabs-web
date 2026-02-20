@@ -25,9 +25,6 @@ func NewHandler(opts Options) http.Handler {
 	// chi router
 	r := chi.NewRouter()
 
-	// Normalize /categories/ to /categories, etc
-	// r.Use(middleware.StripSlashes)
-
 	// Compress text responses (HTML/CSS/JS/JSON/SVG)
 	r.Use(middleware.Compress(5,
 		"text/html",
@@ -141,15 +138,24 @@ func NewHandler(opts Options) http.Handler {
 	return h
 }
 
+// Server timeout defaults, shared with opshttp.
+const (
+	DefaultReadHeaderTimeout = 5 * time.Second
+	DefaultReadTimeout       = 10 * time.Second
+	DefaultWriteTimeout      = 10 * time.Second
+	DefaultIdleTimeout       = 60 * time.Second
+	DefaultMaxHeaderBytes    = 1 << 20 // 1 MB
+)
+
 func NewServer(addr string, handler http.Handler) *http.Server {
 	return &http.Server{
 		Addr:              addr,
 		Handler:           handler,
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       10 * time.Second,
-		WriteTimeout:      10 * time.Second,
-		IdleTimeout:       60 * time.Second,
-		MaxHeaderBytes:    1 << 20,
+		ReadHeaderTimeout: DefaultReadHeaderTimeout,
+		ReadTimeout:       DefaultReadTimeout,
+		WriteTimeout:      DefaultWriteTimeout,
+		IdleTimeout:       DefaultIdleTimeout,
+		MaxHeaderBytes:    DefaultMaxHeaderBytes,
 	}
 }
 
