@@ -72,6 +72,12 @@ type Loader struct {
 	logger   log.Logger
 }
 
+// workItem pairs an inventory path with its file reference for fetch workers.
+type workItem struct {
+	path string
+	ref  *EvidenceFileRef
+}
+
 // fetchResult holds the result of a single file fetch.
 type fetchResult struct {
 	path string
@@ -235,31 +241,80 @@ func (l *Loader) Load(ctx context.Context) (*Bundle, error) {
 }
 
 // fetchAllFiles downloads all evidence files using a bounded worker pool.
-// Any file that fails to fetch or verify causes the entire operation to fail (fail-closed).
-// AWS SDK retries transient errors internally before surfacing them here.
+// Files that fail on the first attempt are retried once before the operation
+// fails (fail-closed). AWS SDK v2 retries transient errors internally before
+// surfacing them here, so this retry covers failures beyond the SDK's budget.
 func (l *Loader) fetchAllFiles(ctx context.Context, prefix string, index map[string]*EvidenceFileRef) (
 	files map[string]*EvidenceFile, fetched int, totalBytes int64, err error,
 ) {
 	files = make(map[string]*EvidenceFile, len(index))
 
 	// build work queue
-	type workItem struct {
-		path string
-		ref  *EvidenceFileRef
-	}
 	work := make([]workItem, 0, len(index))
 	for path, ref := range index {
 		work = append(work, workItem{path: path, ref: ref})
 	}
 
-	// Fan out to workers, collect results
-	results := make(chan fetchResult, len(work))
-	var wg sync.WaitGroup
-
-	// channel limits concurrent S3 requests
 	sem := make(chan struct{}, fetchWorkers)
 
-	for _, w := range work {
+	// first pass
+	results := l.fetchWorkerBatch(ctx, prefix, work, sem)
+
+	var failed []workItem
+	for _, r := range results {
+		if r.err != "" {
+			for _, w := range work {
+				if w.path == r.path {
+					failed = append(failed, w)
+					break
+				}
+			}
+			continue
+		}
+		files[r.path] = r.file
+		fetched++
+		totalBytes += int64(len(r.file.Data))
+	}
+
+	// retry failed files once
+	if len(failed) > 0 {
+		l.logger.Warn(ctx, "retrying failed evidence files",
+			"failed_count", len(failed),
+			"total_files", len(index),
+		)
+
+		retryResults := l.fetchWorkerBatch(ctx, prefix, failed, sem)
+
+		var errs []string
+		for _, r := range retryResults {
+			if r.err != "" {
+				errs = append(errs, fmt.Sprintf("%s: %s", r.path, r.err))
+				continue
+			}
+			files[r.path] = r.file
+			fetched++
+			totalBytes += int64(len(r.file.Data))
+		}
+
+		if len(errs) > 0 {
+			return nil, 0, 0, xerrors.Newf(
+				"failed to fetch %d evidence file(s) after retry: %s",
+				len(errs), strings.Join(errs, "; "))
+		}
+	}
+
+	return files, fetched, totalBytes, nil
+}
+
+// fetchWorkerBatch fans out fetch work across goroutines bounded by sem and
+// returns all results (both successes and failures).
+func (l *Loader) fetchWorkerBatch(ctx context.Context, prefix string,
+	items []workItem, sem chan struct{}) []fetchResult {
+
+	results := make(chan fetchResult, len(items))
+	var wg sync.WaitGroup
+
+	for _, w := range items {
 		wg.Add(1)
 		go func(wi workItem) {
 			defer wg.Done()
@@ -305,23 +360,12 @@ func (l *Loader) fetchAllFiles(ctx context.Context, prefix string, index map[str
 		close(results)
 	}()
 
-	// collect results (runs on caller goroutine, no mutex needed)
-	var errs []string
+	// collect results
+	out := make([]fetchResult, 0, len(items))
 	for r := range results {
-		if r.err != "" {
-			errs = append(errs, fmt.Sprintf("%s: %s", r.path, r.err))
-			continue
-		}
-		files[r.path] = r.file
-		fetched++
-		totalBytes += int64(len(r.file.Data))
+		out = append(out, r)
 	}
-
-	if len(errs) > 0 {
-		return nil, 0, 0, xerrors.Newf("failed to fetch %d evidence file(s): %s", len(errs), strings.Join(errs, "; "))
-	}
-
-	return files, fetched, totalBytes, nil
+	return out
 }
 
 // fetchS3 downloads an S3 object with a size limit

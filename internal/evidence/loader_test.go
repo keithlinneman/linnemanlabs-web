@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -22,14 +23,17 @@ import (
 // fakeS3 implements s3Getter for unit testing. Objects are served from an
 // in-memory map; forced errors can be injected per key.
 type fakeS3 struct {
-	objects map[string][]byte
-	errs    map[string]error
+	objects       map[string][]byte
+	errs          map[string]error
+	transientErrs map[string]int
+	mu            sync.Mutex
 }
 
 func newFakeS3() *fakeS3 {
 	return &fakeS3{
-		objects: make(map[string][]byte),
-		errs:    make(map[string]error),
+		objects:       make(map[string][]byte),
+		errs:          make(map[string]error),
+		transientErrs: make(map[string]int),
 	}
 }
 
@@ -46,8 +50,28 @@ func (f *fakeS3) putJSON(key string, v any) []byte {
 
 func (f *fakeS3) failOn(key string, err error) { f.errs[key] = err }
 
+// failOnceOn injects a transient error that fires once, then clears.
+func (f *fakeS3) failOnceOn(key string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.transientErrs[key] = 1
+}
+
 func (f *fakeS3) GetObject(_ context.Context, in *s3.GetObjectInput, _ ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
 	key := aws.ToString(in.Key)
+
+	// check transient errors first (thread-safe)
+	f.mu.Lock()
+	if n, ok := f.transientErrs[key]; ok && n > 0 {
+		f.transientErrs[key] = n - 1
+		if f.transientErrs[key] == 0 {
+			delete(f.transientErrs, key)
+		}
+		f.mu.Unlock()
+		return nil, fmt.Errorf("transient error: %s", key)
+	}
+	f.mu.Unlock()
+
 	if err, ok := f.errs[key]; ok {
 		return nil, err
 	}
@@ -892,5 +916,55 @@ func TestReleasePrefix_TrailingSlashInPrefix(t *testing.T) {
 	want := "apps/web/" + testReleaseID + "/"
 	if got != want {
 		t.Fatalf("releasePrefix() = %q, want %q", got, want)
+	}
+}
+
+// fetchAllFiles - retry
+
+func TestLoad_EvidenceFile_TransientFailure_RetriedSuccessfully(t *testing.T) {
+	fake := newFakeS3()
+	populateWithEvidence(fake)
+
+	// inject a transient error on the evidence file — first fetch fails, retry succeeds
+	prefix := testReleasePrefix()
+	fake.failOnceOn(prefix + "source/sbom.json")
+
+	l := newTestLoader(fake, passVerifier())
+	bundle, err := l.Load(t.Context())
+
+	if err != nil {
+		t.Fatalf("Load should succeed after retry: %v", err)
+	}
+	if bundle == nil {
+		t.Fatal("expected non-nil bundle")
+	}
+	f, ok := bundle.File("source/sbom.json")
+	if !ok {
+		t.Fatal("expected source/sbom.json in fetched files after retry")
+	}
+	if !strings.Contains(string(f.Data), "sbom") {
+		t.Fatal("evidence file content mismatch after retry")
+	}
+}
+
+func TestLoad_EvidenceFile_PermanentFailure_StillFails(t *testing.T) {
+	fake := newFakeS3()
+	populateWithEvidence(fake)
+
+	// inject a permanent error — both first pass and retry fail
+	prefix := testReleasePrefix()
+	fake.failOn(prefix+"source/sbom.json", fmt.Errorf("permanent S3 error"))
+
+	l := newTestLoader(fake, passVerifier())
+	_, err := l.Load(t.Context())
+
+	if err == nil {
+		t.Fatal("expected error when evidence file permanently fails")
+	}
+	if !strings.Contains(err.Error(), "after retry") {
+		t.Fatalf("error should mention 'after retry': %v", err)
+	}
+	if !strings.Contains(err.Error(), "source/sbom.json") {
+		t.Fatalf("error should mention the failed file: %v", err)
 	}
 }
