@@ -162,6 +162,9 @@ func Validate(c App, hasProvenance bool) error {
 		if c.ContentS3Prefix == "" {
 			errs = append(errs, fmt.Errorf("CONTENT_S3_PREFIX is required"))
 		}
+		if c.ContentSigningKeyARN == "" {
+			errs = append(errs, fmt.Errorf("CONTENT_SIGNING_KEY_ARN is required when ENABLE_CONTENT_UPDATES=true"))
+		}
 	}
 
 	// Fail-closed: when provenance is compiled in, both signing keys are mandatory.

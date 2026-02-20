@@ -282,6 +282,7 @@ func TestValidate_OK(t *testing.T) {
 		"-enable-tracing=true",
 		"-otlp-endpoint=otel:4317",
 		"-trace-sample=0.2",
+		"-content-signing-key-arn=arn:aws:kms:us-east-2:000000000000:key/content-key",
 	})
 	if err := Validate(c, false); err != nil {
 		t.Fatalf("Validate() unexpected error: %v", err)
@@ -337,6 +338,23 @@ func validConfig() App {
 		TraceSample:           0.1,
 		EvidenceSigningKeyARN: "arn:aws:kms:us-east-2:000000000000:key/evidence-key",
 		ContentSigningKeyARN:  "arn:aws:kms:us-east-2:000000000000:key/content-key",
+	}
+}
+
+func TestValidate_ContentUpdatesRequireSigningKey(t *testing.T) {
+	c := validConfig()
+	c.EnableContentUpdates = true
+	c.ContentSSMParam = "/app/param"
+	c.ContentS3Bucket = "my-bucket"
+	c.ContentS3Prefix = "my/prefix"
+	c.ContentSigningKeyARN = ""
+
+	wantErrContains(t, Validate(c, false), "CONTENT_SIGNING_KEY_ARN is required when ENABLE_CONTENT_UPDATES=true")
+
+	// Setting the key should clear the error
+	c.ContentSigningKeyARN = "arn:aws:kms:us-east-2:000000000000:key/content-key"
+	if err := Validate(c, false); err != nil {
+		t.Fatalf("unexpected error with signing key set: %v", err)
 	}
 }
 
