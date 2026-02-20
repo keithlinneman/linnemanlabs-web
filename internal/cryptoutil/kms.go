@@ -13,12 +13,19 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/kms"
+	kmstypes "github.com/aws/aws-sdk-go-v2/service/kms/types"
 
 	"github.com/keithlinneman/linnemanlabs-web/internal/xerrors"
 )
 
+// kmsKeyFetcher is the subset of the KMS API needed to fetch a public key.
+// Extracted as an interface to enable unit testing without live AWS credentials.
+type kmsKeyFetcher interface {
+	GetPublicKey(ctx context.Context, params *kms.GetPublicKeyInput, optFns ...func(*kms.Options)) (*kms.GetPublicKeyOutput, error)
+}
+
 type KMSVerifier struct {
-	client *kms.Client
+	client kmsKeyFetcher
 	keyARN string
 
 	// cached public key for local verification
@@ -62,6 +69,11 @@ func (v *KMSVerifier) PublicKey(ctx context.Context) (crypto.PublicKey, error) {
 	})
 	if err != nil {
 		return nil, xerrors.Wrap(err, "kms get public key")
+	}
+
+	// ensure the key is valid for signing - sanity check before we cache a bad key or attempt verification
+	if out.KeyUsage != kmstypes.KeyUsageTypeSignVerify {
+		return nil, xerrors.Newf("kms key %s has KeyUsage=%s, expected SIGN_VERIFY", v.keyARN, out.KeyUsage)
 	}
 
 	pub, err := x509.ParsePKIXPublicKey(out.PublicKey)

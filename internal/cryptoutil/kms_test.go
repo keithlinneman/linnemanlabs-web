@@ -1,6 +1,7 @@
 package cryptoutil
 
 import (
+	"context"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -8,7 +9,12 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/sha512"
+	"crypto/x509"
+	"strings"
 	"testing"
+
+	"github.com/aws/aws-sdk-go-v2/service/kms"
+	kmstypes "github.com/aws/aws-sdk-go-v2/service/kms/types"
 )
 
 // generateTestRSAKey creates an RSA-2048 key pair for tests.
@@ -353,5 +359,71 @@ func TestPublicKey_NilClient_FailsOnCacheMiss(t *testing.T) {
 	_, err := v.PublicKey(t.Context())
 	if err == nil {
 		t.Fatal("expected error when client is nil and cache is empty")
+	}
+}
+
+// fakeKMS implements kmsKeyFetcher for testing KeyUsage verification.
+type fakeKMS struct {
+	keyUsage  kmstypes.KeyUsageType
+	publicKey []byte
+}
+
+func (f *fakeKMS) GetPublicKey(_ context.Context, _ *kms.GetPublicKeyInput, _ ...func(*kms.Options)) (*kms.GetPublicKeyOutput, error) {
+	return &kms.GetPublicKeyOutput{
+		KeyUsage:  f.keyUsage,
+		PublicKey: f.publicKey,
+	}, nil
+}
+
+func TestPublicKey_WrongKeyUsage_ReturnsError(t *testing.T) {
+	// Generate a real key so the DER bytes are valid
+	key := generateTestRSAKey(t)
+	derBytes, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
+	if err != nil {
+		t.Fatalf("marshal public key: %v", err)
+	}
+
+	fake := &fakeKMS{
+		keyUsage:  kmstypes.KeyUsageTypeEncryptDecrypt, // wrong usage
+		publicKey: derBytes,
+	}
+
+	v := &KMSVerifier{
+		client: fake,
+		keyARN: "arn:aws:kms:us-east-2:000000000000:key/test-key-id",
+	}
+
+	_, err = v.PublicKey(t.Context())
+	if err == nil {
+		t.Fatal("expected error for wrong KeyUsage")
+	}
+	if !strings.Contains(err.Error(), "SIGN_VERIFY") {
+		t.Fatalf("error should mention SIGN_VERIFY: %v", err)
+	}
+}
+
+func TestPublicKey_CorrectKeyUsage_Succeeds(t *testing.T) {
+	key := generateTestRSAKey(t)
+	derBytes, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
+	if err != nil {
+		t.Fatalf("marshal public key: %v", err)
+	}
+
+	fake := &fakeKMS{
+		keyUsage:  kmstypes.KeyUsageTypeSignVerify,
+		publicKey: derBytes,
+	}
+
+	v := &KMSVerifier{
+		client: fake,
+		keyARN: "arn:aws:kms:us-east-2:000000000000:key/test-key-id",
+	}
+
+	pub, err := v.PublicKey(t.Context())
+	if err != nil {
+		t.Fatalf("PublicKey: %v", err)
+	}
+	if pub == nil {
+		t.Fatal("expected non-nil public key")
 	}
 }
