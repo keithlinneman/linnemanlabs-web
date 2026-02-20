@@ -669,6 +669,9 @@ func TestVerifyReleaseDSSE_TamperedArtifact(t *testing.T) {
 	pae := PAE("application/vnd.in-toto+json", payload)
 	paeDigest := sha256.Sum256(pae)
 	sig, err := rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, paeDigest[:])
+	if err != nil {
+		t.Fatalf("sign PAE: %v", err)
+	}
 
 	bundle := SigstoreBundle{
 		VerificationMaterial: VerificationMaterial{
@@ -710,6 +713,9 @@ func TestVerifyReleaseDSSE_TamperedPayload(t *testing.T) {
 	pae := PAE("application/vnd.in-toto+json", payload)
 	paeDigest := sha256.Sum256(pae)
 	sig, err := rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, paeDigest[:])
+	if err != nil {
+		t.Fatalf("sign PAE: %v", err)
+	}
 
 	// But put a different payload in the envelope
 	tamperedStatement := statement
