@@ -184,10 +184,12 @@ func main() {
 	var evidenceVerifier *cryptoutil.KMSVerifier
 	if kmsClient != nil && conf.EvidenceSigningKeyARN != "" {
 		evidenceVerifier = cryptoutil.NewKMSVerifier(kmsClient, conf.EvidenceSigningKeyARN)
+		evidenceVerifier.AllowPKCS1v15 = true // backward compat with existing signatures
 	}
 	var contentVerifier *cryptoutil.KMSVerifier
 	if kmsClient != nil && conf.ContentSigningKeyARN != "" {
 		contentVerifier = cryptoutil.NewKMSVerifier(kmsClient, conf.ContentSigningKeyARN)
+		contentVerifier.AllowPKCS1v15 = true // backward compat with existing signatures
 	}
 
 	var evidenceBlobVerifier evidence.BlobVerifier
@@ -275,12 +277,13 @@ func main() {
 	if hasProvenance {
 		evidenceStore = evidence.NewStore()
 		evidenceLoader, err := evidence.NewLoader(ctx, evidence.LoaderOptions{
-			Logger:    L,
-			Bucket:    vi.EvidenceBucket,
-			Prefix:    vi.EvidencePrefix,
-			ReleaseID: vi.ReleaseId,
-			S3Client:  s3Client,
-			Verifier:  evidenceBlobVerifier,
+			Logger:           L,
+			Bucket:           vi.EvidenceBucket,
+			Prefix:           vi.EvidencePrefix,
+			ReleaseID:        vi.ReleaseId,
+			S3Client:         s3Client,
+			Verifier:         evidenceBlobVerifier,
+			RequireSignature: evidenceBlobVerifier != nil,
 		})
 		if err != nil {
 			// evidence is required for builds with provenance data, fail early at startup if we cant initiate loader
