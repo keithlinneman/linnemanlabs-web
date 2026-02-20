@@ -473,6 +473,81 @@ func TestSetProfilingActive_False(t *testing.T) {
 	}
 }
 
+// 5xx error counter
+
+func TestMiddleware_5xxIncrementsErrorCounter(t *testing.T) {
+	m := New()
+	handler := m.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/", nil))
+
+	f := gatherMetric(t, m.reg, "http_errors_total")
+	if f == nil {
+		t.Fatal("http_errors_total not found after 500 response")
+	}
+	val := f.GetMetric()[0].GetCounter().GetValue()
+	if val != 1 {
+		t.Fatalf("http_errors_total = %f, want 1", val)
+	}
+}
+
+func TestMiddleware_4xxDoesNotIncrementErrorCounter(t *testing.T) {
+	m := New()
+	handler := m.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/", nil))
+
+	f := gatherMetric(t, m.reg, "http_errors_total")
+	if f != nil {
+		t.Fatal("http_errors_total should not be present after 404 response")
+	}
+}
+
+func TestMiddleware_200DoesNotIncrementErrorCounter(t *testing.T) {
+	m := New()
+	handler := m.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/", nil))
+
+	f := gatherMetric(t, m.reg, "http_errors_total")
+	if f != nil {
+		t.Fatal("http_errors_total should not be present after 200 response")
+	}
+}
+
+// Watcher stale gauge
+
+func TestSetWatcherStale_True(t *testing.T) {
+	m := New()
+	m.SetWatcherStale(true)
+
+	f := gatherMetric(t, m.reg, "content_watcher_stale")
+	if f == nil {
+		t.Fatal("content_watcher_stale metric not found")
+	}
+	val := f.GetMetric()[0].GetGauge().GetValue()
+	if val != 1 {
+		t.Fatalf("content_watcher_stale = %f, want 1", val)
+	}
+}
+
+func TestSetWatcherStale_False(t *testing.T) {
+	m := New()
+	m.SetWatcherStale(false)
+
+	f := gatherMetric(t, m.reg, "content_watcher_stale")
+	if f == nil {
+		t.Fatal("content_watcher_stale metric not found")
+	}
+	val := f.GetMetric()[0].GetGauge().GetValue()
+	if val != 0 {
+		t.Fatalf("content_watcher_stale = %f, want 0", val)
+	}
+}
+
 func TestSetContentBundle(t *testing.T) {
 	m := New()
 	m.SetContentBundle("abc123")

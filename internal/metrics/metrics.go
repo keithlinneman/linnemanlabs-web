@@ -32,6 +32,8 @@ type ServerMetrics struct {
 	contentBundleInfo      *prometheus.GaugeVec
 	reqDBStats             ReqDBStatsFromContextFunc
 
+	errorsTotal *prometheus.CounterVec
+
 	profilingActive prometheus.Gauge
 
 	// watcher metrics
@@ -40,6 +42,7 @@ type ServerMetrics struct {
 	watcherErrorsTotal      *prometheus.CounterVec
 	bundleLoadDuration      prometheus.Histogram
 	watcherLastSuccessTs    prometheus.Gauge
+	watcherStale            prometheus.Gauge
 }
 
 // New returns a fresh registry + standard collectors + HTTP metrics
@@ -98,6 +101,10 @@ func New() *ServerMetrics {
 			Name: "content_bundle_info",
 			Help: "Currently active content bundle (label carries identity, value is always 1)",
 		}, []string{"sha256"}),
+		errorsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "http_errors_total",
+			Help: "Total 5xx HTTP server errors by method and route (SLI)",
+		}, []string{"method", "route"}),
 		profilingActive: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "profiling_active",
 			Help: "Whether continuous profiling is active (1) or disabled/failed (0)",
@@ -123,6 +130,10 @@ func New() *ServerMetrics {
 			Name: "content_watcher_last_success_timestamp_seconds",
 			Help: "Unix timestamp of the last successful SSM poll",
 		}),
+		watcherStale: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "content_watcher_stale",
+			Help: "Whether the content watcher is stale (1) or healthy (0)",
+		}),
 	}
 	//reg.MustRegister(m.inflight, m.reqTotal, m.reqDur, m.respBytes, m.httpPanicTotal, m.buildInfo)
 	reg.MustRegister(
@@ -137,12 +148,14 @@ func New() *ServerMetrics {
 		m.contentSource,
 		m.contentLoadedTimestamp,
 		m.contentBundleInfo,
+		m.errorsTotal,
 		m.profilingActive,
 		m.watcherPollsTotal,
 		m.watcherSwapsTotal,
 		m.watcherErrorsTotal,
 		m.bundleLoadDuration,
 		m.watcherLastSuccessTs,
+		m.watcherStale,
 	)
 
 	m.handler = promhttp.HandlerFor(reg, promhttp.HandlerOpts{
@@ -228,4 +241,12 @@ func (m *ServerMetrics) ObserveBundleLoadDuration(seconds float64) {
 
 func (m *ServerMetrics) SetWatcherLastSuccess(unixSeconds float64) {
 	m.watcherLastSuccessTs.Set(unixSeconds)
+}
+
+func (m *ServerMetrics) SetWatcherStale(stale bool) {
+	if stale {
+		m.watcherStale.Set(1)
+	} else {
+		m.watcherStale.Set(0)
+	}
 }

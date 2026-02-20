@@ -51,6 +51,7 @@ type WatcherMetrics interface {
 	IncWatcherError(errType string)
 	ObserveBundleLoadDuration(seconds float64)
 	SetWatcherLastSuccess(unixSeconds float64)
+	SetWatcherStale(stale bool)
 }
 
 // WatcherOptions configures the content bundle watcher.
@@ -192,6 +193,9 @@ func (w *Watcher) Run(ctx context.Context) error {
 				if w.staleLogged {
 					w.logger.Info(ctx, "content watcher: staleness recovered")
 					w.staleLogged = false
+					if w.metrics != nil {
+						w.metrics.SetWatcherStale(false)
+					}
 				}
 			} else if time.Since(w.lastSuccessAt) > w.staleThreshold {
 				if !w.staleLogged {
@@ -199,6 +203,9 @@ func (w *Watcher) Run(ctx context.Context) error {
 						"content watcher: content is stale, unable to verify freshness",
 					)
 					w.staleLogged = true
+					if w.metrics != nil {
+						w.metrics.SetWatcherStale(true)
+					}
 				}
 			}
 		}
@@ -311,7 +318,7 @@ func (w *Watcher) checkOnce(ctx context.Context) pollResult {
 }
 
 // backoffDuration computes exponential backoff capped at maxBackoff.
-// consecutiveErrs=1 -> 2x interval, =2 -> 4x, =3 -> 8x, etc.
+// consecutiveErrs=1 → 2x interval, =2 → 4x, =3 → 8x, etc.
 func (w *Watcher) backoffDuration() time.Duration {
 	mult := math.Pow(2, float64(w.consecutiveErrs))
 	d := time.Duration(float64(w.interval) * mult)

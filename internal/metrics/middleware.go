@@ -77,6 +77,9 @@ func (m *ServerMetrics) Middleware(next http.Handler) http.Handler {
 
 		status := strconv.Itoa(statusCode)
 		m.reqTotal.WithLabelValues(method, route, status).Inc()
+		if statusCode >= 500 {
+			m.errorsTotal.WithLabelValues(method, route).Inc()
+		}
 
 		lat := time.Since(start).Seconds()
 		if ex := traceExemplar(ctx); ex != nil {
