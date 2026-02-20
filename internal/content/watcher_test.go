@@ -3,6 +3,7 @@ package content
 import (
 	"context"
 	"errors"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -14,6 +15,7 @@ import (
 // capturingLogger records Error messages for staleness detection tests.
 type capturingLogger struct {
 	log.Logger
+	mu        sync.Mutex
 	errorMsgs []string
 }
 
@@ -22,13 +24,25 @@ func newCapturingLogger() *capturingLogger {
 }
 
 func (c *capturingLogger) Error(_ context.Context, _ error, msg string, _ ...any) {
+	c.mu.Lock()
 	c.errorMsgs = append(c.errorMsgs, msg)
+	c.mu.Unlock()
+}
+
+func (c *capturingLogger) messages() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	cp := make([]string, len(c.errorMsgs))
+	copy(cp, c.errorMsgs)
+	return cp
 }
 
 func (c *capturingLogger) With(_ ...any) log.Logger { return c }
 
 // fakeWatcherMetrics implements WatcherMetrics for testing.
+// Fields are guarded by mu for safe use from TestRun_* goroutines.
 type fakeWatcherMetrics struct {
+	mu             sync.Mutex
 	polls          int
 	swaps          int
 	errors         map[string]int
@@ -41,12 +55,48 @@ func newFakeWatcherMetrics() *fakeWatcherMetrics {
 	return &fakeWatcherMetrics{errors: make(map[string]int)}
 }
 
-func (f *fakeWatcherMetrics) IncWatcherPolls()                        { f.polls++ }
-func (f *fakeWatcherMetrics) IncWatcherSwaps()                        { f.swaps++ }
-func (f *fakeWatcherMetrics) IncWatcherError(errType string)          { f.errors[errType]++ }
-func (f *fakeWatcherMetrics) ObserveBundleLoadDuration(seconds float64) { f.loadDurations = append(f.loadDurations, seconds) }
-func (f *fakeWatcherMetrics) SetWatcherLastSuccess(unixSeconds float64) { f.lastSuccessTs = unixSeconds }
-func (f *fakeWatcherMetrics) SetWatcherStale(stale bool)               { f.stale = stale }
+func (f *fakeWatcherMetrics) IncWatcherPolls() {
+	f.mu.Lock()
+	f.polls++
+	f.mu.Unlock()
+}
+func (f *fakeWatcherMetrics) IncWatcherSwaps() {
+	f.mu.Lock()
+	f.swaps++
+	f.mu.Unlock()
+}
+func (f *fakeWatcherMetrics) IncWatcherError(errType string) {
+	f.mu.Lock()
+	f.errors[errType]++
+	f.mu.Unlock()
+}
+func (f *fakeWatcherMetrics) ObserveBundleLoadDuration(seconds float64) {
+	f.mu.Lock()
+	f.loadDurations = append(f.loadDurations, seconds)
+	f.mu.Unlock()
+}
+func (f *fakeWatcherMetrics) SetWatcherLastSuccess(unixSeconds float64) {
+	f.mu.Lock()
+	f.lastSuccessTs = unixSeconds
+	f.mu.Unlock()
+}
+func (f *fakeWatcherMetrics) SetWatcherStale(stale bool) {
+	f.mu.Lock()
+	f.stale = stale
+	f.mu.Unlock()
+}
+
+// Thread-safe reader methods for TestRun_* tests.
+func (f *fakeWatcherMetrics) getPolls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.polls
+}
+func (f *fakeWatcherMetrics) getErrors(key string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.errors[key]
+}
 
 // watcher test helpers
 
@@ -144,6 +194,7 @@ func storeBundle(t *testing.T, f *watcherFixture, files map[string]string) ([]by
 // backoffDuration
 
 func TestBackoffDuration_Progression(t *testing.T) {
+	t.Parallel()
 	w := &Watcher{interval: 30 * time.Second}
 
 	tests := []struct {
@@ -169,6 +220,7 @@ func TestBackoffDuration_Progression(t *testing.T) {
 }
 
 func TestBackoffDuration_ZeroErrors(t *testing.T) {
+	t.Parallel()
 	w := &Watcher{interval: 30 * time.Second, consecutiveErrs: 0}
 	got := w.backoffDuration()
 	// 2^0 * 30s = 30s
@@ -180,6 +232,7 @@ func TestBackoffDuration_ZeroErrors(t *testing.T) {
 // NewWatcher
 
 func TestNewWatcher_DefaultInterval(t *testing.T) {
+	t.Parallel()
 	f := newWatcherFixture(t, "")
 	w := f.newWatcher(func(o *WatcherOptions) {
 		o.PollInterval = 0 // should default
@@ -190,6 +243,7 @@ func TestNewWatcher_DefaultInterval(t *testing.T) {
 }
 
 func TestNewWatcher_CustomInterval(t *testing.T) {
+	t.Parallel()
 	f := newWatcherFixture(t, "")
 	w := f.newWatcher(func(o *WatcherOptions) {
 		o.PollInterval = 10 * time.Second
@@ -200,6 +254,7 @@ func TestNewWatcher_CustomInterval(t *testing.T) {
 }
 
 func TestNewWatcher_NegativeInterval_UsesDefault(t *testing.T) {
+	t.Parallel()
 	f := newWatcherFixture(t, "")
 	w := f.newWatcher(func(o *WatcherOptions) {
 		o.PollInterval = -5 * time.Second
@@ -210,6 +265,7 @@ func TestNewWatcher_NegativeInterval_UsesDefault(t *testing.T) {
 }
 
 func TestNewWatcher_SeedsCurrentHash(t *testing.T) {
+	t.Parallel()
 	bundleData, bundleHash := buildContentBundle(t)
 	f := newWatcherFixture(t, ssmValue("sha384", bundleHash))
 	f.seedManager(t, "sha384", bundleHash, bundleData)
@@ -221,6 +277,7 @@ func TestNewWatcher_SeedsCurrentHash(t *testing.T) {
 }
 
 func TestNewWatcher_EmptyManager_EmptyHash(t *testing.T) {
+	t.Parallel()
 	f := newWatcherFixture(t, "")
 	w := f.newWatcher()
 	if w.currentHash != "" {
@@ -229,6 +286,7 @@ func TestNewWatcher_EmptyManager_EmptyHash(t *testing.T) {
 }
 
 func TestNewWatcher_NilLogger_UsesNop(t *testing.T) {
+	t.Parallel()
 	f := newWatcherFixture(t, "")
 	w := f.newWatcher(func(o *WatcherOptions) {
 		o.Logger = nil
@@ -239,6 +297,7 @@ func TestNewWatcher_NilLogger_UsesNop(t *testing.T) {
 }
 
 func TestNewWatcher_DefaultValidation(t *testing.T) {
+	t.Parallel()
 	f := newWatcherFixture(t, "")
 	w := f.newWatcher(func(o *WatcherOptions) {
 		o.Validation = nil // test that nil falls back to defaults
@@ -250,6 +309,7 @@ func TestNewWatcher_DefaultValidation(t *testing.T) {
 }
 
 func TestNewWatcher_CustomValidation(t *testing.T) {
+	t.Parallel()
 	f := newWatcherFixture(t, "")
 	custom := &ValidationOptions{MinFiles: 5, RequireProvenance: true}
 	w := f.newWatcher(func(o *WatcherOptions) {
@@ -267,6 +327,7 @@ func TestNewWatcher_CustomValidation(t *testing.T) {
 // checkOnce - no change
 
 func TestCheckOnce_NoChange(t *testing.T) {
+	t.Parallel()
 	bundleData, bundleHash := buildContentBundle(t)
 	f := newWatcherFixture(t, ssmValue("sha384", bundleHash))
 	f.seedManager(t, "sha384", bundleHash, bundleData)
@@ -284,6 +345,7 @@ func TestCheckOnce_NoChange(t *testing.T) {
 // checkOnce - SSM error
 
 func TestCheckOnce_SSMError(t *testing.T) {
+	t.Parallel()
 	f := newWatcherFixture(t, "sha384:initial")
 	f.ssm.err = errors.New("SSM timeout")
 
@@ -297,6 +359,7 @@ func TestCheckOnce_SSMError(t *testing.T) {
 // checkOnce - load error
 
 func TestCheckOnce_LoadError(t *testing.T) {
+	t.Parallel()
 	bundleData, hashA := buildContentBundle(t)
 	f := newWatcherFixture(t, ssmValue("sha384", hashA))
 	f.seedManager(t, "sha384", hashA, bundleData)
@@ -321,6 +384,7 @@ func TestCheckOnce_LoadError(t *testing.T) {
 // checkOnce - successful swap
 
 func TestCheckOnce_Swap(t *testing.T) {
+	t.Parallel()
 	bundleDataA, hashA := buildContentBundle(t)
 	f := newWatcherFixture(t, ssmValue("sha384", hashA))
 	f.seedManager(t, "sha384", hashA, bundleDataA)
@@ -366,6 +430,7 @@ func TestCheckOnce_Swap(t *testing.T) {
 // checkOnce - validation error
 
 func TestCheckOnce_ValidationError_NoIndexHTML(t *testing.T) {
+	t.Parallel()
 	bundleDataA, hashA := buildContentBundle(t)
 	f := newWatcherFixture(t, ssmValue("sha384", hashA))
 	f.seedManager(t, "sha384", hashA, bundleDataA)
@@ -403,6 +468,7 @@ func TestCheckOnce_ValidationError_NoIndexHTML(t *testing.T) {
 // checkOnce - multiple polls, stats
 
 func TestCheckOnce_PollCount_Increments(t *testing.T) {
+	t.Parallel()
 	bundleData, bundleHash := buildContentBundle(t)
 	f := newWatcherFixture(t, ssmValue("sha384", bundleHash))
 	f.seedManager(t, "sha384", bundleHash, bundleData)
@@ -421,6 +487,7 @@ func TestCheckOnce_PollCount_Increments(t *testing.T) {
 }
 
 func TestCheckOnce_MultipleSwaps(t *testing.T) {
+	t.Parallel()
 	bundleDataA, hashA := buildContentBundle(t)
 	f := newWatcherFixture(t, ssmValue("sha384", hashA))
 	f.seedManager(t, "sha384", hashA, bundleDataA)
@@ -463,6 +530,7 @@ func TestCheckOnce_MultipleSwaps(t *testing.T) {
 // checkOnce - nil OnSwap is safe
 
 func TestCheckOnce_NilOnSwap(t *testing.T) {
+	t.Parallel()
 	bundleDataA, hashA := buildContentBundle(t)
 	f := newWatcherFixture(t, ssmValue("sha384", hashA))
 	f.seedManager(t, "sha384", hashA, bundleDataA)
@@ -485,6 +553,7 @@ func TestCheckOnce_NilOnSwap(t *testing.T) {
 // checkOnce - metrics emission
 
 func TestCheckOnce_Metrics_PollIncremented(t *testing.T) {
+	t.Parallel()
 	bundleData, bundleHash := buildContentBundle(t)
 	f := newWatcherFixture(t, ssmValue("sha384", bundleHash))
 	f.seedManager(t, "sha384", bundleHash, bundleData)
@@ -499,6 +568,7 @@ func TestCheckOnce_Metrics_PollIncremented(t *testing.T) {
 }
 
 func TestCheckOnce_Metrics_SSMError(t *testing.T) {
+	t.Parallel()
 	f := newWatcherFixture(t, "sha384:initial")
 	f.ssm.err = errors.New("SSM timeout")
 
@@ -518,6 +588,7 @@ func TestCheckOnce_Metrics_SSMError(t *testing.T) {
 }
 
 func TestCheckOnce_Metrics_NoChange_SetsLastSuccess(t *testing.T) {
+	t.Parallel()
 	bundleData, bundleHash := buildContentBundle(t)
 	f := newWatcherFixture(t, ssmValue("sha384", bundleHash))
 	f.seedManager(t, "sha384", bundleHash, bundleData)
@@ -532,6 +603,7 @@ func TestCheckOnce_Metrics_NoChange_SetsLastSuccess(t *testing.T) {
 }
 
 func TestCheckOnce_Metrics_Swap(t *testing.T) {
+	t.Parallel()
 	bundleDataA, hashA := buildContentBundle(t)
 	f := newWatcherFixture(t, ssmValue("sha384", hashA))
 	f.seedManager(t, "sha384", hashA, bundleDataA)
@@ -558,6 +630,7 @@ func TestCheckOnce_Metrics_Swap(t *testing.T) {
 }
 
 func TestCheckOnce_Metrics_LoadError(t *testing.T) {
+	t.Parallel()
 	bundleData, hashA := buildContentBundle(t)
 	f := newWatcherFixture(t, ssmValue("sha384", hashA))
 	f.seedManager(t, "sha384", hashA, bundleData)
@@ -578,6 +651,7 @@ func TestCheckOnce_Metrics_LoadError(t *testing.T) {
 }
 
 func TestCheckOnce_Metrics_NilMetrics_NoPanic(t *testing.T) {
+	t.Parallel()
 	bundleData, bundleHash := buildContentBundle(t)
 	f := newWatcherFixture(t, ssmValue("sha384", bundleHash))
 	f.seedManager(t, "sha384", bundleHash, bundleData)
@@ -590,6 +664,7 @@ func TestCheckOnce_Metrics_NilMetrics_NoPanic(t *testing.T) {
 // checkOnce - OnSwap panic recovery
 
 func TestCheckOnce_OnSwapPanic_DoesNotCrash(t *testing.T) {
+	t.Parallel()
 	bundleDataA, hashA := buildContentBundle(t)
 	f := newWatcherFixture(t, ssmValue("sha384", hashA))
 	f.seedManager(t, "sha384", hashA, bundleDataA)
@@ -639,7 +714,7 @@ func TestRun_StopsOnContextCancel(t *testing.T) {
 	}()
 
 	// let it tick a few times
-	time.Sleep(50 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 	cancel()
 
 	select {
@@ -683,11 +758,11 @@ func TestRun_DetectsChange(t *testing.T) {
 	go w.Run(ctx)
 
 	// wait a couple ticks for it to see "no change"
-	time.Sleep(30 * time.Millisecond)
+	time.Sleep(60 * time.Millisecond)
 
 	// update SSM to point at bundle B
 	newSSM := ssmValue("sha384", hashB)
-	f.ssm.value = &newSSM
+	f.ssm.setValue(newSSM)
 
 	// wait for the watcher to detect and swap
 	deadline := time.After(2 * time.Second)
@@ -716,38 +791,50 @@ func TestRun_BacksOffOnSSMError_ThenRecovers(t *testing.T) {
 	f := newWatcherFixture(t, ssmValue("sha384", hashA))
 	f.seedManager(t, "sha384", hashA, bundleDataA)
 
-	w := f.newWatcher(func(o *WatcherOptions) {
-		o.PollInterval = 10 * time.Millisecond
-	})
+	fm := newFakeWatcherMetrics()
 
 	// start with SSM errors
-	f.ssm.err = errors.New("SSM unavailable")
+	f.ssm.setErr(errors.New("SSM unavailable"))
+
+	w := f.newWatcher(func(o *WatcherOptions) {
+		o.PollInterval = 10 * time.Millisecond
+		o.Metrics = fm
+	})
 
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
 	go w.Run(ctx)
 
-	// let it accumulate some errors
-	time.Sleep(50 * time.Millisecond)
-
-	if w.consecutiveErrs == 0 {
-		t.Fatal("expected consecutive errors to accumulate")
+	// wait for SSM errors to accumulate
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case <-deadline:
+			t.Fatal("expected SSM errors to accumulate")
+		default:
+			if fm.getErrors("ssm") > 0 {
+				goto errorsAccumulated
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
 	}
 
+errorsAccumulated:
 	// fix SSM - point at existing bundle (no change)
-	f.ssm.err = nil
-	newSSM := ssmValue("sha384", hashA)
-	f.ssm.value = &newSSM
+	f.ssm.setErr(nil)
+	f.ssm.setValue(ssmValue("sha384", hashA))
 
-	// wait for recovery
-	deadline := time.After(2 * time.Second)
+	// wait for recovery: poll count increases with no new SSM errors
+	ssmErrsBefore := fm.getErrors("ssm")
+	pollsBefore := fm.getPolls()
+	deadline = time.After(2 * time.Second)
 	for {
 		select {
 		case <-deadline:
 			t.Fatal("watcher did not recover within deadline")
 		default:
-			if w.consecutiveErrs == 0 {
+			if fm.getErrors("ssm") == ssmErrsBefore && fm.getPolls() > pollsBefore {
 				return // recovered
 			}
 			time.Sleep(10 * time.Millisecond)
@@ -758,18 +845,21 @@ func TestRun_BacksOffOnSSMError_ThenRecovers(t *testing.T) {
 // truncHash
 
 func TestTruncHash_Short(t *testing.T) {
+	t.Parallel()
 	if got := truncHash("abc"); got != "abc" {
 		t.Fatalf("truncHash(%q) = %q", "abc", got)
 	}
 }
 
 func TestTruncHash_Exact12(t *testing.T) {
+	t.Parallel()
 	if got := truncHash("123456789012"); got != "123456789012" {
 		t.Fatalf("truncHash = %q", got)
 	}
 }
 
 func TestTruncHash_Long(t *testing.T) {
+	t.Parallel()
 	long := "abcdef1234567890abcdef"
 	if got := truncHash(long); got != "abcdef123456" {
 		t.Fatalf("truncHash = %q, want %q", got, "abcdef123456")
@@ -777,6 +867,7 @@ func TestTruncHash_Long(t *testing.T) {
 }
 
 func TestTruncHash_Empty(t *testing.T) {
+	t.Parallel()
 	if got := truncHash(""); got != "" {
 		t.Fatalf("truncHash(%q) = %q", "", got)
 	}
@@ -807,12 +898,12 @@ func TestRun_StaleLogging_EmitsOnceOnTransition(t *testing.T) {
 	go w.Run(ctx)
 
 	// wait for several ticks
-	time.Sleep(80 * time.Millisecond)
+	time.Sleep(160 * time.Millisecond)
 	cancel()
 
 	// count staleness messages
 	staleCount := 0
-	for _, msg := range cl.errorMsgs {
+	for _, msg := range cl.messages() {
 		if msg == "content watcher: content is stale, unable to verify freshness" {
 			staleCount++
 		}
@@ -823,6 +914,7 @@ func TestRun_StaleLogging_EmitsOnceOnTransition(t *testing.T) {
 }
 
 func TestCheckOnce_Metrics_ValidationError(t *testing.T) {
+	t.Parallel()
 	bundleDataA, hashA := buildContentBundle(t)
 	f := newWatcherFixture(t, ssmValue("sha384", hashA))
 	f.seedManager(t, "sha384", hashA, bundleDataA)

@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -56,13 +57,18 @@ func (f *fakeS3) GetObject(_ context.Context, in *s3.GetObjectInput, _ ...func(*
 }
 
 // fakeSSM implements ssmGetter for unit testing.
+// Fields are guarded by mu for safe use from TestRun_* goroutines.
 type fakeSSM struct {
+	mu    sync.Mutex
 	value *string             // value to return (nil = no value)
 	err   error               // error to return
 	param *ssmtypes.Parameter // full parameter override (takes precedence)
 }
 
 func (f *fakeSSM) GetParameter(_ context.Context, _ *ssm.GetParameterInput, _ ...func(*ssm.Options)) (*ssm.GetParameterOutput, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -78,6 +84,18 @@ func (f *fakeSSM) GetParameter(_ context.Context, _ *ssm.GetParameterInput, _ ..
 			Value: f.value,
 		},
 	}, nil
+}
+
+func (f *fakeSSM) setErr(err error) {
+	f.mu.Lock()
+	f.err = err
+	f.mu.Unlock()
+}
+
+func (f *fakeSSM) setValue(v string) {
+	f.mu.Lock()
+	f.value = &v
+	f.mu.Unlock()
 }
 
 func ssmWithValue(v string) *fakeSSM  { return &fakeSSM{value: &v} }
@@ -510,6 +528,10 @@ func TestLoadHash_WithVerifier_Success(t *testing.T) {
 	if !bytes.Equal(v.gotArtifact, bundleData) {
 		t.Fatalf("verifier artifact should be the bundle bytes (%d bytes), got %d bytes", len(bundleData), len(v.gotArtifact))
 	}
+	expectedSigBundle := []byte(`{"mock":"sig"}`)
+	if !bytes.Equal(v.gotBundle, expectedSigBundle) {
+		t.Fatalf("verifier bundle should be the sigstore JSON, got %d bytes", len(v.gotBundle))
+	}
 }
 
 func TestLoadHash_WithVerifier_SignatureFails(t *testing.T) {
@@ -527,6 +549,12 @@ func TestLoadHash_WithVerifier_SignatureFails(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "signature verification failed") {
 		t.Fatalf("error should mention verification failure: %v", err)
+	}
+	if !bytes.Equal(v.gotArtifact, bundleData) {
+		t.Fatalf("verifier should receive bundle data even on failure, got %d bytes", len(v.gotArtifact))
+	}
+	if !bytes.Equal(v.gotBundle, []byte(`{"mock":"sig"}`)) {
+		t.Fatalf("verifier should receive sigstore bundle even on failure, got %d bytes", len(v.gotBundle))
 	}
 }
 

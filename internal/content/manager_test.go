@@ -1,6 +1,8 @@
 package content
 
 import (
+	"fmt"
+	"sync"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -377,5 +379,94 @@ func TestManager_LoadedAt_ReturnsActive(t *testing.T) {
 
 	if got := m.LoadedAt(); got.IsZero() {
 		t.Fatal("LoadedAt should be set after Set()")
+	}
+}
+
+// ConcurrentAccess — validated by `go test -race`
+
+func TestManager_ConcurrentAccess(t *testing.T) {
+	const (
+		numWriters   = 10
+		numReaders   = 20
+		numRollbacks = 3
+		writeIters   = 100
+		readIters    = 100
+		rollbackIters = 50
+	)
+
+	// Pre-build distinct snapshots so each writer has unique data.
+	snapshots := make([]Snapshot, numWriters)
+	for i := range snapshots {
+		snapshots[i] = Snapshot{
+			FS: fstest.MapFS{
+				"index.html": &fstest.MapFile{Data: []byte(fmt.Sprintf("<html>%d</html>", i))},
+			},
+			Meta: Meta{
+				Hash:    fmt.Sprintf("hash-%d", i),
+				Version: fmt.Sprintf("v%d", i),
+				Source:  SourceS3,
+			},
+		}
+	}
+
+	m := NewManager()
+	// Seed with snapshots[0] so Get() returns valid data from the start.
+	m.Set(snapshots[0])
+
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+
+	// Writers
+	for w := 0; w < numWriters; w++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			<-start
+			for i := 0; i < writeIters; i++ {
+				m.Set(snapshots[id])
+			}
+		}(w)
+	}
+
+	// Readers
+	for r := 0; r < numReaders; r++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			for i := 0; i < readIters; i++ {
+				m.Get()
+				m.ContentVersion()
+				m.ContentHash()
+				m.Source()
+				m.LoadedAt()
+				m.Provenance()
+				m.ReadyErr()
+			}
+		}()
+	}
+
+	// Rollback goroutines
+	for rb := 0; rb < numRollbacks; rb++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			for i := 0; i < rollbackIters; i++ {
+				m.Rollback()
+			}
+		}()
+	}
+
+	close(start)
+	wg.Wait()
+
+	// After all goroutines finish, Get() should return a valid snapshot.
+	snap, ok := m.Get()
+	if !ok {
+		t.Fatal("expected valid snapshot after concurrent access")
+	}
+	if snap == nil {
+		t.Fatal("expected non-nil snapshot after concurrent access")
 	}
 }
