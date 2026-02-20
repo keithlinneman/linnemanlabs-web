@@ -441,28 +441,29 @@ func main() {
 	}
 	signal.Stop(forceCh)
 
-	// Total shutdown budget split evenly across components
+	// Shutdown components with per-component budget sliced from total.
+	// stopProf is synchronous and needs no context, so it's excluded.
+	type stopFn struct {
+		name string
+		fn   func(context.Context) error
+	}
+	stopFns := []stopFn{
+		{"app http server", siteHTTPStop},
+		{"ops http server", opsHTTPStop},
+		{"otel", shutdownOTEL},
+	}
+
 	budget := time.Duration(conf.ShutdownBudgetSeconds) * time.Second
-	perComponent := budget / 3
+	perComponent := budget / time.Duration(len(stopFns))
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), budget)
 	defer cancel()
 
-	siteCtx, siteCancel := context.WithTimeout(shutdownCtx, perComponent)
-	defer siteCancel()
-	if err := siteHTTPStop(siteCtx); err != nil {
-		L.Error(context.Background(), err, "app http server shutdown")
-	}
-
-	opsCtx, opsCancel := context.WithTimeout(shutdownCtx, perComponent)
-	defer opsCancel()
-	if err := opsHTTPStop(opsCtx); err != nil {
-		L.Error(context.Background(), err, "ops http server shutdown")
-	}
-
-	otelCtx, otelCancel := context.WithTimeout(shutdownCtx, perComponent)
-	defer otelCancel()
-	if err := shutdownOTEL(otelCtx); err != nil {
-		L.Error(context.Background(), err, "otel shutdown")
+	for _, s := range stopFns {
+		cctx, ccancel := context.WithTimeout(shutdownCtx, perComponent)
+		if err := s.fn(cctx); err != nil {
+			L.Error(context.Background(), err, s.name+" shutdown")
+		}
+		ccancel()
 	}
 
 	stopProf()
