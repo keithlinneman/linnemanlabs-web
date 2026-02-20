@@ -157,6 +157,11 @@ func sanitizeTarPath(dst, name string) (string, error) {
 	// clean the name
 	name = filepath.Clean(name)
 
+	// prevent empty names and . that filepath.Clean() turns into "."
+	if name == "" || name == "." {
+		return "", fmt.Errorf("empty tar entry name")
+	}
+
 	// reject absolute paths
 	if filepath.IsAbs(name) {
 		return "", xerrors.Newf("absolute path in tar: %s", name)
