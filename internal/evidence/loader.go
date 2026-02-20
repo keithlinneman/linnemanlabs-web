@@ -62,8 +62,7 @@ type LoaderOptions struct {
 
 	// RequireSignature makes signature verification mandatory. When true,
 	// NewLoader validates that Verifier is non-nil, and Load fails if the
-	// sigstore bundle is missing. This makes the trust model explicit rather
-	// than relying on the implicit nil-check conditional.
+	// sigstore bundle is missing.
 	RequireSignature bool
 
 	// S3Client allows injecting a custom S3 implementation for testing
