@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/sha512"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"strconv"
@@ -145,7 +146,7 @@ func VerifySubjectDigest(statement *InTotoStatement, artifact []byte) error {
 	artifactHash := SHA256Hex(artifact)
 
 	for _, subj := range statement.Subject {
-		if subj.Digest["sha256"] == artifactHash {
+		if HashEqual(subj.Digest["sha256"], artifactHash) {
 			return nil
 		}
 	}
@@ -254,7 +255,7 @@ func VerifyBlobSignature(ctx context.Context, v *KMSVerifier, bundleJSON, artifa
 		return nil, err
 	}
 
-	if !bytes.Equal(bundleDigest, artifactDigest) {
+	if subtle.ConstantTimeCompare(bundleDigest, artifactDigest) != 1 {
 		return nil, xerrors.New("bundle digest does not match artifact")
 	}
 

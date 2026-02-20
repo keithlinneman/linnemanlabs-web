@@ -766,6 +766,216 @@ func TestVerifyReleaseDSSE_NotDSSEBundle(t *testing.T) {
 	}
 }
 
+// VerifyReleaseDSSE - corrupted signature bytes (signature decodes but is not valid)
+
+func TestVerifyReleaseDSSE_CorruptedSignature(t *testing.T) {
+	key := generateTestKey(t)
+	v := newTestVerifier(t, &key.PublicKey)
+
+	artifact := []byte(`{"release_id":"v1.0.0"}`)
+	statement := InTotoStatement{
+		Type:          "https://in-toto.io/Statement/v0.1",
+		PredicateType: "https://example.com/predicate/v1",
+		Subject: []InTotoSubject{
+			{Name: "my-app", Digest: map[string]string{"sha256": SHA256Hex(artifact)}},
+		},
+	}
+	payload, _ := json.Marshal(statement)
+
+	bundle := SigstoreBundle{
+		VerificationMaterial: VerificationMaterial{
+			PublicKey: PublicKeyRef{Hint: "test"},
+		},
+		DSSEEnvelope: &DSSEEnvelope{
+			Payload:     base64.StdEncoding.EncodeToString(payload),
+			PayloadType: "application/vnd.in-toto+json",
+			Signatures:  []DSSESignature{{Sig: base64.StdEncoding.EncodeToString([]byte("this-is-not-a-valid-signature-at-all-but-is-valid-base64"))}},
+		},
+	}
+	bundleJSON, _ := json.Marshal(bundle)
+
+	_, err := VerifyReleaseDSSE(t.Context(), v, bundleJSON, artifact)
+	if err == nil {
+		t.Fatal("expected verification failure for corrupted DSSE signature")
+	}
+}
+
+// VerifyReleaseDSSE - truncated bundle JSON (valid JSON prefix but incomplete)
+
+func TestVerifyReleaseDSSE_TruncatedBundle(t *testing.T) {
+	key := generateTestKey(t)
+	v := newTestVerifier(t, &key.PublicKey)
+
+	artifact := []byte(`{"release_id":"v1.0.0"}`)
+	full := buildDSSEBundle(t, key, artifact)
+
+	truncated := full[:len(full)/2]
+	_, err := VerifyReleaseDSSE(t.Context(), v, truncated, artifact)
+	if err == nil {
+		t.Fatal("expected error for truncated bundle")
+	}
+}
+
+// VerifyReleaseDSSE - invalid base64 in payload
+
+func TestVerifyReleaseDSSE_InvalidBase64Payload(t *testing.T) {
+	key := generateTestKey(t)
+	v := newTestVerifier(t, &key.PublicKey)
+
+	bundle := SigstoreBundle{
+		VerificationMaterial: VerificationMaterial{
+			PublicKey: PublicKeyRef{Hint: "test"},
+		},
+		DSSEEnvelope: &DSSEEnvelope{
+			Payload:     "!!!not-base64!!!",
+			PayloadType: "application/vnd.in-toto+json",
+			Signatures:  []DSSESignature{{Sig: base64.StdEncoding.EncodeToString([]byte("sig"))}},
+		},
+	}
+	bundleJSON, _ := json.Marshal(bundle)
+
+	_, err := VerifyReleaseDSSE(t.Context(), v, bundleJSON, []byte("artifact"))
+	if err == nil {
+		t.Fatal("expected error for invalid base64 payload")
+	}
+}
+
+// VerifyReleaseDSSE - payload is not valid JSON (decodes from base64 but is not a statement)
+
+func TestVerifyReleaseDSSE_MalformedPayload(t *testing.T) {
+	key := generateTestKey(t)
+	v := newTestVerifier(t, &key.PublicKey)
+
+	// Sign a non-JSON payload as if it were valid
+	malformed := []byte("this is not json")
+	pae := PAE("application/vnd.in-toto+json", malformed)
+	paeDigest := sha256.Sum256(pae)
+	sig, _ := rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, paeDigest[:])
+
+	bundle := SigstoreBundle{
+		VerificationMaterial: VerificationMaterial{
+			PublicKey: PublicKeyRef{Hint: "test"},
+		},
+		DSSEEnvelope: &DSSEEnvelope{
+			Payload:     base64.StdEncoding.EncodeToString(malformed),
+			PayloadType: "application/vnd.in-toto+json",
+			Signatures:  []DSSESignature{{Sig: base64.StdEncoding.EncodeToString(sig)}},
+		},
+	}
+	bundleJSON, _ := json.Marshal(bundle)
+
+	_, err := VerifyReleaseDSSE(t.Context(), v, bundleJSON, []byte("artifact"))
+	if err == nil {
+		t.Fatal("expected error for malformed (non-JSON) payload")
+	}
+}
+
+// VerifyBlobSignature - unsupported digest algorithm in bundle
+
+func TestVerifyBlobSignature_UnsupportedAlgorithm(t *testing.T) {
+	key := generateTestKey(t)
+	v := newTestVerifier(t, &key.PublicKey)
+
+	artifact := []byte(`{"release_id":"v1.0.0"}`)
+	sig := signBlob(t, key, artifact)
+
+	bundle := SigstoreBundle{
+		MessageSignature: &MessageSignature{
+			MessageDigest: MessageDigest{
+				Algorithm: "SHA3_512", // unsupported
+				Digest:    base64.StdEncoding.EncodeToString(sha256Sum(artifact)),
+			},
+			Signature: base64.StdEncoding.EncodeToString(sig),
+		},
+	}
+	raw, _ := json.Marshal(bundle)
+
+	_, err := VerifyBlobSignature(t.Context(), v, raw, artifact)
+	if err == nil {
+		t.Fatal("expected error for unsupported digest algorithm")
+	}
+	if !strings.Contains(err.Error(), "unsupported digest algorithm") {
+		t.Fatalf("error should mention unsupported algorithm: %v", err)
+	}
+}
+
+// VerifyBlobSignature - truncated bundle JSON
+
+func TestVerifyBlobSignature_TruncatedBundle(t *testing.T) {
+	key := generateTestKey(t)
+	v := newTestVerifier(t, &key.PublicKey)
+
+	artifact := []byte(`{"release_id":"v1.0.0"}`)
+	full := buildBlobBundle(t, key, artifact)
+
+	truncated := full[:len(full)/2]
+	_, err := VerifyBlobSignature(t.Context(), v, truncated, artifact)
+	if err == nil {
+		t.Fatal("expected error for truncated bundle")
+	}
+}
+
+// VerifyBlobSignature - algorithm says SHA2_384 but bundle contains SHA2_256 digest
+
+func TestVerifyBlobSignature_AlgorithmDigestMismatch(t *testing.T) {
+	key := generateTestKey(t)
+	v := newTestVerifier(t, &key.PublicKey)
+
+	artifact := []byte(`{"release_id":"v1.0.0"}`)
+	sig := signBlob(t, key, artifact)
+	sha256Digest := sha256Sum(artifact)
+
+	// Algorithm says SHA2_384 but the digest bytes are SHA-256 (wrong length & value)
+	bundle := SigstoreBundle{
+		MessageSignature: &MessageSignature{
+			MessageDigest: MessageDigest{
+				Algorithm: "SHA2_384",
+				Digest:    base64.StdEncoding.EncodeToString(sha256Digest),
+			},
+			Signature: base64.StdEncoding.EncodeToString(sig),
+		},
+	}
+	raw, _ := json.Marshal(bundle)
+
+	_, err := VerifyBlobSignature(t.Context(), v, raw, artifact)
+	if err == nil {
+		t.Fatal("expected error for algorithm/digest mismatch")
+	}
+}
+
+// ParseBundle - empty message signature
+
+func TestParseBundle_EmptyMessageSignature(t *testing.T) {
+	bundle := SigstoreBundle{
+		MessageSignature: &MessageSignature{
+			Signature: "", // empty
+		},
+	}
+	raw, _ := json.Marshal(bundle)
+
+	_, err := ParseBundle(raw)
+	if err == nil {
+		t.Fatal("expected error for empty message signature")
+	}
+}
+
+// ParseBundle - neither DSSE nor message signature
+
+func TestParseBundle_NeitherDSSENorBlob(t *testing.T) {
+	bundle := SigstoreBundle{
+		MediaType: "application/vnd.dev.sigstore.bundle.v0.3+json",
+	}
+	raw, _ := json.Marshal(bundle)
+
+	_, err := ParseBundle(raw)
+	if err == nil {
+		t.Fatal("expected error for bundle with neither DSSE nor message signature")
+	}
+	if !strings.Contains(err.Error(), "neither") {
+		t.Fatalf("error should mention 'neither': %v", err)
+	}
+}
+
 func buildDSSEBundle(t *testing.T, key *rsa.PrivateKey, artifact []byte) []byte {
 	t.Helper()
 
