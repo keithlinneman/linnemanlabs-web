@@ -1,8 +1,6 @@
 // internal/content/validate.go
 //
-// ValidateSnapshot performs health/sanity checks on a content bundle
-// before it is swapped into the active Manager. Used by the Watcher
-// to prevent serving broken or empty content.
+
 package content
 
 import (
@@ -33,7 +31,9 @@ func DefaultValidationOptions() ValidationOptions {
 	}
 }
 
-// ValidateSnapshot checks that a snapshot is fit to serve.
+// ValidateSnapshot performs health/sanity checks on a content bundle
+// before it is swapped into the active Manager. Used by the Watcher
+// to prevent serving broken or empty content.
 // Returns nil if all checks pass, or an error describing the first failure.
 func ValidateSnapshot(snap *Snapshot, opts ValidationOptions) error {
 	if snap == nil {
