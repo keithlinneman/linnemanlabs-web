@@ -139,6 +139,38 @@ func TestExtractRealClientAddr(t *testing.T) {
 			xff:        "192.0.2.1",
 			want:       "192.0.2.1",
 		},
+
+		// === Invalid XFF values: fall back to RemoteAddr ===
+		{
+			name:       "XFF garbage string falls back to RemoteAddr",
+			remoteAddr: "10.0.0.1:1234",
+			xff:        "not-an-ip",
+			want:       "10.0.0.1",
+		},
+		{
+			name:       "XFF empty after trim falls back to RemoteAddr",
+			remoteAddr: "10.0.0.1:1234",
+			xff:        "  ,10.0.0.2",
+			want:       "10.0.0.1",
+		},
+		{
+			name:       "XFF partial IP falls back to RemoteAddr",
+			remoteAddr: "10.0.0.1:1234",
+			xff:        "192.168.1",
+			want:       "10.0.0.1",
+		},
+		{
+			name:       "XFF with port notation falls back to RemoteAddr",
+			remoteAddr: "10.0.0.1:1234",
+			xff:        "203.0.113.50:8080",
+			want:       "10.0.0.1",
+		},
+		{
+			name:       "XFF with CIDR notation falls back to RemoteAddr",
+			remoteAddr: "10.0.0.1:1234",
+			xff:        "203.0.113.0/24",
+			want:       "10.0.0.1",
+		},
 	}
 
 	for _, tt := range tests {

@@ -42,7 +42,11 @@ func extractRealClientAddr(r *http.Request) string {
 	if xf := r.Header.Get("X-Forwarded-For"); xf != "" {
 		parts := strings.Split(xf, ",")
 		if len(parts) > 0 {
-			clientAddr = strings.TrimSpace(parts[0])
+			// take the first one, which is the original client ip as per the alb
+			// trim spaces and validate it a valid ip address
+			if candidate := strings.TrimSpace(parts[0]); net.ParseIP(candidate) != nil {
+				clientAddr = candidate
+			}
 		}
 	}
 	return clientAddr
