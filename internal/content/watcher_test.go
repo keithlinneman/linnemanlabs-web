@@ -45,6 +45,7 @@ func newWatcherFixture(t *testing.T, initialSSMValue string) *watcherFixture {
 			S3Prefix:  testS3Prefix,
 			S3Client:  s3fake,
 			SSMClient: ssmFake,
+			Verifier:  passVerifier(),
 		},
 		s3Client:  s3fake,
 		ssmClient: ssmFake,
@@ -65,6 +66,7 @@ func newWatcherFixture(t *testing.T, initialSSMValue string) *watcherFixture {
 func (f *watcherFixture) seedManager(t *testing.T, algorithm, hash string, data []byte) {
 	t.Helper()
 	putBundle(f.s3, algorithm, hash, data)
+	putSigBundle(f.s3, algorithm, hash, []byte(`{"mock":"sig"}`))
 	snap, err := f.loader.LoadHash(t.Context(), algorithm, hash)
 	if err != nil {
 		t.Fatalf("seedManager LoadHash: %v", err)
@@ -98,6 +100,7 @@ func storeBundle(t *testing.T, f *watcherFixture, files map[string]string) ([]by
 	data := makeTarGz(t, files)
 	hash := cryptoutil.SHA384Hex(data)
 	putBundle(f.s3, "sha384", hash, data)
+	putSigBundle(f.s3, "sha384", hash, []byte(`{"mock":"sig"}`))
 	return data, hash
 }
 

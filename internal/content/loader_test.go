@@ -110,10 +110,10 @@ const (
 	testS3Prefix = "content/bundles"
 )
 
-// newTestLoader constructs a Loader with fakes, no verifier.
+// newTestLoader constructs a Loader with fakes and a passing verifier.
 func newTestLoader(t *testing.T, s3fake *fakeS3, ssmFake *fakeSSM) *Loader {
 	t.Helper()
-	return newTestLoaderWithVerifier(t, s3fake, ssmFake, nil)
+	return newTestLoaderWithVerifier(t, s3fake, ssmFake, passVerifier())
 }
 
 // newTestLoaderWithVerifier constructs a Loader with a custom verifier.
@@ -221,12 +221,25 @@ func TestNewLoader_RequiresS3Bucket(t *testing.T) {
 	}
 }
 
+func TestNewLoader_RequiresVerifier(t *testing.T) {
+	_, err := NewLoader(t.Context(), LoaderOptions{
+		SSMParam:  testSSMParam,
+		S3Bucket:  testBucket,
+		S3Client:  newFakeS3(),
+		SSMClient: ssmWithValue("x"),
+	})
+	if err == nil {
+		t.Fatal("expected error when Verifier is nil")
+	}
+}
+
 func TestNewLoader_DefaultsLogger(t *testing.T) {
 	l, err := NewLoader(t.Context(), LoaderOptions{
 		SSMParam:  testSSMParam,
 		S3Bucket:  testBucket,
 		S3Client:  newFakeS3(),
 		SSMClient: ssmWithValue("x"),
+		Verifier:  passVerifier(),
 	})
 	if err != nil {
 		t.Fatalf("NewLoader: %v", err)
@@ -438,84 +451,13 @@ func TestFetchS3_S3Error(t *testing.T) {
 	}
 }
 
-// verifyHashSignature
-
-func TestVerifyHashSignature_NilVerifier_Skips(t *testing.T) {
-	l := newTestLoader(t, newFakeS3(), ssmWithValue("x"))
-
-	err := l.verifyHashSignature(t.Context(), "sha384", "abc123")
-	if err != nil {
-		t.Fatalf("expected nil verifier to skip: %v", err)
-	}
-}
-
-func TestVerifyHashSignature_Success(t *testing.T) {
-	fake := newFakeS3()
-	sigData := []byte(`{"mock":"sigstore-bundle"}`)
-	putSigBundle(fake, "sha384", "abc123", sigData)
-
-	v := passVerifier()
-	l := newTestLoaderWithVerifier(t, fake, ssmWithValue("x"), v)
-
-	err := l.verifyHashSignature(t.Context(), "sha384", "abc123")
-	if err != nil {
-		t.Fatalf("verifyHashSignature: %v", err)
-	}
-
-	if !bytes.Equal(v.gotBundle, sigData) {
-		t.Fatal("verifier should receive the sigstore bundle bytes")
-	}
-	if string(v.gotArtifact) != "abc123" {
-		t.Fatalf("verifier artifact = %q, want %q", v.gotArtifact, "abc123")
-	}
-}
-
-func TestVerifyHashSignature_SigBundleMissing(t *testing.T) {
-	v := passVerifier()
-	l := newTestLoaderWithVerifier(t, newFakeS3(), ssmWithValue("x"), v)
-
-	err := l.verifyHashSignature(t.Context(), "sha384", "abc123")
-	if err == nil {
-		t.Fatal("expected error when sigstore bundle is missing from S3")
-	}
-}
-
-func TestVerifyHashSignature_VerificationFails(t *testing.T) {
-	fake := newFakeS3()
-	putSigBundle(fake, "sha384", "abc123", []byte(`{"mock":"sig"}`))
-
-	v := failVerifier("signature invalid")
-	l := newTestLoaderWithVerifier(t, fake, ssmWithValue("x"), v)
-
-	err := l.verifyHashSignature(t.Context(), "sha384", "abc123")
-	if err == nil {
-		t.Fatal("expected error when verification fails")
-	}
-	if !strings.Contains(err.Error(), "signature verification failed") {
-		t.Fatalf("error should mention verification failure: %v", err)
-	}
-}
-
-func TestVerifyHashSignature_S3FetchError(t *testing.T) {
-	fake := newFakeS3()
-	sigKey := fmt.Sprintf("%s/sha384/abc123.tar.gz.sigstore.json", testS3Prefix)
-	fake.failOn(sigKey, errors.New("network timeout"))
-
-	v := passVerifier()
-	l := newTestLoaderWithVerifier(t, fake, ssmWithValue("x"), v)
-
-	err := l.verifyHashSignature(t.Context(), "sha384", "abc123")
-	if err == nil {
-		t.Fatal("expected error when S3 fetch fails")
-	}
-}
-
 // LoadHash
 
 func TestLoadHash_Success(t *testing.T) {
 	fake := newFakeS3()
 	bundleData, bundleHash := buildContentBundle(t)
 	putBundle(fake, "sha384", bundleHash, bundleData)
+	putSigBundle(fake, "sha384", bundleHash, []byte(`{"mock":"sig"}`))
 
 	l := newTestLoader(t, fake, ssmWithValue(ssmValue("sha384", bundleHash)))
 
@@ -564,8 +506,8 @@ func TestLoadHash_WithVerifier_Success(t *testing.T) {
 	if snap == nil {
 		t.Fatal("expected non-nil snapshot")
 	}
-	if string(v.gotArtifact) != bundleHash {
-		t.Fatalf("verifier artifact = %q, want %q", v.gotArtifact, bundleHash)
+	if !bytes.Equal(v.gotArtifact, bundleData) {
+		t.Fatalf("verifier artifact should be the bundle bytes (%d bytes), got %d bytes", len(bundleData), len(v.gotArtifact))
 	}
 }
 
@@ -621,6 +563,7 @@ func TestLoadHash_BadTarGz(t *testing.T) {
 	badData := []byte("this is not a valid tar.gz")
 	badHash := cryptoutil.SHA384Hex(badData)
 	putBundle(fake, "sha384", badHash, badData)
+	putSigBundle(fake, "sha384", badHash, []byte(`{"mock":"sig"}`))
 
 	l := newTestLoader(t, fake, ssmWithValue(ssmValue("sha384", badHash)))
 
@@ -652,6 +595,7 @@ func TestLoadHash_WithProvenance(t *testing.T) {
 	fake := newFakeS3()
 	bundleData, bundleHash := buildContentBundleWithProvenance(t)
 	putBundle(fake, "sha384", bundleHash, bundleData)
+	putSigBundle(fake, "sha384", bundleHash, []byte(`{"mock":"sig"}`))
 
 	l := newTestLoader(t, fake, ssmWithValue(ssmValue("sha384", bundleHash)))
 
@@ -674,6 +618,7 @@ func TestLoadHash_WithoutProvenance(t *testing.T) {
 	fake := newFakeS3()
 	bundleData, bundleHash := buildContentBundle(t)
 	putBundle(fake, "sha384", bundleHash, bundleData)
+	putSigBundle(fake, "sha384", bundleHash, []byte(`{"mock":"sig"}`))
 
 	l := newTestLoader(t, fake, ssmWithValue(ssmValue("sha384", bundleHash)))
 
@@ -693,6 +638,7 @@ func TestLoadHash_SetsLoadedAt(t *testing.T) {
 	fake := newFakeS3()
 	bundleData, bundleHash := buildContentBundle(t)
 	putBundle(fake, "sha384", bundleHash, bundleData)
+	putSigBundle(fake, "sha384", bundleHash, []byte(`{"mock":"sig"}`))
 
 	l := newTestLoader(t, fake, ssmWithValue(ssmValue("sha384", bundleHash)))
 
@@ -709,6 +655,7 @@ func TestLoadHash_SetsVerifiedAt(t *testing.T) {
 	fake := newFakeS3()
 	bundleData, bundleHash := buildContentBundle(t)
 	putBundle(fake, "sha384", bundleHash, bundleData)
+	putSigBundle(fake, "sha384", bundleHash, []byte(`{"mock":"sig"}`))
 
 	l := newTestLoader(t, fake, ssmWithValue(ssmValue("sha384", bundleHash)))
 
@@ -727,6 +674,7 @@ func TestLoad_Success(t *testing.T) {
 	fake := newFakeS3()
 	bundleData, bundleHash := buildContentBundle(t)
 	putBundle(fake, "sha384", bundleHash, bundleData)
+	putSigBundle(fake, "sha384", bundleHash, []byte(`{"mock":"sig"}`))
 
 	l := newTestLoader(t, fake, ssmWithValue(ssmValue("sha384", bundleHash)))
 
@@ -782,6 +730,7 @@ func TestLoadIntoManager_Success(t *testing.T) {
 	fake := newFakeS3()
 	bundleData, bundleHash := buildContentBundleWithProvenance(t)
 	putBundle(fake, "sha384", bundleHash, bundleData)
+	putSigBundle(fake, "sha384", bundleHash, []byte(`{"mock":"sig"}`))
 
 	l := newTestLoader(t, fake, ssmWithValue(ssmValue("sha384", bundleHash)))
 	mgr := NewManager()

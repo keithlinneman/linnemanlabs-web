@@ -71,16 +71,19 @@ type BlobVerifier interface {
 // NewLoader creates a new content Loader with the given options
 func NewLoader(ctx context.Context, opts LoaderOptions) (*Loader, error) {
 	if opts.S3Client == nil {
-		return nil, xerrors.New("evidence: S3Client is required")
+		return nil, xerrors.New("content: S3Client is required")
 	}
 	if opts.SSMClient == nil {
-		return nil, xerrors.New("evidence: SSMClient is required")
+		return nil, xerrors.New("content: SSMClient is required")
 	}
 	if opts.SSMParam == "" {
 		return nil, xerrors.New("SSMParam is required")
 	}
 	if opts.S3Bucket == "" {
 		return nil, xerrors.New("S3Bucket is required")
+	}
+	if opts.Verifier == nil {
+		return nil, xerrors.New("Verifier is required")
 	}
 	if opts.Logger == nil {
 		opts.Logger = log.Nop()
@@ -176,11 +179,6 @@ func (l *Loader) Load(ctx context.Context) (*Snapshot, error) {
 func (l *Loader) LoadHash(ctx context.Context, algorithm, hash string) (*Snapshot, error) {
 	loadedAt := time.Now().UTC()
 
-	// verify the hash is signed by a trusted key before downloading the bundle
-	if err := l.verifyHashSignature(ctx, algorithm, hash); err != nil {
-		return nil, err
-	}
-
 	// download the bundle
 	key := l.s3Key(algorithm, hash)
 	l.logger.Info(ctx, "fetching content bundle",
@@ -213,6 +211,17 @@ func (l *Loader) LoadHash(ctx context.Context, algorithm, hash string) (*Snapsho
 	// verify hash of downloaded bundle matches the signed hash
 	if !cryptoutil.HashEqual(actualHash, hash) {
 		return nil, xerrors.Newf("checksum mismatch: expected %s, got %s", hash, actualHash)
+	}
+
+	// fetch the sigstore bundle for this content bundle
+	sigKey := l.sigBundleKey(algorithm, hash)
+	bundleJSON, err := l.fetchS3(ctx, sigKey, maxSigBundleSize)
+	if err != nil {
+		return nil, xerrors.Wrap(err, "fetch sigstore bundle")
+	}
+	// verify the content bundle signature using the sigstore bundle and trusted key
+	if err := l.opts.Verifier.VerifyBlob(ctx, bundleJSON, data); err != nil {
+		return nil, xerrors.Wrap(err, "content bundle signature verification failed")
 	}
 
 	// extract to in-memory filesystem
@@ -254,38 +263,6 @@ func (l *Loader) LoadHash(ctx context.Context, algorithm, hash string) (*Snapsho
 		Provenance: provenance,
 		LoadedAt:   loadedAt,
 	}, nil
-}
-
-// verifyHashSignature fetches the sigstore bundle for the content bundle hash
-// and verifies the hash is signed by a trusted key. If no verifier is
-// configured, this is a no-op (dev/local builds).
-func (l *Loader) verifyHashSignature(ctx context.Context, algorithm, hash string) error {
-	if l.opts.Verifier == nil {
-		l.logger.Info(ctx, "no content verifier configured, skipping hash signature verification")
-		return nil
-	}
-
-	sigKey := l.sigBundleKey(algorithm, hash)
-	l.logger.Info(ctx, "fetching content bundle signature",
-		"bucket", l.opts.S3Bucket,
-		"key", sigKey,
-	)
-
-	bundleJSON, err := l.fetchS3(ctx, sigKey, maxSigBundleSize)
-	if err != nil {
-		return xerrors.Wrap(err, "fetch content bundle sigstore bundle")
-	}
-
-	// the signed artifact is the hash string itself (hex-encoded)
-	if err := l.opts.Verifier.VerifyBlob(ctx, bundleJSON, []byte(hash)); err != nil {
-		return xerrors.Wrap(err, "content bundle hash signature verification failed")
-	}
-
-	l.logger.Info(ctx, "content bundle hash signature verified",
-		"hash", hash,
-	)
-
-	return nil
 }
 
 // provenanceVersion extracts version from provenance or returns empty string
