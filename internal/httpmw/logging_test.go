@@ -27,10 +27,9 @@ type capturedLog struct {
 // flatLogger captures With() and Info() calls for test assertions.
 // Returns itself from With() so all calls land in one place.
 type flatLogger struct {
-	mu       sync.Mutex
-	infos    []capturedLog
-	withs    [][]any
-	_current []any
+	mu    sync.Mutex
+	infos []capturedLog
+	withs [][]any
 }
 
 func newFlatLogger() *flatLogger {

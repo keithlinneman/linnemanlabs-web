@@ -309,7 +309,7 @@ func main() {
 			bundle, err := evidenceLoader.Load(ctx)
 			if err != nil {
 				// evidence is required for builds with provenance data, fail early
-				// systemd will restart, asg will terminate if we fail to start succesfully
+				// systemd will restart, asg will terminate if we fail to start successfully
 				// will add retry logic in the future
 				L.Error(ctx, err, "failed to load evidence which is required when provenance data is present")
 				os.Exit(1)

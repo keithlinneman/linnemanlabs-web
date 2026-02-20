@@ -1,7 +1,6 @@
 package metrics
 
 import (
-	"context"
 	"net/http"
 	"strconv"
 	"time"
@@ -12,9 +11,6 @@ import (
 
 	"github.com/keithlinneman/linnemanlabs-web/internal/version"
 )
-
-// ReqDBStatsFromContextFunc is injected at wiring-time in main() so the metrics package doesn't need to import postgres.
-type ReqDBStatsFromContextFunc func(ctx context.Context) (count int64, errs int64, total time.Duration, ok bool)
 
 type ServerMetrics struct {
 	reg                    *prometheus.Registry
@@ -30,7 +26,6 @@ type ServerMetrics struct {
 	contentSource          *prometheus.GaugeVec
 	contentLoadedTimestamp prometheus.Gauge
 	contentBundleInfo      *prometheus.GaugeVec
-	reqDBStats             ReqDBStatsFromContextFunc
 
 	errorsTotal *prometheus.CounterVec
 
