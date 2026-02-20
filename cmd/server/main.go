@@ -258,6 +258,7 @@ func main() {
 			Loader:       contentLoader,
 			Manager:      contentMgr,
 			PollInterval: 30 * time.Second,
+			Metrics:      m,
 			OnSwap: func(hash, version string) {
 				m.SetContentBundle(hash)
 				m.SetContentSource(string(content.SourceS3))
@@ -397,11 +398,8 @@ func main() {
 		L.Warn(ctx, "failed to notify systemd of readiness", "error", err)
 	}
 
-	// block until signal so we dont exit
-	sigCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 	// wait for ctrl+c / sigterm
-	<-sigCtx.Done()
+	<-ctx.Done()
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
