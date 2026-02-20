@@ -165,7 +165,7 @@ func Start(ctx context.Context, opts Options) (func(context.Context) error, erro
 	handler := NewHandler(opts)
 	srv := NewServer(addr, handler)
 
-	ln, err := net.Listen("tcp", addr)
+	ln, err := net.Listen("tcp4", addr)
 	if err != nil {
 		return nil, xerrors.EnsureTrace(err)
 	}

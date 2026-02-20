@@ -53,7 +53,7 @@ func doRequest(t *testing.T, h http.Handler, method, path string) *httptest.Resp
 // getFreePort finds a free TCP port.
 func getFreePort(t *testing.T) int {
 	t.Helper()
-	ln, err := net.Listen("tcp", ":0")
+	ln, err := net.Listen("tcp4", ":0")
 	if err != nil {
 		t.Fatalf("find free port: %v", err)
 	}
