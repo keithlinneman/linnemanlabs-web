@@ -79,8 +79,7 @@ type WatcherOptions struct {
 	StaleThreshold time.Duration
 }
 
-// Watcher polls SSM for content bundle hash changes and hot-swaps
-// the active content when a new bundle is detected.
+// Watcher polls for content changes and hot-swaps bundles into the manager.
 type Watcher struct {
 	loader     BundleFetcher
 	manager    *Manager

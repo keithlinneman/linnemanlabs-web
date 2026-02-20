@@ -102,7 +102,6 @@ func (s *slogLogger) Error(ctx context.Context, err error, msg string, kv ...any
 		surface, root := classifyTypes(err)
 		kv = append(kv,
 			"err", err,
-			//"error_type", fmt.Sprintf("%T", err),
 			"error_type", surface,
 			"cause_type", root,
 		)

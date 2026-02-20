@@ -37,12 +37,12 @@ type ServerMetrics struct {
 	profilingActive prometheus.Gauge
 
 	// watcher metrics
-	watcherPollsTotal       prometheus.Counter
-	watcherSwapsTotal       prometheus.Counter
-	watcherErrorsTotal      *prometheus.CounterVec
-	bundleLoadDuration      prometheus.Histogram
-	watcherLastSuccessTs    prometheus.Gauge
-	watcherStale            prometheus.Gauge
+	watcherPollsTotal    prometheus.Counter
+	watcherSwapsTotal    prometheus.Counter
+	watcherErrorsTotal   *prometheus.CounterVec
+	bundleLoadDuration   prometheus.Histogram
+	watcherLastSuccessTs prometheus.Gauge
+	watcherStale         prometheus.Gauge
 }
 
 // New returns a fresh registry + standard collectors + HTTP metrics
@@ -135,7 +135,6 @@ func New() *ServerMetrics {
 			Help: "Whether the content watcher is stale (1) or healthy (0)",
 		}),
 	}
-	//reg.MustRegister(m.inflight, m.reqTotal, m.reqDur, m.respBytes, m.httpPanicTotal, m.buildInfo)
 	reg.MustRegister(
 		m.inflight,
 		m.reqTotal,
