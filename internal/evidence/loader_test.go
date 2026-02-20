@@ -579,9 +579,9 @@ func TestLoad_Success_InventoryHashVerified(t *testing.T) {
 	}
 }
 
-// fetchAllFiles - error paths (non-fatal: files skipped, Load succeeds)
+// fetchAllFiles - fail-closed: any failure causes Load to error
 
-func TestLoad_EvidenceFile_FetchFails_Skipped(t *testing.T) {
+func TestLoad_EvidenceFile_FetchFails_ReturnsError(t *testing.T) {
 	fake := newFakeS3()
 	prefix := testReleasePrefix()
 
@@ -596,20 +596,17 @@ func TestLoad_EvidenceFile_FetchFails_Skipped(t *testing.T) {
 	fake.failOn(prefix+"source/sbom.json", fmt.Errorf("S3 throttle"))
 
 	l := newTestLoader(fake, passVerifier())
-	bundle, err := l.Load(t.Context())
+	_, err := l.Load(t.Context())
 
-	if err != nil {
-		t.Fatalf("Load should succeed with skipped files: %v", err)
+	if err == nil {
+		t.Fatal("expected error when evidence file fetch fails")
 	}
-	if _, ok := bundle.FileIndex["source/sbom.json"]; !ok {
-		t.Fatal("file should be in FileIndex")
-	}
-	if _, ok := bundle.Files["source/sbom.json"]; ok {
-		t.Fatal("file should NOT be in Files (fetch failed)")
+	if !strings.Contains(err.Error(), "source/sbom.json") {
+		t.Fatalf("error should mention the file: %v", err)
 	}
 }
 
-func TestLoad_EvidenceFile_HashMismatch_Skipped(t *testing.T) {
+func TestLoad_EvidenceFile_HashMismatch_ReturnsError(t *testing.T) {
 	fake := newFakeS3()
 	prefix := testReleasePrefix()
 
@@ -623,20 +620,17 @@ func TestLoad_EvidenceFile_HashMismatch_Skipped(t *testing.T) {
 	fake.put(prefix+"source/sbom.json", []byte(`{"tampered":"data"}`))
 
 	l := newTestLoader(fake, passVerifier())
-	bundle, err := l.Load(t.Context())
+	_, err := l.Load(t.Context())
 
-	if err != nil {
-		t.Fatalf("Load should succeed with skipped files: %v", err)
+	if err == nil {
+		t.Fatal("expected error when evidence file hash mismatches")
 	}
-	if _, ok := bundle.FileIndex["source/sbom.json"]; !ok {
-		t.Fatal("file should be in FileIndex")
-	}
-	if _, ok := bundle.Files["source/sbom.json"]; ok {
-		t.Fatal("file should NOT be in Files (hash mismatch)")
+	if !strings.Contains(err.Error(), "hash mismatch") {
+		t.Fatalf("error should mention hash mismatch: %v", err)
 	}
 }
 
-func TestLoad_EvidenceFile_EmptyHash_SkipsVerification(t *testing.T) {
+func TestLoad_EvidenceFile_EmptyHash_ReturnsError(t *testing.T) {
 	fake := newFakeS3()
 	prefix := testReleasePrefix()
 
@@ -649,13 +643,13 @@ func TestLoad_EvidenceFile_EmptyHash_SkipsVerification(t *testing.T) {
 	fake.put(prefix+"source/sbom.json", []byte(`{"any":"content"}`))
 
 	l := newTestLoader(fake, passVerifier())
-	bundle, err := l.Load(t.Context())
+	_, err := l.Load(t.Context())
 
-	if err != nil {
-		t.Fatalf("Load: %v", err)
+	if err == nil {
+		t.Fatal("expected error when evidence file has empty hash")
 	}
-	if _, ok := bundle.Files["source/sbom.json"]; !ok {
-		t.Fatal("file should be in Files when hash is empty (verification skipped)")
+	if !strings.Contains(err.Error(), "missing required sha256 hash") {
+		t.Fatalf("error should mention missing hash: %v", err)
 	}
 }
 

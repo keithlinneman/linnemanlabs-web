@@ -207,13 +207,15 @@ func (l *Loader) Load(ctx context.Context) (*Bundle, error) {
 	)
 
 	// fetch all evidence files in parallel
-	files, fetched, skipped, totalBytes := l.fetchAllFiles(ctx, prefix, fileIndex)
+	files, fetched, totalBytes, err := l.fetchAllFiles(ctx, prefix, fileIndex)
+	if err != nil {
+		return nil, xerrors.Wrap(err, "fetch evidence files")
+	}
 
 	elapsed := time.Since(start)
 
 	l.logger.Info(ctx, "evidence loading complete",
 		"fetched", fetched,
-		"skipped", skipped,
 		"total_bytes", totalBytes,
 		"duration", elapsed.String(),
 	)
@@ -233,9 +235,10 @@ func (l *Loader) Load(ctx context.Context) (*Bundle, error) {
 }
 
 // fetchAllFiles downloads all evidence files using a bounded worker pool.
-// Files that fail to fetch or verify are skipped (logged as warnings, will add retry logic soon).
+// Any file that fails to fetch or verify causes the entire operation to fail (fail-closed).
+// AWS SDK retries transient errors internally before surfacing them here.
 func (l *Loader) fetchAllFiles(ctx context.Context, prefix string, index map[string]*EvidenceFileRef) (
-	files map[string]*EvidenceFile, fetched, skipped int, totalBytes int64,
+	files map[string]*EvidenceFile, fetched int, totalBytes int64, err error,
 ) {
 	files = make(map[string]*EvidenceFile, len(index))
 
@@ -271,16 +274,22 @@ func (l *Loader) fetchAllFiles(ctx context.Context, prefix string, index map[str
 				return
 			}
 
-			// verify hash
-			if wi.ref.SHA256 != "" {
-				actual := cryptoutil.SHA256Hex(data)
-				if !cryptoutil.HashEqual(actual, wi.ref.SHA256) {
-					results <- fetchResult{
-						path: wi.path,
-						err:  fmt.Sprintf("hash mismatch: expected %s, got %s", wi.ref.SHA256[:12], actual[:12]),
-					}
-					return
+			// require hash on all evidence files
+			if wi.ref.SHA256 == "" {
+				results <- fetchResult{
+					path: wi.path,
+					err:  "evidence file missing required sha256 hash in inventory",
 				}
+				return
+			}
+
+			actual := cryptoutil.SHA256Hex(data)
+			if !cryptoutil.HashEqual(actual, wi.ref.SHA256) {
+				results <- fetchResult{
+					path: wi.path,
+					err:  fmt.Sprintf("hash mismatch: expected %s, got %s", wi.ref.SHA256, actual),
+				}
+				return
 			}
 
 			results <- fetchResult{
@@ -297,13 +306,10 @@ func (l *Loader) fetchAllFiles(ctx context.Context, prefix string, index map[str
 	}()
 
 	// collect results (runs on caller goroutine, no mutex needed)
+	var errs []string
 	for r := range results {
 		if r.err != "" {
-			l.logger.Warn(ctx, "failed to fetch evidence file, skipping",
-				"path", r.path,
-				"error", r.err,
-			)
-			skipped++
+			errs = append(errs, fmt.Sprintf("%s: %s", r.path, r.err))
 			continue
 		}
 		files[r.path] = r.file
@@ -311,7 +317,11 @@ func (l *Loader) fetchAllFiles(ctx context.Context, prefix string, index map[str
 		totalBytes += int64(len(r.file.Data))
 	}
 
-	return files, fetched, skipped, totalBytes
+	if len(errs) > 0 {
+		return nil, 0, 0, xerrors.Newf("failed to fetch %d evidence file(s): %s", len(errs), strings.Join(errs, "; "))
+	}
+
+	return files, fetched, totalBytes, nil
 }
 
 // fetchS3 downloads an S3 object with a size limit
