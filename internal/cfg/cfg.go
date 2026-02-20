@@ -172,10 +172,10 @@ func Validate(c App, hasProvenance bool) error {
 	// and the content watcher doesn't start, so there's nothing to verify.
 	if hasProvenance {
 		if c.EvidenceSigningKeyARN == "" {
-			return fmt.Errorf("release build requires evidence-signing-key-arn")
+			errs = append(errs, fmt.Errorf("release build requires evidence-signing-key-arn"))
 		}
 		if c.ContentSigningKeyARN == "" {
-			return fmt.Errorf("release build requires content-signing-key-arn")
+			errs = append(errs, fmt.Errorf("release build requires content-signing-key-arn"))
 		}
 	}
 

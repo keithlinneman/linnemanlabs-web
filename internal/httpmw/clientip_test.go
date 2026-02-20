@@ -181,7 +181,7 @@ func TestExtractRealClientAddr(t *testing.T) {
 				r.Header.Set("X-Forwarded-For", tt.xff)
 			}
 
-			got := extractRealClientAddr(r)
+			got := extractRealClientAddr(r, 0)
 			if got != tt.want {
 				t.Errorf("extractRealClientAddr() = %q, want %q", got, tt.want)
 			}
@@ -241,6 +241,110 @@ func TestClientIP_Middleware(t *testing.T) {
 	}
 }
 
+// --- TrustedHops tests ---
+
+func TestExtractRealClientAddr_TrustedHops(t *testing.T) {
+	tests := []struct {
+		name        string
+		remoteAddr  string
+		xff         string
+		trustedHops int
+		want        string
+	}{
+		{
+			name:        "hops=0 takes first entry (default behavior)",
+			remoteAddr:  "10.0.0.1:1234",
+			xff:         "203.0.113.50, 10.0.0.5, 10.0.0.6",
+			trustedHops: 0,
+			want:        "203.0.113.50",
+		},
+		{
+			name:        "hops=1 takes last entry",
+			remoteAddr:  "10.0.0.1:1234",
+			xff:         "203.0.113.50, 10.0.0.5, 10.0.0.6",
+			trustedHops: 1,
+			want:        "10.0.0.6",
+		},
+		{
+			name:        "hops=2 takes second from end",
+			remoteAddr:  "10.0.0.1:1234",
+			xff:         "203.0.113.50, 10.0.0.5, 10.0.0.6",
+			trustedHops: 2,
+			want:        "10.0.0.5",
+		},
+		{
+			name:        "hops=3 takes first (3rd from end of 3)",
+			remoteAddr:  "10.0.0.1:1234",
+			xff:         "203.0.113.50, 10.0.0.5, 10.0.0.6",
+			trustedHops: 3,
+			want:        "203.0.113.50",
+		},
+		{
+			name:        "hops exceeds entries clamps to first",
+			remoteAddr:  "10.0.0.1:1234",
+			xff:         "203.0.113.50",
+			trustedHops: 5,
+			want:        "203.0.113.50",
+		},
+		{
+			name:        "hops=1 single entry ALB scenario",
+			remoteAddr:  "10.0.0.1:1234",
+			xff:         "203.0.113.50",
+			trustedHops: 1,
+			want:        "203.0.113.50",
+		},
+		{
+			name:        "hops ignored for public remote addr",
+			remoteAddr:  "203.0.113.1:1234",
+			xff:         "10.0.0.1, 10.0.0.2",
+			trustedHops: 1,
+			want:        "203.0.113.1",
+		},
+		{
+			name:        "hops with no XFF returns RemoteAddr",
+			remoteAddr:  "10.0.0.1:1234",
+			xff:         "",
+			trustedHops: 2,
+			want:        "10.0.0.1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodGet, "/", nil)
+			r.RemoteAddr = tt.remoteAddr
+			if tt.xff != "" {
+				r.Header.Set("X-Forwarded-For", tt.xff)
+			}
+
+			got := extractRealClientAddr(r, tt.trustedHops)
+			if got != tt.want {
+				t.Errorf("extractRealClientAddr(hops=%d) = %q, want %q", tt.trustedHops, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestClientIPWithOptions_Middleware(t *testing.T) {
+	var captured string
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		captured = ClientIPFromContext(r.Context())
+	})
+
+	// CDN -> ALB -> app: 2 hops, take 2nd from end
+	handler := ClientIPWithOptions(ClientIPOptions{TrustedHops: 2})(inner)
+
+	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r.RemoteAddr = "10.0.0.1:1234"
+	r.Header.Set("X-Forwarded-For", "203.0.113.50, 10.0.0.5, 10.0.0.6")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+
+	if captured != "10.0.0.5" {
+		t.Errorf("ClientIPFromContext() = %q, want 10.0.0.5", captured)
+	}
+}
+
 // TestWithClientIP_RoundTrip verifies the context setter and getter work together
 func TestWithClientIP_RoundTrip(t *testing.T) {
 	ctx := WithClientIP(context.Background(), "203.0.113.50")
@@ -280,7 +384,7 @@ func FuzzExtractClientAddr(f *testing.F) {
 		if xff != "" {
 			r.Header.Set("X-Forwarded-For", xff)
 		}
-		result := extractRealClientAddr(r)
+		result := extractRealClientAddr(r, 0)
 		// INVARIANT: must never panic
 		// INVARIANT: must always return a non-empty string
 		if result == "" {
