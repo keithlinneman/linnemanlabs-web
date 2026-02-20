@@ -747,6 +747,74 @@ func TestFetchS3_EmptyObject(t *testing.T) {
 	}
 }
 
+// RequireSignature tests
+
+func TestNewLoader_RequireSignature_NilVerifier_ReturnsError(t *testing.T) {
+	_, err := NewLoader(t.Context(), LoaderOptions{
+		Bucket:           testBucket,
+		ReleaseID:        testReleaseID,
+		S3Client:         newFakeS3(),
+		RequireSignature: true,
+		// Verifier omitted
+	})
+	if err == nil {
+		t.Fatal("expected error for RequireSignature with nil Verifier")
+	}
+	if !strings.Contains(err.Error(), "Verifier is required") {
+		t.Fatalf("error should mention Verifier requirement: %v", err)
+	}
+}
+
+func TestNewLoader_RequireSignature_WithVerifier_Succeeds(t *testing.T) {
+	l, err := NewLoader(t.Context(), LoaderOptions{
+		Bucket:           testBucket,
+		ReleaseID:        testReleaseID,
+		S3Client:         newFakeS3(),
+		Verifier:         passVerifier(),
+		RequireSignature: true,
+	})
+	if err != nil {
+		t.Fatalf("NewLoader: %v", err)
+	}
+	if l == nil {
+		t.Fatal("expected non-nil loader")
+	}
+}
+
+func TestLoad_RequireSignature_MissingSigstoreBundle_Fails(t *testing.T) {
+	fake := newFakeS3()
+	prefix := testReleasePrefix()
+
+	invData := emptyInventoryJSON()
+	invHash := cryptoutil.SHA256Hex(invData)
+	fake.put(prefix+"inventory.json", invData)
+	fake.putJSON(prefix+"release.json", validReleaseManifest(invHash))
+	// sigstore bundle intentionally NOT added to S3
+
+	l := &Loader{
+		opts: LoaderOptions{
+			Logger:           log.Nop(),
+			Bucket:           testBucket,
+			Prefix:           testPrefix,
+			ReleaseID:        testReleaseID,
+			S3Client:         fake,
+			Verifier:         passVerifier(),
+			RequireSignature: true,
+		},
+		s3Client: fake,
+		logger:   log.Nop(),
+	}
+
+	_, err := l.Load(t.Context())
+	if err == nil {
+		t.Fatal("expected error when sigstore bundle is missing with RequireSignature")
+	}
+	// The error could be from fetch failure (NoSuchKey) or the RequireSignature check
+	if !strings.Contains(err.Error(), "sigstore") {
+		t.Fatalf("error should mention sigstore: %v", err)
+	}
+}
+
 // NewLoader - validation
 
 func TestNewLoader_MissingS3Client(t *testing.T) {

@@ -60,6 +60,12 @@ type LoaderOptions struct {
 	// ReleaseVerifier verifies the sigstore bundle for release.json
 	Verifier BlobVerifier
 
+	// RequireSignature makes signature verification mandatory. When true,
+	// NewLoader validates that Verifier is non-nil, and Load fails if the
+	// sigstore bundle is missing. This makes the trust model explicit rather
+	// than relying on the implicit nil-check conditional.
+	RequireSignature bool
+
 	// S3Client allows injecting a custom S3 implementation for testing
 	// If nil, a real client is created from AWSConfig.
 	S3Client s3Getter
@@ -95,6 +101,9 @@ func NewLoader(ctx context.Context, opts LoaderOptions) (*Loader, error) {
 	}
 	if opts.ReleaseID == "" {
 		return nil, xerrors.New("evidence: ReleaseID is required")
+	}
+	if opts.RequireSignature && opts.Verifier == nil {
+		return nil, xerrors.New("evidence: Verifier is required when RequireSignature is true")
 	}
 	if opts.Logger == nil {
 		opts.Logger = log.Nop()
@@ -158,6 +167,11 @@ func (l *Loader) Load(ctx context.Context) (*Bundle, error) {
 	sigstoreBundleRaw, err := l.fetchS3(ctx, sigstoreBundleKey, MaxManifestSize)
 	if err != nil {
 		return nil, xerrors.Wrap(err, "failed to fetch release.json.bundle.sigstore.json")
+	}
+
+	// fail-closed: if signature is required but bundle is missing, reject
+	if sigstoreBundleRaw == nil && l.opts.RequireSignature {
+		return nil, xerrors.New("release.json sigstore bundle is missing but RequireSignature is true")
 	}
 
 	// verify bundle against release.json if a verifier is configured
