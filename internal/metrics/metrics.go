@@ -32,6 +32,8 @@ type ServerMetrics struct {
 	contentBundleInfo      *prometheus.GaugeVec
 	reqDBStats             ReqDBStatsFromContextFunc
 
+	profilingActive prometheus.Gauge
+
 	// watcher metrics
 	watcherPollsTotal       prometheus.Counter
 	watcherSwapsTotal       prometheus.Counter
@@ -96,6 +98,10 @@ func New() *ServerMetrics {
 			Name: "content_bundle_info",
 			Help: "Currently active content bundle (label carries identity, value is always 1)",
 		}, []string{"sha256"}),
+		profilingActive: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "profiling_active",
+			Help: "Whether continuous profiling is active (1) or disabled/failed (0)",
+		}),
 		watcherPollsTotal: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "content_watcher_polls_total",
 			Help: "Total number of watcher poll cycles",
@@ -131,6 +137,7 @@ func New() *ServerMetrics {
 		m.contentSource,
 		m.contentLoadedTimestamp,
 		m.contentBundleInfo,
+		m.profilingActive,
 		m.watcherPollsTotal,
 		m.watcherSwapsTotal,
 		m.watcherErrorsTotal,
@@ -193,6 +200,14 @@ func (m *ServerMetrics) SetContentLoadedTimestamp(t time.Time) {
 func (m *ServerMetrics) SetContentBundle(sha256 string) {
 	m.contentBundleInfo.Reset()
 	m.contentBundleInfo.WithLabelValues(sha256).Set(1)
+}
+
+func (m *ServerMetrics) SetProfilingActive(active bool) {
+	if active {
+		m.profilingActive.Set(1)
+	} else {
+		m.profilingActive.Set(0)
+	}
 }
 
 func (m *ServerMetrics) IncWatcherPolls() {

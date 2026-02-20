@@ -42,6 +42,7 @@ func TestNew_RegistryPopulated(t *testing.T) {
 		"http_inflight_requests",
 		"http_panic_total",
 		"http_requests_rate_limited_total",
+		"profiling_active",
 	}
 	for _, name := range immediateMetrics {
 		if !strings.Contains(body, name) {
@@ -441,6 +442,34 @@ func TestSetWatcherLastSuccess(t *testing.T) {
 	val := f.GetMetric()[0].GetGauge().GetValue()
 	if val != 1700000000 {
 		t.Fatalf("value = %f, want 1700000000", val)
+	}
+}
+
+func TestSetProfilingActive_True(t *testing.T) {
+	m := New()
+	m.SetProfilingActive(true)
+
+	f := gatherMetric(t, m.reg, "profiling_active")
+	if f == nil {
+		t.Fatal("profiling_active metric not found")
+	}
+	val := f.GetMetric()[0].GetGauge().GetValue()
+	if val != 1 {
+		t.Fatalf("profiling_active = %f, want 1", val)
+	}
+}
+
+func TestSetProfilingActive_False(t *testing.T) {
+	m := New()
+	m.SetProfilingActive(false)
+
+	f := gatherMetric(t, m.reg, "profiling_active")
+	if f == nil {
+		t.Fatal("profiling_active metric not found")
+	}
+	val := f.GetMetric()[0].GetGauge().GetValue()
+	if val != 0 {
+		t.Fatalf("profiling_active = %f, want 0", val)
 	}
 }
 
