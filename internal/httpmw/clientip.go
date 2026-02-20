@@ -46,14 +46,25 @@ func extractRealClientAddr(r *http.Request, trustedHops int) string {
 	// otherwise we are deployed directly exposed and use the remote addr without trusting any headers
 	// this also applies to the x-forwarded-scheme
 
+	// should never happen
+	if r.RemoteAddr == "" {
+		return "0.0.0.0"
+	}
+
 	// get real remote ip first from remote addr
 	clientAddr, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
+		// malformed remote addr, return r.RemoteAddr
 		return r.RemoteAddr
 	}
 
 	ip := net.ParseIP(clientAddr)
-	if ip == nil || !ip.IsPrivate() {
+	if ip == nil {
+		// malformed remote addr, return 0.0.0.0
+		return "0.0.0.0"
+	}
+
+	if !ip.IsPrivate() {
 		// not from our infrastructure, dont trust forwarded headers
 		return clientAddr
 	}

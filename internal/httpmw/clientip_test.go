@@ -128,10 +128,10 @@ func TestExtractRealClientAddr(t *testing.T) {
 			want:       "not-an-ip",
 		},
 		{
-			name:       "empty RemoteAddr returns empty",
+			name:       "empty RemoteAddr returns 0.0.0.0",
 			remoteAddr: "",
 			xff:        "203.0.113.50",
-			want:       "",
+			want:       "0.0.0.0",
 		},
 		{
 			name:       "XFF with single entry from private",
