@@ -356,6 +356,94 @@ func histogramCount(t *testing.T, reg *prometheus.Registry, name string) uint64 
 	return f.GetMetric()[0].GetHistogram().GetSampleCount()
 }
 
+func TestNew_ResponseSizeBuckets(t *testing.T) {
+	m := New()
+
+	// Exercise the histogram so it appears in gather output
+	handler := m.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("x"))
+	}))
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/", nil))
+
+	f := gatherMetric(t, m.reg, "http_response_size_bytes")
+	if f == nil {
+		t.Fatal("http_response_size_bytes not found")
+	}
+	h := f.GetMetric()[0].GetHistogram()
+	buckets := h.GetBucket()
+	if len(buckets) == 0 {
+		t.Fatal("expected histogram buckets")
+	}
+	largest := buckets[len(buckets)-1].GetUpperBound()
+	if largest < 50_000_000 {
+		t.Fatalf("largest bucket = %f, want >= 50MB", largest)
+	}
+}
+
+// Watcher metrics
+
+func TestIncWatcherPolls(t *testing.T) {
+	m := New()
+	m.IncWatcherPolls()
+	m.IncWatcherPolls()
+
+	val := counterValue(t, m.reg, "content_watcher_polls_total")
+	if val != 2 {
+		t.Fatalf("content_watcher_polls_total = %f, want 2", val)
+	}
+}
+
+func TestIncWatcherSwaps(t *testing.T) {
+	m := New()
+	m.IncWatcherSwaps()
+
+	val := counterValue(t, m.reg, "content_watcher_swaps_total")
+	if val != 1 {
+		t.Fatalf("content_watcher_swaps_total = %f, want 1", val)
+	}
+}
+
+func TestIncWatcherError(t *testing.T) {
+	m := New()
+	m.IncWatcherError("ssm")
+	m.IncWatcherError("ssm")
+	m.IncWatcherError("load")
+
+	f := gatherMetric(t, m.reg, "content_watcher_errors_total")
+	if f == nil {
+		t.Fatal("content_watcher_errors_total not found")
+	}
+	// Should have 2 distinct label sets
+	if len(f.GetMetric()) != 2 {
+		t.Fatalf("expected 2 error type combos, got %d", len(f.GetMetric()))
+	}
+}
+
+func TestObserveBundleLoadDuration(t *testing.T) {
+	m := New()
+	m.ObserveBundleLoadDuration(1.5)
+	m.ObserveBundleLoadDuration(2.5)
+
+	count := histogramCount(t, m.reg, "content_bundle_load_duration_seconds")
+	if count != 2 {
+		t.Fatalf("content_bundle_load_duration_seconds count = %d, want 2", count)
+	}
+}
+
+func TestSetWatcherLastSuccess(t *testing.T) {
+	m := New()
+	m.SetWatcherLastSuccess(1700000000)
+
+	f := gatherMetric(t, m.reg, "content_watcher_last_success_timestamp_seconds")
+	if f == nil {
+		t.Fatal("content_watcher_last_success_timestamp_seconds not found")
+	}
+	val := f.GetMetric()[0].GetGauge().GetValue()
+	if val != 1700000000 {
+		t.Fatalf("value = %f, want 1700000000", val)
+	}
+}
+
 func TestSetContentBundle(t *testing.T) {
 	m := New()
 	m.SetContentBundle("abc123")

@@ -10,6 +10,7 @@ package content
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"time"
 
@@ -35,6 +36,15 @@ const (
 	pollValidationError                   // bundle loaded but failed health checks
 )
 
+// WatcherMetrics is implemented by the metrics package to observe watcher behavior.
+type WatcherMetrics interface {
+	IncWatcherPolls()
+	IncWatcherSwaps()
+	IncWatcherError(errType string)
+	ObserveBundleLoadDuration(seconds float64)
+	SetWatcherLastSuccess(unixSeconds float64)
+}
+
 // WatcherOptions configures the content bundle watcher.
 type WatcherOptions struct {
 	Logger       log.Logger
@@ -51,6 +61,13 @@ type WatcherOptions struct {
 	// Use to update Prometheus metrics, trigger cache invalidation, etc.
 	// Called synchronously on the poll goroutine.
 	OnSwap func(hash, version string)
+
+	// Metrics receives watcher observability signals (polls, swaps, errors, durations).
+	Metrics WatcherMetrics
+
+	// StaleThreshold is how long since the last successful SSM poll before
+	// the watcher logs a staleness warning. Zero defaults to 30 minutes.
+	StaleThreshold time.Duration
 }
 
 // Watcher polls SSM for content bundle hash changes and hot-swaps
@@ -62,12 +79,18 @@ type Watcher struct {
 	interval   time.Duration
 	validation ValidationOptions
 	onSwap     func(hash, version string)
+	metrics    WatcherMetrics
 
 	// hash tracking for change detection
 	currentHash string
 
 	// backoff state
 	consecutiveErrs int
+
+	// staleness tracking
+	staleThreshold time.Duration
+	lastSuccessAt  time.Time
+	staleLogged    bool
 
 	// stats for logging and future metrics
 	pollCount int64
@@ -96,14 +119,22 @@ func NewWatcher(opts WatcherOptions) *Watcher {
 		validation = *opts.Validation
 	}
 
+	staleThreshold := opts.StaleThreshold
+	if staleThreshold <= 0 {
+		staleThreshold = 30 * time.Minute
+	}
+
 	return &Watcher{
-		loader:      opts.Loader,
-		manager:     opts.Manager,
-		logger:      opts.Logger,
-		interval:    interval,
-		validation:  validation,
-		onSwap:      opts.OnSwap,
-		currentHash: currentHash,
+		loader:         opts.Loader,
+		manager:        opts.Manager,
+		logger:         opts.Logger,
+		interval:       interval,
+		validation:     validation,
+		onSwap:         opts.OnSwap,
+		metrics:        opts.Metrics,
+		currentHash:    currentHash,
+		staleThreshold: staleThreshold,
+		lastSuccessAt:  time.Now(),
 	}
 }
 
@@ -146,6 +177,22 @@ func (w *Watcher) Run(ctx context.Context) error {
 				w.consecutiveErrs = 0
 				ticker.Reset(w.interval)
 			}
+
+			// staleness detection: emit structured error once on transition into stale state
+			if result != pollSSMError {
+				// non-SSM-error means lastSuccessAt was updated
+				if w.staleLogged {
+					w.logger.Info(ctx, "content watcher: staleness recovered")
+					w.staleLogged = false
+				}
+			} else if time.Since(w.lastSuccessAt) > w.staleThreshold {
+				if !w.staleLogged {
+					w.logger.Error(ctx, fmt.Errorf("last successful SSM poll was %s ago", time.Since(w.lastSuccessAt).Truncate(time.Second)),
+						"content watcher: content is stale, unable to verify freshness",
+					)
+					w.staleLogged = true
+				}
+			}
 		}
 	}
 }
@@ -154,12 +201,25 @@ func (w *Watcher) Run(ctx context.Context) error {
 // Returns what happened so Run can adjust timing.
 func (w *Watcher) checkOnce(ctx context.Context) pollResult {
 	w.pollCount++
+	if w.metrics != nil {
+		w.metrics.IncWatcherPolls()
+	}
 
 	// poll SSM for the current bundle hash
 	algorithm, hash, err := w.loader.FetchCurrentBundleHash(ctx)
 	if err != nil {
 		w.logger.Error(ctx, err, "content watcher: SSM poll failed")
+		if w.metrics != nil {
+			w.metrics.IncWatcherError("ssm")
+		}
 		return pollSSMError
+	}
+
+	// SSM call succeeded - update last success time
+	now := time.Now()
+	w.lastSuccessAt = now
+	if w.metrics != nil {
+		w.metrics.SetWatcherLastSuccess(float64(now.Unix()))
 	}
 
 	// no change - most common path
@@ -174,11 +234,20 @@ func (w *Watcher) checkOnce(ctx context.Context) pollResult {
 	)
 
 	// download, verify, extract to memory
+	loadStart := time.Now()
 	snap, err := w.loader.LoadHash(ctx, algorithm, hash)
+	loadDur := time.Since(loadStart).Seconds()
+	if w.metrics != nil {
+		w.metrics.ObserveBundleLoadDuration(loadDur)
+	}
+
 	if err != nil {
 		w.logger.Error(ctx, err, "content watcher: failed to load bundle",
 			"hash", truncHash(hash),
 		)
+		if w.metrics != nil {
+			w.metrics.IncWatcherError("load")
+		}
 		return pollLoadError
 	}
 
@@ -188,6 +257,9 @@ func (w *Watcher) checkOnce(ctx context.Context) pollResult {
 			"rejected_hash", truncHash(hash),
 			"current_hash", truncHash(w.currentHash),
 		)
+		if w.metrics != nil {
+			w.metrics.IncWatcherError("validation")
+		}
 		// no disk cleanup needed - MemFS is garbage collected
 		return pollValidationError
 	}
@@ -208,9 +280,23 @@ func (w *Watcher) checkOnce(ctx context.Context) pollResult {
 
 	w.currentHash = hash
 
+	if w.metrics != nil {
+		w.metrics.IncWatcherSwaps()
+	}
+
 	// notify caller (metrics, etc.)
 	if w.onSwap != nil {
-		w.onSwap(hash, version)
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					w.logger.Error(ctx, fmt.Errorf("OnSwap panic: %v", r),
+						"content watcher: OnSwap callback panicked, continuing",
+						"hash", truncHash(hash),
+					)
+				}
+			}()
+			w.onSwap(hash, version)
+		}()
 	}
 
 	return pollSwapped

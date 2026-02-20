@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -765,6 +766,50 @@ func TestLoadIntoManager_Failure(t *testing.T) {
 }
 
 // provenanceVersion helper
+
+// fetchS3 - timeout
+
+type slowS3 struct {
+	delay time.Duration
+}
+
+func (s *slowS3) GetObject(ctx context.Context, _ *s3.GetObjectInput, _ ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
+	select {
+	case <-time.After(s.delay):
+		return &s3.GetObjectOutput{
+			Body: io.NopCloser(bytes.NewReader([]byte("data"))),
+		}, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func TestFetchS3_TimesOutOnSlowResponse(t *testing.T) {
+	slow := &slowS3{delay: 5 * time.Minute} // way longer than s3OpTimeout
+	l := &Loader{
+		opts: LoaderOptions{
+			Logger:    log.Nop(),
+			SSMParam:  testSSMParam,
+			S3Bucket:  testBucket,
+			S3Prefix:  testS3Prefix,
+			S3Client:  slow,
+			SSMClient: ssmWithValue("x"),
+			Verifier:  passVerifier(),
+		},
+		s3Client:  slow,
+		ssmClient: ssmWithValue("x"),
+		logger:    log.Nop(),
+	}
+
+	// Use a short parent context timeout so the test doesn't hang
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+
+	_, err := l.fetchS3(ctx, "any/key", 1024)
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+}
 
 func TestProvenanceVersion_Nil(t *testing.T) {
 	if v := provenanceVersion(nil); v != "" {

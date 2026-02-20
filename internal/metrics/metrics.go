@@ -31,6 +31,13 @@ type ServerMetrics struct {
 	contentLoadedTimestamp prometheus.Gauge
 	contentBundleInfo      *prometheus.GaugeVec
 	reqDBStats             ReqDBStatsFromContextFunc
+
+	// watcher metrics
+	watcherPollsTotal       prometheus.Counter
+	watcherSwapsTotal       prometheus.Counter
+	watcherErrorsTotal      *prometheus.CounterVec
+	bundleLoadDuration      prometheus.Histogram
+	watcherLastSuccessTs    prometheus.Gauge
 }
 
 // New returns a fresh registry + standard collectors + HTTP metrics
@@ -59,7 +66,7 @@ func New() *ServerMetrics {
 		respBytes: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "http_response_size_bytes",
 			Help:    "Response size by method and route",
-			Buckets: prometheus.ExponentialBuckets(200, 2, 10),
+			Buckets: []float64{256, 1024, 4096, 16384, 65536, 262144, 1048576, 4194304, 16777216, 52428800},
 		}, []string{"method", "route"}),
 		httpPanicTotal: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "http_panic_total",
@@ -89,6 +96,27 @@ func New() *ServerMetrics {
 			Name: "content_bundle_info",
 			Help: "Currently active content bundle (label carries identity, value is always 1)",
 		}, []string{"sha256"}),
+		watcherPollsTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "content_watcher_polls_total",
+			Help: "Total number of watcher poll cycles",
+		}),
+		watcherSwapsTotal: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "content_watcher_swaps_total",
+			Help: "Total number of successful content bundle swaps",
+		}),
+		watcherErrorsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "content_watcher_errors_total",
+			Help: "Total watcher errors by type",
+		}, []string{"type"}),
+		bundleLoadDuration: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:    "content_bundle_load_duration_seconds",
+			Help:    "Time to download, verify, and extract a content bundle",
+			Buckets: []float64{0.5, 1, 2.5, 5, 10, 30, 60},
+		}),
+		watcherLastSuccessTs: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "content_watcher_last_success_timestamp_seconds",
+			Help: "Unix timestamp of the last successful SSM poll",
+		}),
 	}
 	//reg.MustRegister(m.inflight, m.reqTotal, m.reqDur, m.respBytes, m.httpPanicTotal, m.buildInfo)
 	reg.MustRegister(
@@ -103,6 +131,11 @@ func New() *ServerMetrics {
 		m.contentSource,
 		m.contentLoadedTimestamp,
 		m.contentBundleInfo,
+		m.watcherPollsTotal,
+		m.watcherSwapsTotal,
+		m.watcherErrorsTotal,
+		m.bundleLoadDuration,
+		m.watcherLastSuccessTs,
 	)
 
 	m.handler = promhttp.HandlerFor(reg, promhttp.HandlerOpts{
@@ -160,4 +193,24 @@ func (m *ServerMetrics) SetContentLoadedTimestamp(t time.Time) {
 func (m *ServerMetrics) SetContentBundle(sha256 string) {
 	m.contentBundleInfo.Reset()
 	m.contentBundleInfo.WithLabelValues(sha256).Set(1)
+}
+
+func (m *ServerMetrics) IncWatcherPolls() {
+	m.watcherPollsTotal.Inc()
+}
+
+func (m *ServerMetrics) IncWatcherSwaps() {
+	m.watcherSwapsTotal.Inc()
+}
+
+func (m *ServerMetrics) IncWatcherError(errType string) {
+	m.watcherErrorsTotal.WithLabelValues(errType).Inc()
+}
+
+func (m *ServerMetrics) ObserveBundleLoadDuration(seconds float64) {
+	m.bundleLoadDuration.Observe(seconds)
+}
+
+func (m *ServerMetrics) SetWatcherLastSuccess(unixSeconds float64) {
+	m.watcherLastSuccessTs.Set(unixSeconds)
 }

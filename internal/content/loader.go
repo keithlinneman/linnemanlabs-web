@@ -20,6 +20,9 @@ import (
 // maxSigBundleSize is the maximum size of a sigstore bundle JSON file
 const maxSigBundleSize int64 = 1 * 1024 * 1024 // 1MB
 
+// s3OpTimeout bounds individual S3 GetObject calls.
+const s3OpTimeout = 60 * time.Second
+
 type LoaderOptions struct {
 	Logger log.Logger
 
@@ -140,6 +143,8 @@ func (l *Loader) sigBundleKey(algorithm, hash string) string {
 
 // fetchS3 fetches an S3 object and returns its contents, limited to maxSize.
 func (l *Loader) fetchS3(ctx context.Context, key string, maxSize int64) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, s3OpTimeout)
+	defer cancel()
 	out, err := l.s3Client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(l.opts.S3Bucket),
 		Key:    aws.String(key),
@@ -187,7 +192,9 @@ func (l *Loader) LoadHash(ctx context.Context, algorithm, hash string) (*Snapsho
 		"expected_hash", hash,
 	)
 
-	out, err := l.s3Client.GetObject(ctx, &s3.GetObjectInput{
+	dlCtx, dlCancel := context.WithTimeout(ctx, s3OpTimeout)
+	defer dlCancel()
+	out, err := l.s3Client.GetObject(dlCtx, &s3.GetObjectInput{
 		Bucket: aws.String(l.opts.S3Bucket),
 		Key:    aws.String(key),
 	})
