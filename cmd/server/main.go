@@ -124,7 +124,7 @@ func main() {
 	)
 
 	// Setup pyroscope profiling
-	stopProf, err := prof.Start(ctx, prof.Options{
+	stopProf, profErr := prof.Start(ctx, prof.Options{
 		Enabled:       conf.EnablePyroscope,
 		AppName:       v.AppName,
 		AuthToken:     "",
@@ -139,8 +139,8 @@ func main() {
 			"source":    "go-agent",
 		},
 	})
-	if err != nil {
-		L.Error(ctx, err, "pyroscope start failed", "pyro_server", conf.PyroServer)
+	if profErr != nil {
+		L.Error(ctx, profErr, "pyroscope start failed", "pyro_server", conf.PyroServer)
 	}
 	defer func() { stopProf() }()
 
@@ -163,6 +163,7 @@ func main() {
 	// Setup metrics / admin listener
 	var m *metrics.ServerMetrics = metrics.New()
 	m.SetBuildInfoFromVersion(v.AppName, "server", vi)
+	m.SetProfilingActive(profErr == nil && conf.EnablePyroscope)
 
 	awsCfg, err := config.LoadDefaultConfig(ctx)
 	if err != nil {
@@ -401,17 +402,14 @@ func main() {
 	// wait for ctrl+c / sigterm
 	<-ctx.Done()
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
 	L.Info(context.Background(), "shutdown signal received")
 
 	// fail health checks to drain connections
 	gate.Set("draining")
-	// sleep for 60s to allow in-flight requests to finish and for load balancer to detect unhealthy and stop sending new requests
 	L.Info(context.Background(), "shutdown gate closed")
 
-	// will make sleep time tunable in the future
+	// sleep for 60s to allow in-flight requests to finish and for load balancer
+	// to detect unhealthy and stop sending new requests
 	L.Info(context.Background(), "sleeping 60s for in-flight and load balancer health checks to drain")
 	forceCh := make(chan os.Signal, 1)
 	signal.Notify(forceCh, os.Interrupt, syscall.SIGTERM)
@@ -423,15 +421,25 @@ func main() {
 	}
 	signal.Stop(forceCh)
 
-	if err := siteHTTPStop(shutdownCtx); err != nil {
+	// 30s total shutdown budget, each component gets its own 10s slice
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	siteCtx, siteCancel := context.WithTimeout(shutdownCtx, 10*time.Second)
+	defer siteCancel()
+	if err := siteHTTPStop(siteCtx); err != nil {
 		L.Error(context.Background(), err, "app http server shutdown")
 	}
 
-	if err := opsHTTPStop(shutdownCtx); err != nil {
+	opsCtx, opsCancel := context.WithTimeout(shutdownCtx, 10*time.Second)
+	defer opsCancel()
+	if err := opsHTTPStop(opsCtx); err != nil {
 		L.Error(context.Background(), err, "ops http server shutdown")
 	}
 
-	if err := shutdownOTEL(shutdownCtx); err != nil {
+	otelCtx, otelCancel := context.WithTimeout(shutdownCtx, 10*time.Second)
+	defer otelCancel()
+	if err := shutdownOTEL(otelCtx); err != nil {
 		L.Error(context.Background(), err, "otel shutdown")
 	}
 
