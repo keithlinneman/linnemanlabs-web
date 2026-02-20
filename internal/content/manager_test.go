@@ -386,11 +386,11 @@ func TestManager_LoadedAt_ReturnsActive(t *testing.T) {
 
 func TestManager_ConcurrentAccess(t *testing.T) {
 	const (
-		numWriters   = 10
-		numReaders   = 20
-		numRollbacks = 3
-		writeIters   = 100
-		readIters    = 100
+		numWriters    = 10
+		numReaders    = 20
+		numRollbacks  = 3
+		writeIters    = 100
+		readIters     = 100
 		rollbackIters = 50
 	)
 

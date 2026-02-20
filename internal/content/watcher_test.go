@@ -42,13 +42,13 @@ func (c *capturingLogger) With(_ ...any) log.Logger { return c }
 // fakeWatcherMetrics implements WatcherMetrics for testing.
 // Fields are guarded by mu for safe use from TestRun_* goroutines.
 type fakeWatcherMetrics struct {
-	mu             sync.Mutex
-	polls          int
-	swaps          int
-	errors         map[string]int
-	loadDurations  []float64
-	lastSuccessTs  float64
-	stale          bool
+	mu            sync.Mutex
+	polls         int
+	swaps         int
+	errors        map[string]int
+	loadDurations []float64
+	lastSuccessTs float64
+	stale         bool
 }
 
 func newFakeWatcherMetrics() *fakeWatcherMetrics {

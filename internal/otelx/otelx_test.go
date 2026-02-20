@@ -141,13 +141,13 @@ func TestInit_Enabled_ReturnsPromptly(t *testing.T) {
 	// establishment so this should return quickly.
 	start := time.Now()
 	shutdown, err := Init(context.Background(), Options{
-		Enabled:  true,
-		Endpoint: "localhost:1",
-		Insecure: true,
-		Sample:   1.0,
-		Service:  "test",
+		Enabled:   true,
+		Endpoint:  "localhost:1",
+		Insecure:  true,
+		Sample:    1.0,
+		Service:   "test",
 		Component: "test",
-		Version:  "v0.0.0-test",
+		Version:   "v0.0.0-test",
 	})
 	elapsed := time.Since(start)
 
