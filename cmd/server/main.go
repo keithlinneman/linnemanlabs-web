@@ -34,7 +34,7 @@ import (
 	v "github.com/keithlinneman/linnemanlabs-web/internal/version"
 )
 
-func main() {
+func main() { //nolint:gocognit // main wires everything together, splitting it would obscure startup sequence
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 

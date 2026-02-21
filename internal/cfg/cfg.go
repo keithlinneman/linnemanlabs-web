@@ -94,7 +94,7 @@ func FillFromEnv(fs *flag.FlagSet, prefix string, logf func(string, ...any)) {
 
 // Validate checks that config values are within expected ranges and formats.
 // Returns an error describing all invalid fields, or nil if all valid.
-func Validate(c App, hasProvenance bool) error {
+func Validate(c App, hasProvenance bool) error { //nolint:gocognit // config validation is intentionally a single linear checklist
 	var errs []error
 
 	// Ports
@@ -133,10 +133,8 @@ func Validate(c App, hasProvenance bool) error {
 	}
 
 	// Pyroscope tenant
-	if c.EnablePyroscope {
-		if c.PyroTenantID == "" {
-			errs = append(errs, fmt.Errorf("PYRO_TENANT required when ENABLE_PYROSCOPE=true"))
-		}
+	if c.EnablePyroscope && c.PyroTenantID == "" {
+		errs = append(errs, fmt.Errorf("PYRO_TENANT required when ENABLE_PYROSCOPE=true"))
 	}
 
 	// OTLP tracing (grpc exporter wants host:port, no scheme)
