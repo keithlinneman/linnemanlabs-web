@@ -62,7 +62,7 @@ func (o *Options) validate() error {
 	}
 	// Ensure maintenance exists (fail fast on boot if mispackaged).
 	if _, err := fs.Stat(o.FallbackFS, o.MaintenanceFile); err != nil {
-		return fmt.Errorf("%w: missing %q in fallback FS: %v", ErrInvalidOptions, o.MaintenanceFile, err)
+		return fmt.Errorf("%w: missing %q in fallback FS: %w", ErrInvalidOptions, o.MaintenanceFile, err)
 	}
 	// Fallback 404 is optional; we’ll degrade to plain text if missing.
 	return nil

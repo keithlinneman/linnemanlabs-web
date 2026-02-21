@@ -234,7 +234,7 @@ func TestEnsureTrace_Idempotent(t *testing.T) {
 	first := New("already traced")
 	second := EnsureTrace(first)
 
-	if first != second {
+	if first != second { //nolint:errorlint // testing error identity
 		t.Fatal("EnsureTrace should return same error if already stacked")
 	}
 }
@@ -244,7 +244,7 @@ func TestEnsureTrace_IdempotentWithStack(t *testing.T) {
 	stacked := WithStack(base)
 	result := EnsureTrace(stacked)
 
-	if result != stacked {
+	if result != stacked { //nolint:errorlint // testing error identity
 		t.Fatal("EnsureTrace should not re-wrap an already-stacked error")
 	}
 }
@@ -310,8 +310,8 @@ func TestChainedWrap_MultiplePCs(t *testing.T) {
 	w2 := Wrap(w1, "l2")
 
 	// Extract PC from outer wrap
-	pc2 := w2.(*wrap).PC()
-	pc1 := w1.(*wrap).PC()
+	pc2 := w2.(*wrap).PC() //nolint:errorlint // testing internal wrap type directly
+	pc1 := w1.(*wrap).PC() //nolint:errorlint // testing internal wrap type directly
 
 	if pc1 == 0 || pc2 == 0 {
 		t.Fatal("both wraps should have non-zero PCs")
@@ -336,7 +336,7 @@ func TestWithStack_UnwrapReturnsInner(t *testing.T) {
 	base := errors.New("inner")
 	ws := &withStack{err: base, pcs: []uintptr{1}}
 
-	if ws.Unwrap() != base {
+	if ws.Unwrap() != base { //nolint:errorlint // testing unwrap returns exact original
 		t.Fatal("Unwrap should return inner error")
 	}
 }
@@ -366,7 +366,7 @@ func TestWrapStruct_UnwrapReturnsInner(t *testing.T) {
 	base := errors.New("inner")
 	w := &wrap{err: base, msg: "ctx"}
 
-	if w.Unwrap() != base {
+	if w.Unwrap() != base { //nolint:errorlint // testing unwrap returns exact original
 		t.Fatal("Unwrap should return inner error")
 	}
 }

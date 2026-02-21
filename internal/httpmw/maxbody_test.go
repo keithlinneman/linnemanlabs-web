@@ -1,6 +1,7 @@
 package httpmw
 
 import (
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -82,7 +83,8 @@ func TestMaxBody_OverLimit_ErrorType(t *testing.T) {
 			t.Fatal("expected error")
 		}
 		// Go 1.19+ exposes MaxBytesError
-		if _, ok := err.(*http.MaxBytesError); !ok {
+		var maxErr *http.MaxBytesError
+		if !errors.As(err, &maxErr) {
 			t.Fatalf("error type = %T, want *http.MaxBytesError", err)
 		}
 	}))

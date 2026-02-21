@@ -142,7 +142,7 @@ func Validate(c *App, hasProvenance bool) error { //nolint:gocognit // config va
 		if c.OTLPEndpoint == "" {
 			errs = append(errs, fmt.Errorf("OTLP_ENDPOINT required when ENABLE_TRACING=true"))
 		} else if _, _, err := net.SplitHostPort(c.OTLPEndpoint); err != nil {
-			errs = append(errs, fmt.Errorf("OTLP_ENDPOINT must be host:port (got %q): %v", c.OTLPEndpoint, err))
+			errs = append(errs, fmt.Errorf("OTLP_ENDPOINT must be host:port (got %q): %w", c.OTLPEndpoint, err))
 		}
 	}
 
