@@ -33,6 +33,7 @@ type App struct {
 	ContentS3Prefix       string
 	EvidenceSigningKeyARN string
 	ContentSigningKeyARN  string
+	TrustedProxyHops      int
 	DrainSeconds          int
 	ShutdownBudgetSeconds int
 }
@@ -59,6 +60,7 @@ func Register(fs *flag.FlagSet, c *App) {
 	fs.StringVar(&c.ContentS3Prefix, "content-s3-prefix", "apps/linnemanlabs-web/server/content/bundles", "s3 prefix (key) to get content bundle from")
 	fs.StringVar(&c.ContentSigningKeyARN, "content-signing-key-arn", "", "KMS key ARN for content bundle signature verification")
 	fs.StringVar(&c.EvidenceSigningKeyARN, "evidence-signing-key-arn", "", "KMS key ARN for evidence signature verification")
+	fs.IntVar(&c.TrustedProxyHops, "trusted-proxy-hops", 1, "number of trusted reverse proxies (0=direct, 1=ALB, 2=CDN+ALB, etc.)")
 	fs.IntVar(&c.DrainSeconds, "drain-seconds", 60, "seconds to wait for in-flight requests to drain before shutdown (1..300)")
 	fs.IntVar(&c.ShutdownBudgetSeconds, "shutdown-budget-seconds", 30, "total seconds for component shutdown after drain (1..300)")
 }
@@ -179,6 +181,11 @@ func Validate(c *App, hasProvenance bool) error { //nolint:gocognit // config va
 		if c.ContentSigningKeyARN == "" {
 			errs = append(errs, fmt.Errorf("release build requires content-signing-key-arn"))
 		}
+	}
+
+	// Trusted proxy hops
+	if c.TrustedProxyHops < 0 {
+		errs = append(errs, fmt.Errorf("invalid TRUSTED_PROXY_HOPS %d (must be >= 0)", c.TrustedProxyHops))
 	}
 
 	// Drain and shutdown budgets

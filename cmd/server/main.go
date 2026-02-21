@@ -26,6 +26,7 @@ import (
 	"github.com/keithlinneman/linnemanlabs-web/internal/sitehandler"
 	"github.com/keithlinneman/linnemanlabs-web/internal/webassets"
 
+	"github.com/keithlinneman/linnemanlabs-web/internal/httpmw"
 	"github.com/keithlinneman/linnemanlabs-web/internal/httpserver"
 	"github.com/keithlinneman/linnemanlabs-web/internal/log"
 	"github.com/keithlinneman/linnemanlabs-web/internal/metrics"
@@ -121,6 +122,7 @@ func main() { //nolint:gocognit // main wires everything together, splitting it 
 		"content_s3_prefix", conf.ContentS3Prefix,
 		"content_signing_key_arn", conf.ContentSigningKeyARN,
 		"evidence_signing_key_arn", conf.EvidenceSigningKeyARN,
+		"trusted_proxy_hops", conf.TrustedProxyHops,
 	)
 
 	// Setup pyroscope profiling
@@ -383,6 +385,7 @@ func main() { //nolint:gocognit // main wires everything together, splitting it 
 			RateLimitMW:  limiter.Middleware,
 			Logger:       L,
 			ContentInfo:  contentMgr, // Pass content manager for headers
+			ClientIPOpts: httpmw.ClientIPOptions{TrustedHops: conf.TrustedProxyHops},
 		},
 	)
 

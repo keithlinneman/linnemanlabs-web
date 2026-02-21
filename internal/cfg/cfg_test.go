@@ -64,6 +64,9 @@ func TestRegister_Defaults(t *testing.T) {
 	if c.StacktraceLevel != "error" {
 		t.Errorf("StacktraceLevel: want %q, got %q", "error", c.StacktraceLevel)
 	}
+	if c.TrustedProxyHops != 1 {
+		t.Errorf("TrustedProxyHops: want 1, got %d", c.TrustedProxyHops)
+	}
 	if c.DrainSeconds != 60 {
 		t.Errorf("DrainSeconds: want 60, got %d", c.DrainSeconds)
 	}
@@ -91,6 +94,7 @@ func TestRegister_CLIOverrides(t *testing.T) {
 		"-content-ssm-param=/custom/param",
 		"-content-s3-bucket=my-bucket",
 		"-content-s3-prefix=my/prefix",
+		"-trusted-proxy-hops=2",
 		"-drain-seconds=120",
 		"-shutdown-budget-seconds=45",
 	})
@@ -146,6 +150,9 @@ func TestRegister_CLIOverrides(t *testing.T) {
 	if c.ContentS3Prefix != "my/prefix" {
 		t.Errorf("ContentS3Prefix: want %q, got %q", "my/prefix", c.ContentS3Prefix)
 	}
+	if c.TrustedProxyHops != 2 {
+		t.Errorf("TrustedProxyHops: want 2, got %d", c.TrustedProxyHops)
+	}
 	if c.DrainSeconds != 120 {
 		t.Errorf("DrainSeconds: want 120, got %d", c.DrainSeconds)
 	}
@@ -169,6 +176,7 @@ func TestFillFromEnv(t *testing.T) {
 	t.Setenv(pfx+"MAX_ERROR_LINKS", "12")
 	t.Setenv(pfx+"PYRO_SERVER", "https://pyro:4040")
 	t.Setenv(pfx+"OTLP_ENDPOINT", "otel:4317")
+	t.Setenv(pfx+"TRUSTED_PROXY_HOPS", "2")
 
 	fs := flag.NewFlagSet("test", flag.ContinueOnError)
 	var c App
@@ -216,6 +224,9 @@ func TestFillFromEnv(t *testing.T) {
 	}
 	if c.OTLPEndpoint != "otel:4317" {
 		t.Errorf("OTLPEndpoint: want %q, got %q", "otel:4317", c.OTLPEndpoint)
+	}
+	if c.TrustedProxyHops != 2 {
+		t.Errorf("TrustedProxyHops: want 2, got %d", c.TrustedProxyHops)
 	}
 }
 
@@ -350,6 +361,7 @@ func validConfig() App {
 		IncludeErrorLinks:     true,
 		MaxErrorLinks:         5,
 		TraceSample:           0.1,
+		TrustedProxyHops:      1,
 		EvidenceSigningKeyARN: "arn:aws:kms:us-east-2:000000000000:key/evidence-key",
 		ContentSigningKeyARN:  "arn:aws:kms:us-east-2:000000000000:key/content-key",
 		DrainSeconds:          60,
@@ -400,6 +412,20 @@ func TestValidate_ProvenanceRequiresBothKeys(t *testing.T) {
 			t.Fatalf("unexpected error with both keys: %v", err)
 		}
 	})
+}
+
+func TestValidate_TrustedProxyHops_Invalid(t *testing.T) {
+	c := validConfig()
+	c.TrustedProxyHops = -1
+	wantErrContains(t, Validate(&c, false), "invalid TRUSTED_PROXY_HOPS")
+}
+
+func TestValidate_TrustedProxyHops_ZeroValid(t *testing.T) {
+	c := validConfig()
+	c.TrustedProxyHops = 0
+	if err := Validate(&c, false); err != nil {
+		t.Fatalf("unexpected error with TrustedProxyHops=0: %v", err)
+	}
 }
 
 func TestValidate_DrainSeconds_Invalid(t *testing.T) {

@@ -20,5 +20,6 @@ type Options struct {
 	RateLimitMW  func(http.Handler) http.Handler
 	Health       health.Probe
 	Readiness    health.Probe
-	ContentInfo  httpmw.ContentInfo // For X-Content-Bundle-Version and X-Content-Hash headers
+	ContentInfo  httpmw.ContentInfo       // For X-Content-Bundle-Version and X-Content-Hash headers
+	ClientIPOpts httpmw.ClientIPOptions   // Client IP extraction options (TrustedHops, etc.)
 }

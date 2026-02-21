@@ -122,7 +122,7 @@ func NewHandler(opts *Options) http.Handler {
 	}
 
 	// Client IP resolution (must be before rate limiter and logging in middleware chain)
-	h = httpmw.ClientIP(h)
+	h = httpmw.ClientIPWithOptions(opts.ClientIPOpts)(h)
 
 	// Request ID (outer so everything downstream sees it)
 	h = httpmw.RequestID("X-Request-Id")(h)
