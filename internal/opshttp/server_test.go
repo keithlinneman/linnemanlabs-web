@@ -120,8 +120,9 @@ func TestStart_GracefulShutdown(t *testing.T) {
 
 	// Should no longer accept connections
 	addr := fmt.Sprintf("http://127.0.0.1:%d/healthz", port)
-	_, err = http.Get(addr)
+	resp, err = http.Get(addr)
 	if err == nil {
+		resp.Body.Close()
 		t.Fatal("server still accepting connections after shutdown")
 	}
 }

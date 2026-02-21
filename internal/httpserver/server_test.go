@@ -743,8 +743,9 @@ func TestStart_GracefulShutdown(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 
-	_, err = http.Get(addr)
+	resp, err = http.Get(addr)
 	if err == nil {
+		resp.Body.Close()
 		t.Fatal("server still accepting connections after shutdown")
 	}
 }
