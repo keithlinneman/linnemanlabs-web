@@ -29,6 +29,7 @@ func generateTestRSAKey(t *testing.T) *rsa.PrivateKey {
 
 // generateTestKey creates an RSA-2048 key pair for backward compat with existing tests.
 func generateTestKey(t *testing.T) *rsa.PrivateKey {
+	t.Helper()
 	return generateTestRSAKey(t)
 }
 

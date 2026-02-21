@@ -151,6 +151,7 @@ func newWatcherFixture(t *testing.T, initialSSMValue string) *watcherFixture {
 
 // seedManager loads a bundle into the manager so it has a known current hash.
 func (f *watcherFixture) seedManager(t *testing.T, hash string, data []byte) {
+	t.Helper()
 	algorithm := "sha384"
 	t.Helper()
 	putBundle(f.s3, hash, data)
