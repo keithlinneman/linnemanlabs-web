@@ -202,7 +202,7 @@ func (l *IPLimiter) Middleware(next http.Handler) http.Handler {
 			w.Header().Set("Retry-After", "30")
 			w.WriteHeader(http.StatusTooManyRequests)
 			// intentionally not including detail about limits, remaining budget, or when the bucket refills
-			w.Write([]byte(`{"error":"too many requests"}`))
+			_, _ = w.Write([]byte(`{"error":"too many requests"}`))
 			return
 		}
 

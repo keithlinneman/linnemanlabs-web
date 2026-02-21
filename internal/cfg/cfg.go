@@ -84,7 +84,7 @@ func FillFromEnv(fs *flag.FlagSet, prefix string, logf func(string, ...any)) {
 		}
 		prev := f.Value.String()
 		if err := fs.Set(f.Name, envVal); err != nil {
-			fs.Set(f.Name, prev)
+			_ = fs.Set(f.Name, prev) // restore; prev was already valid
 			if logf != nil {
 				logf("flag -%s: ignoring invalid env %s=%q: %v", f.Name, key, envVal, err)
 			}

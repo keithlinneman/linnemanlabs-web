@@ -570,7 +570,7 @@ func (api *API) HandleReleaseJSON(w http.ResponseWriter, r *http.Request) {
 	// immutable for a given release (for now at least, will do re-scans etc soon)
 	w.Header().Set("Cache-Control", "public, max-age=86400, immutable")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(bundle.ReleaseRaw)
+	_, _ = w.Write(bundle.ReleaseRaw) //nolint:gosec // G705: Content-Type set to application/json above
 }
 
 // HandleInventoryJSON serves the raw inventory.json
@@ -589,7 +589,7 @@ func (api *API) HandleInventoryJSON(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Cache-Control", "public, max-age=86400, immutable")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(bundle.InventoryRaw)
+	_, _ = w.Write(bundle.InventoryRaw) //nolint:gosec // G705: Content-Type set to application/json above
 }
 
 // HandleEvidenceFile serves an individual evidence file by its inventory path (served from memory)
@@ -640,7 +640,7 @@ func (api *API) HandleEvidenceFile(w http.ResponseWriter, r *http.Request) {
 	// evidence is immutable and hash-addressed via inventory (will do periodic re-scans soon)
 	w.Header().Set("Cache-Control", "public, max-age=86400, immutable")
 	w.WriteHeader(http.StatusOK)
-	_, err := w.Write(file.Data)
+	_, err := w.Write(file.Data) //nolint:gosec // G705: Content-Type set to application/json or in-toto+json above
 	if err != nil {
 		api.logger.Warn(ctx, "failed to write evidence file response",
 			"path", filePath,

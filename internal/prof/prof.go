@@ -14,7 +14,6 @@ type Options struct {
 	Enabled              bool
 	AppName              string
 	ServerAddress        string
-	AuthToken            string
 	TenantID             string
 	Tags                 map[string]string
 	ProfileMutexFraction int
@@ -77,7 +76,14 @@ func Start(ctx context.Context, opts Options) (func(), error) {
 	)
 
 	return func() {
-		profiler.Stop()
+		err := profiler.Stop()
+		if err != nil {
+			L.Error(ctx, err, "pyroscope stop failed",
+				"server_address", opts.ServerAddress,
+				"app_name", opts.AppName,
+			)
+			return
+		}
 		L.Info(context.Background(), "pyroscope stopped",
 			"server_address", opts.ServerAddress,
 			"app_name", opts.AppName,

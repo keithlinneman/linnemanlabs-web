@@ -41,7 +41,6 @@ func TestStart_Disabled_IgnoresAllOptions(t *testing.T) {
 		Enabled:              false,
 		AppName:              "",
 		ServerAddress:        "",
-		AuthToken:            "secret",
 		TenantID:             "tenant",
 		Tags:                 map[string]string{"k": "v"},
 		ProfileMutexFraction: 999,
@@ -130,7 +129,6 @@ func TestStart_Enabled_EmptyAddress_WithFullOptions(t *testing.T) {
 		Enabled:              true,
 		AppName:              "myapp",
 		ServerAddress:        "", // will fail validation
-		AuthToken:            "token123",
 		TenantID:             "tenant456",
 		Tags:                 map[string]string{"env": "test", "version": "v1"},
 		ProfileMutexFraction: 5,

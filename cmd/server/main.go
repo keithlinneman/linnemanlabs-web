@@ -127,7 +127,6 @@ func main() {
 	stopProf, profErr := prof.Start(ctx, prof.Options{
 		Enabled:       conf.EnablePyroscope,
 		AppName:       v.AppName,
-		AuthToken:     "",
 		ServerAddress: conf.PyroServer,
 		TenantID:      conf.PyroTenantID,
 		Tags: map[string]string{
@@ -478,16 +477,13 @@ func notifySystemd() error {
 	if addr == "" {
 		return fmt.Errorf("NOTIFY_SOCKET not set, skipping systemd notify")
 	}
-	conn, err := net.Dial("unixgram", addr)
+	conn, err := net.Dial("unixgram", addr) //nolint:gosec // G704: addr is from NOTIFY_SOCKET set by systemd, not user input
 	if err != nil {
 		return fmt.Errorf("systemd notify failed: dial failed: %w", err)
 	}
+	defer conn.Close()
 	if _, err := conn.Write([]byte("READY=1")); err != nil {
-		conn.Close()
 		return fmt.Errorf("systemd notify failed: write failed: %w", err)
-	}
-	if err := conn.Close(); err != nil {
-		return fmt.Errorf("systemd notify failed: close failed: %w", err)
 	}
 	return nil
 }

@@ -152,9 +152,10 @@ func extractTarGzToMem(data []byte) (fs.FS, error) {
 	return mfs, nil
 }
 
-// ComputeFileHash computes SHA256 of a file
+// ComputeFileHash computes SHA256 of a file. Only called by ValidateBundle()
+// which is used for validating local files, never accepts user input.
 func ComputeFileHash(path string) (string, error) {
-	f, err := os.Open(path)
+	f, err := os.Open(path) //nolint:gosec // G304: path comes from trusted bundle content paths
 	if err != nil {
 		return "", err
 	}
