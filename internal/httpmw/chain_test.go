@@ -29,7 +29,7 @@ func TestChain_OrderOuterToInner(t *testing.T) {
 	})
 
 	h := Chain(handler, mwA, mwB)
-	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/", http.NoBody))
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", http.NoBody))
 
 	want := []string{"A-before", "B-before", "handler", "B-after", "A-after"}
 	if len(order) != len(want) {
@@ -49,7 +49,7 @@ func TestChain_NoMiddleware(t *testing.T) {
 	})
 
 	h := Chain(handler)
-	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/", http.NoBody))
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", http.NoBody))
 
 	if !called {
 		t.Fatal("handler not called")
@@ -68,7 +68,7 @@ func TestChain_NilMiddlewareSkipped(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
 
 	h := Chain(handler, nil, mw, nil) // nolint:gocritic // test that nil middlewares are skipped without panicking
-	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/", http.NoBody))
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", http.NoBody))
 
 	if !called {
 		t.Fatal("non-nil middleware was not called")
@@ -89,7 +89,7 @@ func TestChain_SingleMiddleware(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	h := Chain(handler, mw)
-	h.ServeHTTP(rec, httptest.NewRequest("GET", "/", http.NoBody))
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", http.NoBody))
 
 	if !headerSet {
 		t.Fatal("middleware not called")

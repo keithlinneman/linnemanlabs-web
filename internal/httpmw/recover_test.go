@@ -59,7 +59,7 @@ func TestRecover_NoPanic(t *testing.T) {
 
 	mw := Recover(spy, nil)
 	rec := httptest.NewRecorder()
-	mw(handler).ServeHTTP(rec, httptest.NewRequest("GET", "/", http.NoBody))
+	mw(handler).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", http.NoBody))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
@@ -81,7 +81,7 @@ func TestRecover_StringPanic(t *testing.T) {
 	rec := httptest.NewRecorder()
 
 	// Should not propagate the panic
-	mw(handler).ServeHTTP(rec, httptest.NewRequest("GET", "/test", http.NoBody))
+	mw(handler).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/test", http.NoBody))
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500", rec.Code)
@@ -106,7 +106,7 @@ func TestRecover_ErrorPanic(t *testing.T) {
 
 	mw := Recover(spy, nil)
 	rec := httptest.NewRecorder()
-	mw(handler).ServeHTTP(rec, httptest.NewRequest("GET", "/", http.NoBody))
+	mw(handler).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", http.NoBody))
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500", rec.Code)
@@ -130,7 +130,7 @@ func TestRecover_ResponseBody(t *testing.T) {
 
 	mw := Recover(spy, nil)
 	rec := httptest.NewRecorder()
-	mw(handler).ServeHTTP(rec, httptest.NewRequest("GET", "/", http.NoBody))
+	mw(handler).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", http.NoBody))
 
 	body := rec.Body.String()
 	if body == "" {
@@ -152,7 +152,7 @@ func TestRecover_LogIncludesMethodAndPath(t *testing.T) {
 	mw := Recover(spy, nil)
 	mw(handler).ServeHTTP(
 		httptest.NewRecorder(),
-		httptest.NewRequest("POST", "/api/submit", http.NoBody),
+		httptest.NewRequest(http.MethodPost, "/api/submit", http.NoBody),
 	)
 
 	// The spy captures With() calls by returning self,
@@ -175,7 +175,7 @@ func TestRecover_DoesNotInterfereWithNormalFlow(t *testing.T) {
 
 	mw := Recover(spy, nil)
 	rec := httptest.NewRecorder()
-	mw(handler).ServeHTTP(rec, httptest.NewRequest("POST", "/", http.NoBody))
+	mw(handler).ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/", http.NoBody))
 
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status = %d, want 201", rec.Code)
@@ -200,7 +200,7 @@ func TestRecover_OnPanicCalled(t *testing.T) {
 	mw := Recover(spy, onPanic)
 	mw(handler).ServeHTTP(
 		httptest.NewRecorder(),
-		httptest.NewRequest("GET", "/", http.NoBody),
+		httptest.NewRequest(http.MethodGet, "/", http.NoBody),
 	)
 
 	if !called {
@@ -218,7 +218,7 @@ func TestRecover_OnPanicNil(t *testing.T) {
 	// nil callback should not panic
 	mw := Recover(spy, nil)
 	rec := httptest.NewRecorder()
-	mw(handler).ServeHTTP(rec, httptest.NewRequest("GET", "/", http.NoBody))
+	mw(handler).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", http.NoBody))
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500", rec.Code)

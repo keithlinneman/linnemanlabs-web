@@ -13,7 +13,7 @@ func TestSecurityHeaders_AllPresent(t *testing.T) {
 	})
 
 	rec := httptest.NewRecorder()
-	SecurityHeaders(handler).ServeHTTP(rec, httptest.NewRequest("GET", "/", http.NoBody))
+	SecurityHeaders(handler).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", http.NoBody))
 
 	required := map[string]string{
 		"Strict-Transport-Security":         "max-age=31536000; includeSubDomains; preload",
@@ -37,7 +37,7 @@ func TestSecurityHeaders_AllPresent(t *testing.T) {
 func TestSecurityHeaders_CSP(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
 	rec := httptest.NewRecorder()
-	SecurityHeaders(handler).ServeHTTP(rec, httptest.NewRequest("GET", "/", http.NoBody))
+	SecurityHeaders(handler).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", http.NoBody))
 
 	csp := rec.Header().Get("Content-Security-Policy")
 	if csp == "" {
@@ -65,7 +65,7 @@ func TestSecurityHeaders_CSP(t *testing.T) {
 func TestSecurityHeaders_PermissionsPolicy(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
 	rec := httptest.NewRecorder()
-	SecurityHeaders(handler).ServeHTTP(rec, httptest.NewRequest("GET", "/", http.NoBody))
+	SecurityHeaders(handler).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", http.NoBody))
 
 	pp := rec.Header().Get("Permissions-Policy")
 	if pp == "" {
@@ -88,7 +88,7 @@ func TestSecurityHeaders_HandlerCalled(t *testing.T) {
 	})
 
 	rec := httptest.NewRecorder()
-	SecurityHeaders(handler).ServeHTTP(rec, httptest.NewRequest("GET", "/", http.NoBody))
+	SecurityHeaders(handler).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", http.NoBody))
 
 	if !called {
 		t.Fatal("next handler not called")
@@ -105,7 +105,7 @@ func TestSecurityHeaders_HeadersSetBeforeHandler(t *testing.T) {
 		hstsInHandler = w.Header().Get("Strict-Transport-Security")
 	})
 
-	SecurityHeaders(handler).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/", http.NoBody))
+	SecurityHeaders(handler).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", http.NoBody))
 
 	if hstsInHandler == "" {
 		t.Fatal("HSTS header not visible to downstream handler")

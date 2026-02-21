@@ -328,7 +328,7 @@ func TestRequireNonPublicNetwork_Loopback(t *testing.T) {
 	h := requireNonPublicNetwork(log.Nop(), inner)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/healthz", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/healthz", http.NoBody)
 	req.RemoteAddr = "127.0.0.1:12345"
 	h.ServeHTTP(rec, req)
 
@@ -345,7 +345,7 @@ func TestRequireNonPublicNetwork_IPv6Loopback(t *testing.T) {
 	h := requireNonPublicNetwork(log.Nop(), inner)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/healthz", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/healthz", http.NoBody)
 	req.RemoteAddr = "[::1]:12345"
 	h.ServeHTTP(rec, req)
 
@@ -369,7 +369,7 @@ func TestRequireNonPublicNetwork_PrivateIP(t *testing.T) {
 
 	for _, addr := range privateIPs {
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest("GET", "/healthz", http.NoBody)
+		req := httptest.NewRequest(http.MethodGet, "/healthz", http.NoBody)
 		req.RemoteAddr = addr
 		h.ServeHTTP(rec, req)
 
@@ -395,7 +395,7 @@ func TestRequireNonPublicNetwork_PublicIP_Rejected(t *testing.T) {
 
 	for _, addr := range publicIPs {
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest("GET", "/healthz", http.NoBody)
+		req := httptest.NewRequest(http.MethodGet, "/healthz", http.NoBody)
 		req.RemoteAddr = addr
 		h.ServeHTTP(rec, req)
 
@@ -413,7 +413,7 @@ func TestRequireNonPublicNetwork_LinkLocal(t *testing.T) {
 	h := requireNonPublicNetwork(log.Nop(), inner)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/healthz", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/healthz", http.NoBody)
 	req.RemoteAddr = "169.254.1.1:8080"
 	h.ServeHTTP(rec, req)
 
@@ -430,7 +430,7 @@ func TestRequireNonPublicNetwork_BadRemoteAddr(t *testing.T) {
 	h := requireNonPublicNetwork(log.Nop(), inner)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/healthz", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/healthz", http.NoBody)
 	req.RemoteAddr = "not-an-address"
 	h.ServeHTTP(rec, req)
 
@@ -447,7 +447,7 @@ func TestRequireNonPublicNetwork_EmptyRemoteAddr(t *testing.T) {
 	h := requireNonPublicNetwork(log.Nop(), inner)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/healthz", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/healthz", http.NoBody)
 	req.RemoteAddr = ""
 	h.ServeHTTP(rec, req)
 
@@ -464,7 +464,7 @@ func TestRequireNonPublicNetwork_InvalidIP(t *testing.T) {
 	h := requireNonPublicNetwork(log.Nop(), inner)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/healthz", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/healthz", http.NoBody)
 	req.RemoteAddr = "999.999.999.999:8080"
 	h.ServeHTTP(rec, req)
 
@@ -483,7 +483,7 @@ func TestRequireNonPublicNetwork_IPv4MappedIPv6_Rejected(t *testing.T) {
 	h := requireNonPublicNetwork(log.Nop(), inner)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/healthz", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/healthz", http.NoBody)
 	req.RemoteAddr = "[::ffff:8.8.8.8]:12345"
 	h.ServeHTTP(rec, req)
 
@@ -502,7 +502,7 @@ func TestRequireNonPublicNetwork_IPv4MappedIPv6_PrivateAllowed(t *testing.T) {
 	h := requireNonPublicNetwork(log.Nop(), inner)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/healthz", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/healthz", http.NoBody)
 	req.RemoteAddr = "[::ffff:10.0.0.1]:12345"
 	h.ServeHTTP(rec, req)
 

@@ -15,7 +15,7 @@ func TestHealthzHandler_Healthy(t *testing.T) {
 	h := HealthzHandler(Fixed(true, ""))
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/healthz", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/healthz", http.NoBody)
 	h.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -30,7 +30,7 @@ func TestHealthzHandler_Unhealthy(t *testing.T) {
 	h := HealthzHandler(Fixed(false, "database down"))
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/healthz", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/healthz", http.NoBody)
 	h.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusServiceUnavailable {
@@ -45,7 +45,7 @@ func TestHealthzHandler_NilProbe(t *testing.T) {
 	h := HealthzHandler(nil)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/healthz", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/healthz", http.NoBody)
 	h.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -66,7 +66,7 @@ func TestHealthzHandler_DynamicProbe(t *testing.T) {
 
 	// Initially healthy
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest("GET", "/healthz", http.NoBody))
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", http.NoBody))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("initially: status = %d, want 200", rec.Code)
 	}
@@ -74,7 +74,7 @@ func TestHealthzHandler_DynamicProbe(t *testing.T) {
 	// Flip to unhealthy
 	healthy = false
 	rec = httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest("GET", "/healthz", http.NoBody))
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", http.NoBody))
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("after flip: status = %d, want 503", rec.Code)
 	}
@@ -91,7 +91,7 @@ func TestHealthzHandler_PassesRequestContext(t *testing.T) {
 
 	h := HealthzHandler(probe)
 	ctx := context.WithValue(context.Background(), ctxKey("test"), "value")
-	req := httptest.NewRequest("GET", "/healthz", http.NoBody).WithContext(ctx)
+	req := httptest.NewRequest(http.MethodGet, "/healthz", http.NoBody).WithContext(ctx)
 	h.ServeHTTP(httptest.NewRecorder(), req)
 
 	if gotCtx.Value(ctxKey("test")) != "value" {
@@ -105,7 +105,7 @@ func TestReadyzHandler_Ready(t *testing.T) {
 	h := ReadyzHandler(Fixed(true, ""))
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/readyz", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/readyz", http.NoBody)
 	h.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -120,7 +120,7 @@ func TestReadyzHandler_NotReady(t *testing.T) {
 	h := ReadyzHandler(Fixed(false, "content: no active snapshot"))
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/readyz", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/readyz", http.NoBody)
 	h.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusServiceUnavailable {
@@ -135,7 +135,7 @@ func TestReadyzHandler_NilProbe(t *testing.T) {
 	h := ReadyzHandler(nil)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/readyz", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/readyz", http.NoBody)
 	h.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {

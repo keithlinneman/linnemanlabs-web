@@ -42,7 +42,7 @@ func TestRequestID_GeneratesWhenMissing(t *testing.T) {
 
 	mw := RequestID("X-Request-Id")
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 
 	mw(handler).ServeHTTP(rec, req)
 
@@ -65,7 +65,7 @@ func TestRequestID_PropagatesExisting(t *testing.T) {
 
 	mw := RequestID("X-Request-Id")
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	req.Header.Set("X-Request-Id", "upstream-id-abc")
 
 	mw(handler).ServeHTTP(rec, req)
@@ -86,7 +86,7 @@ func TestRequestID_CustomHeaderName(t *testing.T) {
 
 	mw := RequestID("X-Correlation-Id")
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	req.Header.Set("X-Correlation-Id", "corr-999")
 
 	mw(handler).ServeHTTP(rec, req)
@@ -108,7 +108,7 @@ func TestRequestID_DefaultHeaderName(t *testing.T) {
 	// Empty string should default to X-Request-Id
 	mw := RequestID("")
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	req.Header.Set("X-Request-Id", "default-header-test")
 
 	mw(handler).ServeHTTP(rec, req)
@@ -126,7 +126,7 @@ func TestRequestID_UniquePerRequest(t *testing.T) {
 
 	for i := 0; i < 100; i++ {
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest("GET", "/", http.NoBody)
+		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 		mw(handler).ServeHTTP(rec, req)
 
 		id := rec.Header().Get("X-Request-Id")

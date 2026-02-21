@@ -84,7 +84,7 @@ func TestMiddleware_IncrementsReqTotal(t *testing.T) {
 	}))
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/api/test", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/api/test", http.NoBody)
 	handler.ServeHTTP(rec, req)
 
 	f := gatherMetric(t, m.reg, "http_requests_total")
@@ -109,7 +109,7 @@ func TestMiddleware_CorrectLabels(t *testing.T) {
 	}))
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("POST", "/api/missing", http.NoBody)
+	req := httptest.NewRequest(http.MethodPost, "/api/missing", http.NoBody)
 	handler.ServeHTTP(rec, req)
 
 	f := gatherMetric(t, m.reg, "http_requests_total")
@@ -123,7 +123,7 @@ func TestMiddleware_CorrectLabels(t *testing.T) {
 		labels[lp.GetName()] = lp.GetValue()
 	}
 
-	if labels["method"] != "POST" {
+	if labels["method"] != http.MethodPost {
 		t.Fatalf("method = %q, want POST", labels["method"])
 	}
 	if labels["status"] != "404" {
@@ -143,7 +143,7 @@ func TestMiddleware_DefaultStatus200(t *testing.T) {
 	}))
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	handler.ServeHTTP(rec, req)
 
 	f := gatherMetric(t, m.reg, "http_requests_total")
@@ -165,7 +165,7 @@ func TestMiddleware_NoWriteDefaultsTo200(t *testing.T) {
 	handler := m.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	handler.ServeHTTP(rec, req)
 
 	f := gatherMetric(t, m.reg, "http_requests_total")
@@ -194,7 +194,7 @@ func TestMiddleware_InflightGauge(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/", http.NoBody))
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", http.NoBody))
 
 	if inflightDuring != 1 {
 		t.Fatalf("inflight during request = %f, want 1", inflightDuring)
@@ -219,7 +219,7 @@ func TestMiddleware_RecordsDuration(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/api/test", http.NoBody))
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/api/test", http.NoBody))
 
 	count := histogramCount(t, m.reg, "http_request_duration_seconds")
 	if count != 1 {
@@ -237,7 +237,7 @@ func TestMiddleware_RecordsResponseSize(t *testing.T) {
 		w.Write([]byte("hello world")) // 11 bytes
 	}))
 
-	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/", http.NoBody))
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", http.NoBody))
 
 	f := gatherMetric(t, m.reg, "http_response_size_bytes")
 	if f == nil {
@@ -264,7 +264,7 @@ func TestMiddleware_ChiRoutePattern(t *testing.T) {
 	})
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/users/42", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/users/42", http.NoBody)
 	r.ServeHTTP(rec, req)
 
 	f := gatherMetric(t, m.reg, "http_requests_total")
@@ -290,7 +290,7 @@ func TestMiddleware_FallsBackToUnmatched(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/custom/path", http.NoBody))
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/custom/path", http.NoBody))
 
 	f := gatherMetric(t, m.reg, "http_requests_total")
 	labels := make(map[string]string)
@@ -314,7 +314,7 @@ func TestMiddleware_MultipleRequests(t *testing.T) {
 	}))
 
 	for i := 0; i < 10; i++ {
-		handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/api/data", http.NoBody))
+		handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/api/data", http.NoBody))
 	}
 
 	f := gatherMetric(t, m.reg, "http_requests_total")
@@ -339,9 +339,9 @@ func TestMiddleware_DifferentMethods(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/api", http.NoBody))
-	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/api", http.NoBody))
-	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("PUT", "/api", http.NoBody))
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/api", http.NoBody))
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/api", http.NoBody))
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPut, "/api", http.NoBody))
 
 	f := gatherMetric(t, m.reg, "http_requests_total")
 	if len(f.GetMetric()) != 3 {
@@ -360,7 +360,7 @@ func TestMiddleware_CreatesRouteContext(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	req := httptest.NewRequest("GET", "/", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	handler.ServeHTTP(httptest.NewRecorder(), req)
 
 	if !hasRouteCtx {
@@ -435,7 +435,7 @@ func TestMiddleware_ResponsePassthrough(t *testing.T) {
 	}))
 
 	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, httptest.NewRequest("GET", "/", http.NoBody))
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", http.NoBody))
 
 	if rec.Code != http.StatusTeapot {
 		t.Fatalf("status = %d, want 418", rec.Code)
@@ -457,7 +457,7 @@ func TestMiddleware_DistinctStatusCodes(t *testing.T) {
 		handler := m.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(c)
 		}))
-		handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/", http.NoBody))
+		handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", http.NoBody))
 	}
 
 	f := gatherMetric(t, m.reg, "http_requests_total")

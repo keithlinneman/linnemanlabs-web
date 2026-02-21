@@ -29,7 +29,7 @@ func TestContentHeaders_BothSet(t *testing.T) {
 
 	mw := ContentHeaders(info)
 	rec := httptest.NewRecorder()
-	mw(handler).ServeHTTP(rec, httptest.NewRequest("GET", "/", http.NoBody))
+	mw(handler).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", http.NoBody))
 
 	if got := rec.Header().Get("X-Content-Bundle-Version"); got != "v1.2.3" {
 		t.Fatalf("X-Content-Bundle-Version = %q, want %q", got, "v1.2.3")
@@ -49,7 +49,7 @@ func TestContentHeaders_ShortHash(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
 	mw := ContentHeaders(info)
 	rec := httptest.NewRecorder()
-	mw(handler).ServeHTTP(rec, httptest.NewRequest("GET", "/", http.NoBody))
+	mw(handler).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", http.NoBody))
 
 	// Hash <= 12 chars should not be truncated
 	if got := rec.Header().Get("X-Content-Hash"); got != "abc123" {
@@ -66,7 +66,7 @@ func TestContentHeaders_ExactlyTwelveCharHash(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
 	mw := ContentHeaders(info)
 	rec := httptest.NewRecorder()
-	mw(handler).ServeHTTP(rec, httptest.NewRequest("GET", "/", http.NoBody))
+	mw(handler).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", http.NoBody))
 
 	if got := rec.Header().Get("X-Content-Hash"); got != "abcdef123456" {
 		t.Fatalf("X-Content-Hash = %q, want %q", got, "abcdef123456")
@@ -82,7 +82,7 @@ func TestContentHeaders_EmptyVersion(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
 	mw := ContentHeaders(info)
 	rec := httptest.NewRecorder()
-	mw(handler).ServeHTTP(rec, httptest.NewRequest("GET", "/", http.NoBody))
+	mw(handler).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", http.NoBody))
 
 	if got := rec.Header().Get("X-Content-Bundle-Version"); got != "" {
 		t.Fatalf("expected no version header, got %q", got)
@@ -101,7 +101,7 @@ func TestContentHeaders_EmptyHash(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
 	mw := ContentHeaders(info)
 	rec := httptest.NewRecorder()
-	mw(handler).ServeHTTP(rec, httptest.NewRequest("GET", "/", http.NoBody))
+	mw(handler).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", http.NoBody))
 
 	if got := rec.Header().Get("X-Content-Bundle-Version"); got != "v2.0.0" {
 		t.Fatalf("version = %q, want %q", got, "v2.0.0")
@@ -118,7 +118,7 @@ func TestContentHeaders_NilInfo(t *testing.T) {
 
 	mw := ContentHeaders(nil)
 	rec := httptest.NewRecorder()
-	mw(handler).ServeHTTP(rec, httptest.NewRequest("GET", "/", http.NoBody))
+	mw(handler).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", http.NoBody))
 
 	if got := rec.Header().Get("X-Content-Bundle-Version"); got != "" {
 		t.Fatalf("expected no version header with nil info, got %q", got)
@@ -143,7 +143,7 @@ func TestContentHeaders_SetsSpanAttributes(t *testing.T) {
 
 	mw := ContentHeaders(info)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/", http.NoBody).WithContext(ctx)
+	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody).WithContext(ctx)
 	mw(handler).ServeHTTP(rec, req)
 
 	spans := sr.Ended()
@@ -177,7 +177,7 @@ func TestContentHeaders_NoSpan_NoPanic(t *testing.T) {
 
 	mw := ContentHeaders(info)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/", http.NoBody) // no span in context
+	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody) // no span in context
 	mw(handler).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -192,7 +192,7 @@ func TestContentHeaders_HandlerCalled(t *testing.T) {
 	})
 
 	mw := ContentHeaders(&stubContentInfo{version: "v1", hash: "abc"})
-	mw(handler).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/", http.NoBody))
+	mw(handler).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", http.NoBody))
 
 	if !called {
 		t.Fatal("next handler not called")

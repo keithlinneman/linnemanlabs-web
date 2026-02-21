@@ -379,7 +379,7 @@ func FuzzExtractClientAddr(f *testing.F) {
 	f.Add("[::1]:8080", "2001:db8::1")               // IPv6
 	f.Add("127.0.0.1:80", "")                        // loopback, no XFF
 	f.Fuzz(func(t *testing.T, remoteAddr, xff string) {
-		r := httptest.NewRequest("GET", "/", http.NoBody)
+		r := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 		r.RemoteAddr = remoteAddr
 		if xff != "" {
 			r.Header.Set("X-Forwarded-For", xff)

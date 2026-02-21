@@ -59,7 +59,7 @@ func TestIntegration_FullStack(t *testing.T) {
 	t.Run("serves index.html with security headers", func(t *testing.T) {
 		t.Parallel()
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest("GET", "/", http.NoBody)
+		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 		handler.ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusOK {
@@ -106,7 +106,7 @@ func TestIntegration_FullStack(t *testing.T) {
 	t.Run("serves sub-path content", func(t *testing.T) {
 		t.Parallel()
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest("GET", "/about/", http.NoBody)
+		req := httptest.NewRequest(http.MethodGet, "/about/", http.NoBody)
 		handler.ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusOK {
@@ -122,7 +122,7 @@ func TestIntegration_FullStack(t *testing.T) {
 	t.Run("serves static assets with security headers", func(t *testing.T) {
 		t.Parallel()
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest("GET", "/style.css", http.NoBody)
+		req := httptest.NewRequest(http.MethodGet, "/style.css", http.NoBody)
 		handler.ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusOK {
@@ -136,7 +136,7 @@ func TestIntegration_FullStack(t *testing.T) {
 	t.Run("returns 404 for missing path", func(t *testing.T) {
 		t.Parallel()
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest("GET", "/does-not-exist", http.NoBody)
+		req := httptest.NewRequest(http.MethodGet, "/does-not-exist", http.NoBody)
 		handler.ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusNotFound {
@@ -151,7 +151,7 @@ func TestIntegration_FullStack(t *testing.T) {
 	t.Run("rejects POST with 405", func(t *testing.T) {
 		t.Parallel()
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest("POST", "/", http.NoBody)
+		req := httptest.NewRequest(http.MethodPost, "/", http.NoBody)
 		handler.ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusMethodNotAllowed {

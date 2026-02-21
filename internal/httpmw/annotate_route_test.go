@@ -35,7 +35,7 @@ func TestAnnotateHTTPRoute_WithChiRouteContext(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/api/v1/health", http.NoBody).WithContext(ctx)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/health", http.NoBody).WithContext(ctx)
 
 	AnnotateHTTPRoute(handler).ServeHTTP(rec, req)
 
@@ -63,7 +63,7 @@ func TestAnnotateHTTPRoute_NoRouteContext(t *testing.T) {
 	})
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/some/path", http.NoBody).WithContext(ctx)
+	req := httptest.NewRequest(http.MethodGet, "/some/path", http.NoBody).WithContext(ctx)
 
 	AnnotateHTTPRoute(handler).ServeHTTP(rec, req)
 
@@ -80,7 +80,7 @@ func TestAnnotateHTTPRoute_NoSpan(t *testing.T) {
 	})
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/test", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
 
 	AnnotateHTTPRoute(handler).ServeHTTP(rec, req)
 
@@ -100,7 +100,7 @@ func TestAnnotateHTTPRoute_WithChiRouter(t *testing.T) {
 	})
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/users/42", http.NoBody).WithContext(ctx)
+	req := httptest.NewRequest(http.MethodGet, "/users/42", http.NoBody).WithContext(ctx)
 
 	r.ServeHTTP(rec, req)
 

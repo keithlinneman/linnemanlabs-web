@@ -20,7 +20,7 @@ func TestMaxBody_UnderLimit_PassesThrough(t *testing.T) {
 
 	payload := "hello world" // 11 bytes, well under 1024
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("POST", "/", strings.NewReader(payload))
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(payload))
 	handler.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -46,7 +46,7 @@ func TestMaxBody_ExactlyAtLimit(t *testing.T) {
 	}))
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("POST", "/", strings.NewReader(payload))
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(payload))
 	handler.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -69,7 +69,7 @@ func TestMaxBody_OverLimit_ReadFails(t *testing.T) {
 	}))
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("POST", "/", strings.NewReader(payload))
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(payload))
 	handler.ServeHTTP(rec, req)
 }
 
@@ -88,7 +88,7 @@ func TestMaxBody_OverLimit_ErrorType(t *testing.T) {
 	}))
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("POST", "/", strings.NewReader(strings.Repeat("x", 100)))
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(strings.Repeat("x", 100)))
 	handler.ServeHTTP(rec, req)
 }
 
@@ -98,7 +98,7 @@ func TestMaxBody_GET_NoBody(t *testing.T) {
 	}))
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	handler.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -116,7 +116,7 @@ func TestMaxBody_ZeroLimit_RejectsAnyBody(t *testing.T) {
 	}))
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("POST", "/", strings.NewReader("a"))
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("a"))
 	handler.ServeHTTP(rec, req)
 }
 
@@ -133,7 +133,7 @@ func TestMaxBody_LargeLimit(t *testing.T) {
 	}))
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("POST", "/", strings.NewReader(payload))
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(payload))
 	handler.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -158,7 +158,7 @@ func TestMaxBody_ChainedWithOtherMiddleware(t *testing.T) {
 
 	// under limit
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("POST", "/", strings.NewReader("short"))
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("short"))
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("under limit: status = %d, want 200", rec.Code)
@@ -166,7 +166,7 @@ func TestMaxBody_ChainedWithOtherMiddleware(t *testing.T) {
 
 	// over limit
 	rec = httptest.NewRecorder()
-	req = httptest.NewRequest("POST", "/", strings.NewReader("this exceeds the ten byte limit"))
+	req = httptest.NewRequest(http.MethodPost, "/", strings.NewReader("this exceeds the ten byte limit"))
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("over limit: status = %d, want 413", rec.Code)

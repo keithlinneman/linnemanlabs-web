@@ -67,7 +67,7 @@ func getFreePort(t *testing.T) int {
 func TestNewHandler_SecurityHeaders(t *testing.T) {
 	opts := defaultOpts()
 	h := NewHandler(&opts)
-	rec := doRequest(t, h, "GET", "/anything")
+	rec := doRequest(t, h, http.MethodGet, "/anything")
 
 	required := []string{
 		"Strict-Transport-Security",
@@ -89,7 +89,7 @@ func TestNewHandler_SecurityHeaders(t *testing.T) {
 func TestNewHandler_SecurityHeaders_On404(t *testing.T) {
 	opts := defaultOpts()
 	h := NewHandler(&opts)
-	rec := doRequest(t, h, "GET", "/nonexistent-path-12345")
+	rec := doRequest(t, h, http.MethodGet, "/nonexistent-path-12345")
 
 	if rec.Header().Get("Strict-Transport-Security") == "" {
 		t.Fatal("HSTS missing on 404 response")
@@ -110,7 +110,7 @@ func TestNewHandler_SecurityHeaders_AllMethods(t *testing.T) {
 	h := NewHandler(&opts)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("POST", "/api/submit", http.NoBody)
+	req := httptest.NewRequest(http.MethodPost, "/api/submit", http.NoBody)
 	h.ServeHTTP(rec, req)
 
 	if rec.Header().Get("Strict-Transport-Security") == "" {
@@ -121,7 +121,7 @@ func TestNewHandler_SecurityHeaders_AllMethods(t *testing.T) {
 func TestNewHandler_RequestID_Generated(t *testing.T) {
 	opts := defaultOpts()
 	h := NewHandler(&opts)
-	rec := doRequest(t, h, "GET", "/")
+	rec := doRequest(t, h, http.MethodGet, "/")
 
 	id := rec.Header().Get("X-Request-Id")
 	if id == "" {
@@ -137,7 +137,7 @@ func TestNewHandler_RequestID_Propagated(t *testing.T) {
 	h := NewHandler(&opts)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	req.Header.Set("X-Request-Id", "upstream-abc-123")
 	h.ServeHTTP(rec, req)
 
@@ -152,7 +152,7 @@ func TestNewHandler_RequestID_UniquePerRequest(t *testing.T) {
 	ids := make(map[string]bool)
 
 	for i := 0; i < 50; i++ {
-		rec := doRequest(t, h, "GET", "/")
+		rec := doRequest(t, h, http.MethodGet, "/")
 		id := rec.Header().Get("X-Request-Id")
 		if ids[id] {
 			t.Fatalf("duplicate request ID: %q", id)
@@ -173,7 +173,7 @@ func TestNewHandler_APIRoutes(t *testing.T) {
 	}
 
 	h := NewHandler(&opts)
-	rec := doRequest(t, h, "GET", "/api/test")
+	rec := doRequest(t, h, http.MethodGet, "/api/test")
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
@@ -198,12 +198,12 @@ func TestNewHandler_APIRoutes_MultipleRoutes(t *testing.T) {
 
 	h := NewHandler(&opts)
 
-	rec1 := doRequest(t, h, "GET", "/api/one")
+	rec1 := doRequest(t, h, http.MethodGet, "/api/one")
 	if !strings.Contains(rec1.Body.String(), "one") {
 		t.Fatalf("route /api/one: body = %q", rec1.Body.String())
 	}
 
-	rec2 := doRequest(t, h, "GET", "/api/two")
+	rec2 := doRequest(t, h, http.MethodGet, "/api/two")
 	if !strings.Contains(rec2.Body.String(), "two") {
 		t.Fatalf("route /api/two: body = %q", rec2.Body.String())
 	}
@@ -214,7 +214,7 @@ func TestNewHandler_APIRoutes_Nil(t *testing.T) {
 	opts.APIRoutes = nil
 
 	h := NewHandler(&opts)
-	rec := doRequest(t, h, "GET", "/")
+	rec := doRequest(t, h, http.MethodGet, "/")
 
 	if rec.Code == 0 {
 		t.Fatal("no response")
@@ -231,7 +231,7 @@ func TestNewHandler_SiteHandler(t *testing.T) {
 	})
 
 	h := NewHandler(&opts)
-	rec := doRequest(t, h, "GET", "/anything")
+	rec := doRequest(t, h, http.MethodGet, "/anything")
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
@@ -246,7 +246,7 @@ func TestNewHandler_SiteHandler_Nil(t *testing.T) {
 	opts.SiteHandler = nil
 
 	h := NewHandler(&opts)
-	rec := doRequest(t, h, "GET", "/unknown")
+	rec := doRequest(t, h, http.MethodGet, "/unknown")
 
 	// chi default 404
 	if rec.Code != http.StatusNotFound {
@@ -270,13 +270,13 @@ func TestNewHandler_APIRoutes_TakePrecedenceOverFallback(t *testing.T) {
 	h := NewHandler(&opts)
 
 	// Explicit route should be served by APIRoutes
-	rec := doRequest(t, h, "GET", "/api/data")
+	rec := doRequest(t, h, http.MethodGet, "/api/data")
 	if !strings.Contains(rec.Body.String(), "api-response") {
 		t.Fatalf("explicit route should hit APIRoutes, got: %q", rec.Body.String())
 	}
 
 	// Unknown route should fall through to SiteHandler
-	rec = doRequest(t, h, "GET", "/unknown")
+	rec = doRequest(t, h, http.MethodGet, "/unknown")
 	if !strings.Contains(rec.Body.String(), "fallback") {
 		t.Fatalf("unknown route should hit SiteHandler, got: %q", rec.Body.String())
 	}
@@ -291,7 +291,7 @@ func TestNewHandler_SiteHandler_MethodNotAllowed(t *testing.T) {
 	})
 
 	h := NewHandler(&opts)
-	doRequest(t, h, "DELETE", "/anything")
+	doRequest(t, h, http.MethodDelete, "/anything")
 
 	if !fallbackCalled {
 		t.Fatal("SiteHandler should handle MethodNotAllowed")
@@ -305,7 +305,7 @@ func TestNewHandler_HealthEndpoint(t *testing.T) {
 	opts.Health = &stubProbe{err: nil}
 
 	h := NewHandler(&opts)
-	rec := doRequest(t, h, "GET", "/-/healthy")
+	rec := doRequest(t, h, http.MethodGet, "/-/healthy")
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
@@ -320,7 +320,7 @@ func TestNewHandler_HealthEndpoint_Unhealthy(t *testing.T) {
 	opts.Health = &stubProbe{err: fmt.Errorf("broken")}
 
 	h := NewHandler(&opts)
-	rec := doRequest(t, h, "GET", "/-/healthy")
+	rec := doRequest(t, h, http.MethodGet, "/-/healthy")
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want 503", rec.Code)
@@ -332,7 +332,7 @@ func TestNewHandler_HealthEndpoint_NilProbe(t *testing.T) {
 	opts.Health = nil
 
 	h := NewHandler(&opts)
-	rec := doRequest(t, h, "GET", "/-/healthy")
+	rec := doRequest(t, h, http.MethodGet, "/-/healthy")
 
 	// No probe registered, chi returns 404
 	if rec.Code != http.StatusNotFound {
@@ -345,7 +345,7 @@ func TestNewHandler_ReadyEndpoint(t *testing.T) {
 	opts.Readiness = &stubProbe{err: nil}
 
 	h := NewHandler(&opts)
-	rec := doRequest(t, h, "GET", "/-/ready")
+	rec := doRequest(t, h, http.MethodGet, "/-/ready")
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", rec.Code)
@@ -360,7 +360,7 @@ func TestNewHandler_ReadyEndpoint_NotReady(t *testing.T) {
 	opts.Readiness = &stubProbe{err: fmt.Errorf("content: no active snapshot")}
 
 	h := NewHandler(&opts)
-	rec := doRequest(t, h, "GET", "/-/ready")
+	rec := doRequest(t, h, http.MethodGet, "/-/ready")
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want 503", rec.Code)
@@ -372,7 +372,7 @@ func TestNewHandler_ReadyEndpoint_NilProbe(t *testing.T) {
 	opts.Readiness = nil
 
 	h := NewHandler(&opts)
-	rec := doRequest(t, h, "GET", "/-/ready")
+	rec := doRequest(t, h, http.MethodGet, "/-/ready")
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404 (no readiness probe registered)", rec.Code)
@@ -390,12 +390,12 @@ func TestNewHandler_HealthEndpoints_NotOverriddenByFallback(t *testing.T) {
 
 	h := NewHandler(&opts)
 
-	rec := doRequest(t, h, "GET", "/-/healthy")
+	rec := doRequest(t, h, http.MethodGet, "/-/healthy")
 	if !strings.Contains(rec.Body.String(), "ok") {
 		t.Fatalf("/-/healthy should be served by health probe, got: %q", rec.Body.String())
 	}
 
-	rec = doRequest(t, h, "GET", "/-/ready")
+	rec = doRequest(t, h, http.MethodGet, "/-/ready")
 	if !strings.Contains(rec.Body.String(), "ready") {
 		t.Fatalf("/-/ready should be served by readiness probe, got: %q", rec.Body.String())
 	}
@@ -411,7 +411,7 @@ func TestNewHandler_ContentHeaders_WhenProvided(t *testing.T) {
 	}
 
 	h := NewHandler(&opts)
-	rec := doRequest(t, h, "GET", "/")
+	rec := doRequest(t, h, http.MethodGet, "/")
 
 	if got := rec.Header().Get("X-Content-Bundle-Version"); got != "v1.2.3" {
 		t.Fatalf("X-Content-Bundle-Version = %q, want %q", got, "v1.2.3")
@@ -426,7 +426,7 @@ func TestNewHandler_ContentHeaders_NilSkipped(t *testing.T) {
 	opts.ContentInfo = nil
 
 	h := NewHandler(&opts)
-	rec := doRequest(t, h, "GET", "/")
+	rec := doRequest(t, h, http.MethodGet, "/")
 
 	if got := rec.Header().Get("X-Content-Bundle-Version"); got != "" {
 		t.Fatalf("X-Content-Bundle-Version should be empty, got %q", got)
@@ -444,7 +444,7 @@ func TestNewHandler_RateLimitMW_Applied(t *testing.T) {
 	}
 
 	h := NewHandler(&opts)
-	doRequest(t, h, "GET", "/")
+	doRequest(t, h, http.MethodGet, "/")
 
 	if !rateLimited {
 		t.Fatal("rate limit middleware not applied")
@@ -456,7 +456,7 @@ func TestNewHandler_RateLimitMW_NilSkipped(t *testing.T) {
 	opts.RateLimitMW = nil
 
 	h := NewHandler(&opts)
-	rec := doRequest(t, h, "GET", "/")
+	rec := doRequest(t, h, http.MethodGet, "/")
 	if rec.Code == 0 {
 		t.Fatal("no response")
 	}
@@ -473,7 +473,7 @@ func TestNewHandler_MetricsMW_Applied(t *testing.T) {
 	}
 
 	h := NewHandler(&opts)
-	doRequest(t, h, "GET", "/")
+	doRequest(t, h, http.MethodGet, "/")
 
 	if !metricsHit {
 		t.Fatal("metrics middleware not applied")
@@ -490,7 +490,7 @@ func TestNewHandler_RecoverMW_Enabled(t *testing.T) {
 	}
 
 	h := NewHandler(&opts)
-	rec := doRequest(t, h, "GET", "/panic")
+	rec := doRequest(t, h, http.MethodGet, "/panic")
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500 (recover should catch panic)", rec.Code)
@@ -514,7 +514,7 @@ func TestNewHandler_RecoverMW_Disabled(t *testing.T) {
 		}
 	}()
 
-	doRequest(t, h, "GET", "/panic")
+	doRequest(t, h, http.MethodGet, "/panic")
 }
 
 func TestNewHandler_RecoverMW_CallsOnPanic(t *testing.T) {
@@ -529,7 +529,7 @@ func TestNewHandler_RecoverMW_CallsOnPanic(t *testing.T) {
 	}
 
 	h := NewHandler(&opts)
-	doRequest(t, h, "GET", "/panic")
+	doRequest(t, h, http.MethodGet, "/panic")
 
 	if !called {
 		t.Fatal("OnPanic not called")
@@ -548,7 +548,7 @@ func TestNewHandler_MiddlewareOrder_SecurityHeadersOutermost(t *testing.T) {
 	}
 
 	h := NewHandler(&opts)
-	rec := doRequest(t, h, "GET", "/boom")
+	rec := doRequest(t, h, http.MethodGet, "/boom")
 
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500", rec.Code)
@@ -570,7 +570,7 @@ func TestNewHandler_ClientIP_InContext(t *testing.T) {
 	h := NewHandler(&opts)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/ip", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/ip", http.NoBody)
 	req.RemoteAddr = "10.0.0.1:12345"
 	h.ServeHTTP(rec, req)
 
@@ -594,7 +594,7 @@ func TestNewHandler_CompressesJSON(t *testing.T) {
 	h := NewHandler(&opts)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/api/data", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/api/data", http.NoBody)
 	req.Header.Set("Accept-Encoding", "gzip")
 	h.ServeHTTP(rec, req)
 
@@ -621,7 +621,7 @@ func TestNewHandler_NoCompressionWithoutAcceptEncoding(t *testing.T) {
 	h := NewHandler(&opts)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/api/data", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/api/data", http.NoBody)
 	h.ServeHTTP(rec, req)
 
 	ce := rec.Header().Get("Content-Encoding")
@@ -635,7 +635,7 @@ func TestNewHandler_NoCompressionWithoutAcceptEncoding(t *testing.T) {
 func TestNewHandler_NoOptions(t *testing.T) {
 	opts := defaultOpts()
 	h := NewHandler(&opts)
-	rec := doRequest(t, h, "GET", "/")
+	rec := doRequest(t, h, http.MethodGet, "/")
 
 	if rec.Header().Get("Strict-Transport-Security") == "" {
 		t.Fatal("security headers missing with no options set")

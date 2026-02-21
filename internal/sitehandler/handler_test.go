@@ -201,7 +201,7 @@ func TestServeHTTP_GET_OK(t *testing.T) {
 	h := newTestHandler(activeProvider(testSiteFS()), testFallbackFS())
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	h.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -225,7 +225,7 @@ func TestServeHTTP_POST_MethodNotAllowed(t *testing.T) {
 	h := newTestHandler(activeProvider(testSiteFS()), testFallbackFS())
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("POST", "/", http.NoBody)
+	req := httptest.NewRequest(http.MethodPost, "/", http.NoBody)
 	h.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusMethodNotAllowed {
@@ -242,7 +242,7 @@ func TestServeHTTP_POST_MethodNotAllowed(t *testing.T) {
 func TestServeHTTP_AllBlockedMethods(t *testing.T) {
 	h := newTestHandler(activeProvider(testSiteFS()), testFallbackFS())
 
-	methods := []string{"POST", "PUT", "PATCH", "DELETE", "OPTIONS"}
+	methods := []string{http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, "OPTIONS"}
 	for _, m := range methods {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest(m, "/", http.NoBody)
@@ -258,7 +258,7 @@ func TestServeHTTP_BlockedMethod_EmptyBody(t *testing.T) {
 	h := newTestHandler(activeProvider(testSiteFS()), testFallbackFS())
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("DELETE", "/", http.NoBody)
+	req := httptest.NewRequest(http.MethodDelete, "/", http.NoBody)
 	h.ServeHTTP(rec, req)
 
 	// Should not leak any content in the body
@@ -273,7 +273,7 @@ func TestServeHTTP_RootServesIndexHTML(t *testing.T) {
 	h := newTestHandler(activeProvider(testSiteFS()), testFallbackFS())
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	h.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -288,7 +288,7 @@ func TestServeHTTP_SubdirIndexHTML(t *testing.T) {
 	h := newTestHandler(activeProvider(testSiteFS()), testFallbackFS())
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/about/", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/about/", http.NoBody)
 	h.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -303,7 +303,7 @@ func TestServeHTTP_StaticFile(t *testing.T) {
 	h := newTestHandler(activeProvider(testSiteFS()), testFallbackFS())
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/style.css", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/style.css", http.NoBody)
 	h.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -318,7 +318,7 @@ func TestServeHTTP_PrettyURL_Redirect(t *testing.T) {
 	h := newTestHandler(activeProvider(testSiteFS()), testFallbackFS())
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/about", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/about", http.NoBody)
 	h.ServeHTTP(rec, req)
 
 	// Should redirect /about -> /about/ (pretty URL with trailing slash)
@@ -335,7 +335,7 @@ func TestServeHTTP_DeepPrettyURL(t *testing.T) {
 	h := newTestHandler(activeProvider(testSiteFS()), testFallbackFS())
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/posts/hello", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/posts/hello", http.NoBody)
 	h.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusPermanentRedirect {
@@ -353,7 +353,7 @@ func TestServeHTTP_NotFound_Site404(t *testing.T) {
 	h := newTestHandler(activeProvider(testSiteFS()), testFallbackFS())
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/nonexistent", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/nonexistent", http.NoBody)
 	h.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusNotFound {
@@ -372,7 +372,7 @@ func TestServeHTTP_NotFound_FallbackTo404(t *testing.T) {
 	h := newTestHandler(activeProvider(testSiteFSNo404()), testFallbackFS())
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/nonexistent", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/nonexistent", http.NoBody)
 	h.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusNotFound {
@@ -388,7 +388,7 @@ func TestServeHTTP_NotFound_PlainText(t *testing.T) {
 	h := newTestHandler(activeProvider(testSiteFSNo404()), testFallbackFSNo404())
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/nonexistent", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/nonexistent", http.NoBody)
 	h.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusNotFound {
@@ -409,7 +409,7 @@ func TestServeHTTP_Maintenance(t *testing.T) {
 	h := newTestHandler(noProvider(), testFallbackFS())
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	h.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusServiceUnavailable {
@@ -432,7 +432,7 @@ func TestServeHTTP_Maintenance_AnyPath(t *testing.T) {
 	paths := []string{"/", "/about", "/style.css", "/api/data"}
 	for _, p := range paths {
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest("GET", p, http.NoBody)
+		req := httptest.NewRequest(http.MethodGet, p, http.NoBody)
 		h.ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusServiceUnavailable {
@@ -447,7 +447,7 @@ func TestServeHTTP_CacheControl_HTML(t *testing.T) {
 	h := newTestHandler(activeProvider(testSiteFS()), testFallbackFS())
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	h.ServeHTTP(rec, req)
 
 	cc := rec.Header().Get("Cache-Control")
@@ -460,7 +460,7 @@ func TestServeHTTP_CacheControl_CSS(t *testing.T) {
 	h := newTestHandler(activeProvider(testSiteFS()), testFallbackFS())
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/style.css", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/style.css", http.NoBody)
 	h.ServeHTTP(rec, req)
 
 	cc := rec.Header().Get("Cache-Control")
@@ -473,7 +473,7 @@ func TestServeHTTP_CacheControl_JS(t *testing.T) {
 	h := newTestHandler(activeProvider(testSiteFS()), testFallbackFS())
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/app.js", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/app.js", http.NoBody)
 	h.ServeHTTP(rec, req)
 
 	cc := rec.Header().Get("Cache-Control")
@@ -486,7 +486,7 @@ func TestServeHTTP_CacheControl_Other(t *testing.T) {
 	h := newTestHandler(activeProvider(testSiteFS()), testFallbackFS())
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/data.json", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/data.json", http.NoBody)
 	h.ServeHTTP(rec, req)
 
 	cc := rec.Header().Get("Cache-Control")
@@ -506,7 +506,7 @@ func TestServeHTTP_CacheControl_Custom(t *testing.T) {
 	})
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	h.ServeHTTP(rec, req)
 
 	if rec.Header().Get("Cache-Control") != "private, no-cache" {
@@ -514,7 +514,7 @@ func TestServeHTTP_CacheControl_Custom(t *testing.T) {
 	}
 
 	rec = httptest.NewRecorder()
-	req = httptest.NewRequest("GET", "/style.css", http.NoBody)
+	req = httptest.NewRequest(http.MethodGet, "/style.css", http.NoBody)
 	h.ServeHTTP(rec, req)
 
 	if rec.Header().Get("Cache-Control") != "public, max-age=600" {
@@ -573,7 +573,7 @@ func TestServeHTTP_Security_DotDot(t *testing.T) {
 
 	for _, p := range paths {
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest("GET", p, http.NoBody)
+		req := httptest.NewRequest(http.MethodGet, p, http.NoBody)
 		h.ServeHTTP(rec, req)
 
 		if rec.Code == http.StatusOK {
@@ -586,7 +586,7 @@ func TestServeHTTP_Security_Backslash(t *testing.T) {
 	h := newTestHandler(activeProvider(testSiteFS()), testFallbackFS())
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/about\\index.html", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/about\\index.html", http.NoBody)
 	h.ServeHTTP(rec, req)
 
 	// Should not serve content via backslash paths
@@ -612,7 +612,7 @@ func TestServeNotFound_NoCacheOnAllVariants(t *testing.T) {
 		h := newTestHandler(activeProvider(v.siteFS), v.fallback)
 
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest("GET", "/nonexistent-page", http.NoBody)
+		req := httptest.NewRequest(http.MethodGet, "/nonexistent-page", http.NoBody)
 		h.ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusNotFound {
