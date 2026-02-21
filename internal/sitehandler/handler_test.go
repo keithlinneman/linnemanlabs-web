@@ -213,7 +213,7 @@ func TestServeHTTP_HEAD_OK(t *testing.T) {
 	h := newTestHandler(activeProvider(testSiteFS()), testFallbackFS())
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("HEAD", "/", http.NoBody)
+	req := httptest.NewRequest(http.MethodHead, "/", http.NoBody)
 	h.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {

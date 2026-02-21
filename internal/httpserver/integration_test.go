@@ -165,7 +165,7 @@ func TestIntegration_FullStack(t *testing.T) {
 	t.Run("HEAD returns same status as GET without body", func(t *testing.T) {
 		t.Parallel()
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest("HEAD", "/", http.NoBody)
+		req := httptest.NewRequest(http.MethodHead, "/", http.NoBody)
 		handler.ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusOK {
