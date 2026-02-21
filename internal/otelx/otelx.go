@@ -10,7 +10,6 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
-	"google.golang.org/grpc"
 )
 
 type Options struct {
@@ -34,7 +33,6 @@ func Init(ctx context.Context, o Options) (func(context.Context) error, error) {
 
 	opts := []otlptracegrpc.Option{
 		otlptracegrpc.WithEndpoint(o.Endpoint),
-		otlptracegrpc.WithDialOption(grpc.WithBlock()),
 	}
 	if o.Insecure {
 		opts = append(opts, otlptracegrpc.WithInsecure())

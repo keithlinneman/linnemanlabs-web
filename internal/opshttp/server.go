@@ -92,8 +92,13 @@ func requireNonPublicNetwork(L log.Logger, next http.Handler) http.Handler {
 		}
 
 		ip := net.ParseIP(host)
+		if ip == nil {
+			L.Warn(r.Context(), "admin: rejected invalid IP", "remote_ip", host)
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
 		// only allow private, loopback or link-local ips
-		if ip == nil || !(ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast()) {
+		if !ip.IsPrivate() && !ip.IsLoopback() && !ip.IsLinkLocalUnicast() {
 			L.Warn(r.Context(), "admin: rejected non-private IP", "remote_ip", host)
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return

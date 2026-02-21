@@ -660,7 +660,7 @@ func TestChainLinks_SingleError(t *testing.T) {
 
 func TestChainLinks_RespectsMax(t *testing.T) {
 	// Build a deep chain
-	var err error = fmt.Errorf("base")
+	err := fmt.Errorf("base")
 	for i := 0; i < 20; i++ {
 		err = fmt.Errorf("wrap %d: %w", i, err)
 	}
@@ -672,7 +672,7 @@ func TestChainLinks_RespectsMax(t *testing.T) {
 }
 
 func TestChainLinks_ZeroMax(t *testing.T) {
-	var err error = fmt.Errorf("base")
+	err := fmt.Errorf("base")
 	for i := 0; i < 5; i++ {
 		err = fmt.Errorf("wrap %d: %w", i, err)
 	}

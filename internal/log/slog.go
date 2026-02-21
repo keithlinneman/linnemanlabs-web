@@ -232,7 +232,7 @@ func captureCleanStack() string {
 		if inRuntime {
 			break
 		}
-		if !include && !(inRuntime || inSlog || inOurLog) {
+		if !include && !inRuntime && !inSlog && !inOurLog {
 			include = true
 		}
 		if include {
@@ -310,7 +310,7 @@ func renderPCs(pcs []uintptr) string {
 		if inRuntime {
 			break
 		}
-		if !include && !(inRuntime || inSlog || inOurLog) {
+		if !include && !inRuntime && !inSlog && !inOurLog {
 			include = true
 		}
 		if include {
@@ -340,7 +340,7 @@ func firstExtFrame(pcs []uintptr) (fn, file string, line int, ok bool) {
 		inSlog := strings.HasPrefix(fr.Function, "log/slog.")
 		inOurLog := strings.Contains(fr.Function, "/internal/log.")
 		inXerr := strings.Contains(fr.Function, "/internal/xerrors.")
-		if !(inRuntime || inSlog || inOurLog || inXerr) {
+		if !inRuntime && !inSlog && !inOurLog && !inXerr {
 			return fr.Function, fr.File, fr.Line, true
 		}
 		if !more {

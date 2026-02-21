@@ -373,7 +373,7 @@ func TestPublicKey_CachesResult(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected *rsa.PublicKey, got %T", got)
 	}
-	if rsaPub.N.Cmp(key.PublicKey.N) != 0 {
+	if rsaPub.N.Cmp(key.N) != 0 {
 		t.Fatal("cached key does not match")
 	}
 }
@@ -394,7 +394,7 @@ func TestPublicKey_CachesECDSA(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected *ecdsa.PublicKey, got %T", got)
 	}
-	if ecPub.X.Cmp(key.PublicKey.X) != 0 || ecPub.Y.Cmp(key.PublicKey.Y) != 0 {
+	if ecPub.X.Cmp(key.X) != 0 || ecPub.Y.Cmp(key.Y) != 0 {
 		t.Fatal("cached key does not match")
 	}
 }

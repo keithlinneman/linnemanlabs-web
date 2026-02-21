@@ -161,7 +161,7 @@ func main() {
 	defer func() { _ = shutdownOTEL(context.Background()) }()
 
 	// Setup metrics / admin listener
-	var m *metrics.ServerMetrics = metrics.New()
+	var m = metrics.New()
 	m.SetBuildInfoFromVersion(v.AppName, "server", vi)
 	m.SetProfilingActive(profErr == nil && conf.EnablePyroscope)
 

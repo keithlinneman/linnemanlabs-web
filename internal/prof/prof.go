@@ -46,9 +46,6 @@ func Start(ctx context.Context, opts Options) (func(), error) {
 		ServerAddress:   opts.ServerAddress,
 		Tags:            opts.Tags,
 	}
-	if tok := opts.AuthToken; tok != "" {
-		cfg.AuthToken = tok
-	}
 	if tid := opts.TenantID; tid != "" {
 		cfg.TenantID = tid
 	}

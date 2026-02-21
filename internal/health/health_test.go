@@ -146,9 +146,9 @@ func TestReadyzHandler_NilProbe(t *testing.T) {
 // Handler is http.HandlerFunc
 
 func TestHealthzHandler_IsHandlerFunc(t *testing.T) {
-	var _ http.HandlerFunc = HealthzHandler(nil)
+	var _ = HealthzHandler(nil)
 }
 
 func TestReadyzHandler_IsHandlerFunc(t *testing.T) {
-	var _ http.HandlerFunc = ReadyzHandler(nil)
+	var _ = ReadyzHandler(nil)
 }
