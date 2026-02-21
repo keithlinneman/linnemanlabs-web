@@ -98,7 +98,7 @@ func TestMaxBody_GET_NoBody(t *testing.T) {
 	}))
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/", nil)
+	req := httptest.NewRequest("GET", "/", http.NoBody)
 	handler.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {

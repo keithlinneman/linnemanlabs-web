@@ -14,7 +14,7 @@ import (
 // - file: relative file path within FS (no leading slash)
 // - redirectTo: if non-empty, caller should redirect to this URL path
 // - ok: whether the mapping is valid/found
-func resolvePath(urlPath string, fsys fs.FS) (file string, redirectTo string, ok bool) {
+func resolvePath(urlPath string, fsys fs.FS) (file, redirectTo string, ok bool) {
 	p := urlPath
 	if p == "" {
 		p = "/"

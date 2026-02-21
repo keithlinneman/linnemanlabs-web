@@ -87,7 +87,7 @@ func TestWithContext_Overwrites(t *testing.T) {
 func TestWithContext_DoesNotAffectParent(t *testing.T) {
 	parent := context.Background()
 	// Use a distinguishable logger (pointer type, not Nop value)
-	l, _ := New(Options{App: "test", Writer: io.Discard})
+	l, _ := New(&Options{App: "test", Writer: io.Discard})
 
 	child := WithContext(parent, l)
 

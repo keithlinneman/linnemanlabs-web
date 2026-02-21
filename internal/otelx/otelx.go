@@ -22,7 +22,7 @@ type Options struct {
 	Version   string
 }
 
-func Init(ctx context.Context, o Options) (func(context.Context) error, error) {
+func Init(ctx context.Context, o *Options) (func(context.Context) error, error) {
 	if !o.Enabled {
 		otel.SetTracerProvider(sdktrace.NewTracerProvider())
 		otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(

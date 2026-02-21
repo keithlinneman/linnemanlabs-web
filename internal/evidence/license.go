@@ -160,7 +160,7 @@ func matchLicensePattern(pattern, license string) bool {
 // BuildPackageList parses a license report and evaluates each package against policy.
 // Returns the sorted package list and license_counts map.
 // The package list is sorted alphabetically by name.
-func BuildPackageList(report *LicenseReport, eval *LicenseEvaluator) ([]PackageInfo, map[string]int) {
+func BuildPackageList(report *LicenseReport, eval *LicenseEvaluator) (packageNames []PackageInfo, licenseData map[string]int) {
 	if report == nil {
 		return nil, nil
 	}

@@ -287,7 +287,7 @@ func TestResponseWriter_FinishWriteSpan_NilSpan(t *testing.T) {
 // schemeFromRequest
 
 func TestSchemeFromRequest_XForwardedProto_HTTPS(t *testing.T) {
-	r := httptest.NewRequest("GET", "/", nil)
+	r := httptest.NewRequest("GET", "/", http.NoBody)
 	r.Header.Set("X-Forwarded-Proto", "https")
 
 	got := schemeFromRequest(r)
@@ -297,7 +297,7 @@ func TestSchemeFromRequest_XForwardedProto_HTTPS(t *testing.T) {
 }
 
 func TestSchemeFromRequest_XForwardedProto_HTTP(t *testing.T) {
-	r := httptest.NewRequest("GET", "/", nil)
+	r := httptest.NewRequest("GET", "/", http.NoBody)
 	r.Header.Set("X-Forwarded-Proto", "http")
 
 	got := schemeFromRequest(r)
@@ -307,7 +307,7 @@ func TestSchemeFromRequest_XForwardedProto_HTTP(t *testing.T) {
 }
 
 func TestSchemeFromRequest_XForwardedProto_CaseInsensitive(t *testing.T) {
-	r := httptest.NewRequest("GET", "/", nil)
+	r := httptest.NewRequest("GET", "/", http.NoBody)
 	r.Header.Set("X-Forwarded-Proto", "HTTPS")
 
 	got := schemeFromRequest(r)
@@ -317,7 +317,7 @@ func TestSchemeFromRequest_XForwardedProto_CaseInsensitive(t *testing.T) {
 }
 
 func TestSchemeFromRequest_XForwardedProto_MultipleValues(t *testing.T) {
-	r := httptest.NewRequest("GET", "/", nil)
+	r := httptest.NewRequest("GET", "/", http.NoBody)
 	r.Header.Set("X-Forwarded-Proto", "https, http")
 
 	got := schemeFromRequest(r)
@@ -327,7 +327,7 @@ func TestSchemeFromRequest_XForwardedProto_MultipleValues(t *testing.T) {
 }
 
 func TestSchemeFromRequest_XForwardedProto_Invalid(t *testing.T) {
-	r := httptest.NewRequest("GET", "/", nil)
+	r := httptest.NewRequest("GET", "/", http.NoBody)
 	r.Header.Set("X-Forwarded-Proto", "ftp")
 
 	got := schemeFromRequest(r)
@@ -338,7 +338,7 @@ func TestSchemeFromRequest_XForwardedProto_Invalid(t *testing.T) {
 }
 
 func TestSchemeFromRequest_XForwardedProto_Empty(t *testing.T) {
-	r := httptest.NewRequest("GET", "/", nil)
+	r := httptest.NewRequest("GET", "/", http.NoBody)
 	r.Header.Set("X-Forwarded-Proto", "")
 
 	got := schemeFromRequest(r)
@@ -348,7 +348,7 @@ func TestSchemeFromRequest_XForwardedProto_Empty(t *testing.T) {
 }
 
 func TestSchemeFromRequest_URLScheme(t *testing.T) {
-	r := httptest.NewRequest("GET", "https://example.com/path", nil)
+	r := httptest.NewRequest("GET", "https://example.com/path", http.NoBody)
 	// Clear any forwarded header
 	r.Header.Del("X-Forwarded-Proto")
 
@@ -359,7 +359,7 @@ func TestSchemeFromRequest_URLScheme(t *testing.T) {
 }
 
 func TestSchemeFromRequest_URLScheme_Invalid(t *testing.T) {
-	r := httptest.NewRequest("GET", "/path", nil)
+	r := httptest.NewRequest("GET", "/path", http.NoBody)
 	r.URL.Scheme = "gopher"
 
 	got := schemeFromRequest(r)
@@ -370,7 +370,7 @@ func TestSchemeFromRequest_URLScheme_Invalid(t *testing.T) {
 }
 
 func TestSchemeFromRequest_TLS(t *testing.T) {
-	r := httptest.NewRequest("GET", "/", nil)
+	r := httptest.NewRequest("GET", "/", http.NoBody)
 	r.TLS = &tls.ConnectionState{}
 
 	got := schemeFromRequest(r)
@@ -380,7 +380,7 @@ func TestSchemeFromRequest_TLS(t *testing.T) {
 }
 
 func TestSchemeFromRequest_DefaultHTTP(t *testing.T) {
-	r := httptest.NewRequest("GET", "/", nil)
+	r := httptest.NewRequest("GET", "/", http.NoBody)
 
 	got := schemeFromRequest(r)
 	if got != "http" {
@@ -390,7 +390,7 @@ func TestSchemeFromRequest_DefaultHTTP(t *testing.T) {
 
 func TestSchemeFromRequest_PriorityOrder(t *testing.T) {
 	// X-Forwarded-Proto should take priority over URL scheme and TLS
-	r := httptest.NewRequest("GET", "http://example.com/", nil)
+	r := httptest.NewRequest("GET", "http://example.com/", http.NoBody)
 	r.Header.Set("X-Forwarded-Proto", "https")
 	r.TLS = &tls.ConnectionState{}
 
@@ -402,7 +402,7 @@ func TestSchemeFromRequest_PriorityOrder(t *testing.T) {
 
 // Security: X-Forwarded-Proto injection attempts
 func TestSchemeFromRequest_Injection_Newline(t *testing.T) {
-	r := httptest.NewRequest("GET", "/", nil)
+	r := httptest.NewRequest("GET", "/", http.NoBody)
 	r.Header.Set("X-Forwarded-Proto", "https\r\nX-Injected: evil")
 
 	got := schemeFromRequest(r)
@@ -418,7 +418,7 @@ func TestSchemeFromRequest_Injection_Newline(t *testing.T) {
 }
 
 func TestSchemeFromRequest_Injection_NullByte(t *testing.T) {
-	r := httptest.NewRequest("GET", "/", nil)
+	r := httptest.NewRequest("GET", "/", http.NoBody)
 	r.Header.Set("X-Forwarded-Proto", "https\x00evil")
 
 	got := schemeFromRequest(r)
@@ -428,7 +428,7 @@ func TestSchemeFromRequest_Injection_NullByte(t *testing.T) {
 }
 
 func TestSchemeFromRequest_Injection_Whitespace(t *testing.T) {
-	r := httptest.NewRequest("GET", "/", nil)
+	r := httptest.NewRequest("GET", "/", http.NoBody)
 	r.Header.Set("X-Forwarded-Proto", "  https  ")
 
 	got := schemeFromRequest(r)
@@ -448,7 +448,7 @@ func TestWithLogger_EnrichesContext(t *testing.T) {
 	})
 
 	mw := WithLogger(fl)
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
 	req.RemoteAddr = "10.0.0.1:12345"
 
 	mw(handler).ServeHTTP(httptest.NewRecorder(), req)
@@ -478,7 +478,7 @@ func TestWithLogger_NormalizesPeerAddr(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
 
 	mw := WithLogger(fl)
-	req := httptest.NewRequest("GET", "/", nil)
+	req := httptest.NewRequest("GET", "/", http.NoBody)
 	req.RemoteAddr = "192.168.1.100:54321"
 
 	mw(handler).ServeHTTP(httptest.NewRecorder(), req)
@@ -503,7 +503,7 @@ func TestWithLogger_PeerAddr_NoPort(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
 
 	mw := WithLogger(fl)
-	req := httptest.NewRequest("GET", "/", nil)
+	req := httptest.NewRequest("GET", "/", http.NoBody)
 	// RemoteAddr without port (unusual but possible)
 	req.RemoteAddr = "10.0.0.1"
 
@@ -522,7 +522,7 @@ func TestWithLogger_IncludesScheme(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
 
 	mw := WithLogger(fl)
-	req := httptest.NewRequest("GET", "/", nil)
+	req := httptest.NewRequest("GET", "/", http.NoBody)
 	req.Header.Set("X-Forwarded-Proto", "https")
 
 	mw(handler).ServeHTTP(httptest.NewRecorder(), req)
@@ -543,7 +543,7 @@ func TestWithLogger_IncludesRequestID(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
 
 	mw := WithLogger(fl)
-	req := httptest.NewRequest("GET", "/", nil)
+	req := httptest.NewRequest("GET", "/", http.NoBody)
 	// Simulate RequestID middleware having run
 	ctx := WithRequestID(req.Context(), "req-abc-123")
 	req = req.WithContext(ctx)
@@ -567,7 +567,7 @@ func TestWithLogger_NoUserSuppliedDataInFields(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
 
 	mw := WithLogger(fl)
-	req := httptest.NewRequest("GET", "/test?secret=hunter2", nil)
+	req := httptest.NewRequest("GET", "/test?secret=hunter2", http.NoBody)
 	req.Header.Set("User-Agent", "EvilBot/1.0")
 	req.Header.Set("Cookie", "session=abc123")
 	req.Host = "evil.example.com"
@@ -610,7 +610,7 @@ func TestAccessLog_LogsRequest(t *testing.T) {
 	}
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/api/data", nil)
+	req := httptest.NewRequest("GET", "/api/data", http.NoBody)
 	mw(inner).ServeHTTP(rec, req)
 
 	entry, ok := fl.lastInfo()
@@ -648,7 +648,7 @@ func TestAccessLog_DefaultStatus200(t *testing.T) {
 		})
 	}
 
-	mw(inner).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/page", nil))
+	mw(inner).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/page", http.NoBody))
 
 	entry, ok := fl.lastInfo()
 	if !ok {
@@ -686,7 +686,7 @@ func TestAccessLog_SkipsStaticAssets(t *testing.T) {
 		fl.mu.Unlock()
 
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest("GET", path, nil)
+		req := httptest.NewRequest("GET", path, http.NoBody)
 		mw(inner).ServeHTTP(rec, req)
 
 		if fl.infoCount() != 0 {
@@ -715,7 +715,7 @@ func TestAccessLog_SkipsHealthEndpoints(t *testing.T) {
 		fl.infos = nil
 		fl.mu.Unlock()
 
-		mw(inner).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", path, nil))
+		mw(inner).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", path, http.NoBody))
 
 		if fl.infoCount() != 0 {
 			t.Errorf("health endpoint %q should not be logged", path)
@@ -744,7 +744,7 @@ func TestAccessLog_LogsNonStaticPaths(t *testing.T) {
 		fl.infos = nil
 		fl.mu.Unlock()
 
-		mw(inner).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", path, nil))
+		mw(inner).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", path, http.NoBody))
 
 		if fl.infoCount() == 0 {
 			t.Errorf("path %q should be logged", path)
@@ -763,7 +763,7 @@ func TestAccessLog_NoLoggerInContext(t *testing.T) {
 	// This should not panic. The Nop logger from FromContext
 	// returns non-nil, so this tests the actual behavior.
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest("GET", "/test", http.NoBody)
 
 	// Should not panic
 	inner.ServeHTTP(rec, req)
@@ -821,7 +821,7 @@ func TestAccessLog_IncludesDuration(t *testing.T) {
 		})
 	}
 
-	mw(inner).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/api/test", nil))
+	mw(inner).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/api/test", http.NoBody))
 
 	entry, ok := fl.lastInfo()
 	if !ok {
@@ -857,7 +857,7 @@ func TestAccessLog_WithChiRoutePattern(t *testing.T) {
 	})
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/users/42", nil)
+	req := httptest.NewRequest("GET", "/users/42", http.NoBody)
 	r.ServeHTTP(rec, req)
 
 	entry, ok := fl.lastInfo()
@@ -890,7 +890,7 @@ func TestAccessLog_FallsBackToURLPath(t *testing.T) {
 		})
 	}
 
-	mw(inner).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/custom/path", nil))
+	mw(inner).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/custom/path", http.NoBody))
 
 	entry, ok := fl.lastInfo()
 	if !ok {
@@ -914,7 +914,7 @@ func TestScope_EnrichesLogger(t *testing.T) {
 	})
 
 	mw := Scope("provenance")
-	req := httptest.NewRequest("GET", "/", nil)
+	req := httptest.NewRequest("GET", "/", http.NoBody)
 	ctx := log.WithContext(req.Context(), fl)
 	req = req.WithContext(ctx)
 
@@ -937,7 +937,7 @@ func TestScope_HandlerCalled(t *testing.T) {
 	})
 
 	mw := Scope("test")
-	req := httptest.NewRequest("GET", "/", nil)
+	req := httptest.NewRequest("GET", "/", http.NoBody)
 	ctx := log.WithContext(req.Context(), newFlatLogger())
 	req = req.WithContext(ctx)
 
@@ -973,7 +973,7 @@ func FuzzSchemeFromRequest(f *testing.F) {
 	f.Add("https\n")
 
 	f.Fuzz(func(t *testing.T, proto string) {
-		r := httptest.NewRequest("GET", "/", nil)
+		r := httptest.NewRequest("GET", "/", http.NoBody)
 		r.Header.Set("X-Forwarded-Proto", proto)
 
 		got := schemeFromRequest(r)
@@ -996,7 +996,7 @@ func FuzzSchemeFromRequest_URLScheme(f *testing.F) {
 	f.Add(strings.Repeat("x", 5000))
 
 	f.Fuzz(func(t *testing.T, scheme string) {
-		r := httptest.NewRequest("GET", "/", nil)
+		r := httptest.NewRequest("GET", "/", http.NoBody)
 		r.URL.Scheme = scheme
 
 		got := schemeFromRequest(r)
@@ -1025,7 +1025,7 @@ func FuzzWithLogger_RemoteAddr(f *testing.F) {
 		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
 
 		mw := WithLogger(log.Nop())
-		req := httptest.NewRequest("GET", "/", nil)
+		req := httptest.NewRequest("GET", "/", http.NoBody)
 		req.RemoteAddr = remoteAddr
 
 		// Must not panic
@@ -1063,7 +1063,7 @@ func FuzzAccessLog_Path(f *testing.F) {
 			})
 		}
 
-		req := httptest.NewRequest("GET", "/", nil)
+		req := httptest.NewRequest("GET", "/", http.NoBody)
 		req.URL.Path = urlPath
 
 		rec := httptest.NewRecorder()

@@ -53,7 +53,7 @@ func (o *Options) setDefaults() {
 	}
 }
 
-func (o Options) validate() error {
+func (o *Options) validate() error {
 	if o.Content == nil {
 		return fmt.Errorf("%w: Content is nil", ErrInvalidOptions)
 	}

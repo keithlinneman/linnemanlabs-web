@@ -45,7 +45,7 @@ func defaultOpts() Options {
 func doRequest(t *testing.T, h http.Handler, method, path string) *httptest.ResponseRecorder {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(method, path, nil)
+	req := httptest.NewRequest(method, path, http.NoBody)
 	h.ServeHTTP(rec, req)
 	return rec
 }
@@ -65,7 +65,8 @@ func getFreePort(t *testing.T) int {
 // NewHandler - middleware stack
 
 func TestNewHandler_SecurityHeaders(t *testing.T) {
-	h := NewHandler(defaultOpts())
+	opts := defaultOpts()
+	h := NewHandler(&opts)
 	rec := doRequest(t, h, "GET", "/anything")
 
 	required := []string{
@@ -86,7 +87,8 @@ func TestNewHandler_SecurityHeaders(t *testing.T) {
 }
 
 func TestNewHandler_SecurityHeaders_On404(t *testing.T) {
-	h := NewHandler(defaultOpts())
+	opts := defaultOpts()
+	h := NewHandler(&opts)
 	rec := doRequest(t, h, "GET", "/nonexistent-path-12345")
 
 	if rec.Header().Get("Strict-Transport-Security") == "" {
@@ -105,10 +107,10 @@ func TestNewHandler_SecurityHeaders_AllMethods(t *testing.T) {
 		})
 	}
 
-	h := NewHandler(opts)
+	h := NewHandler(&opts)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("POST", "/api/submit", nil)
+	req := httptest.NewRequest("POST", "/api/submit", http.NoBody)
 	h.ServeHTTP(rec, req)
 
 	if rec.Header().Get("Strict-Transport-Security") == "" {
@@ -117,7 +119,8 @@ func TestNewHandler_SecurityHeaders_AllMethods(t *testing.T) {
 }
 
 func TestNewHandler_RequestID_Generated(t *testing.T) {
-	h := NewHandler(defaultOpts())
+	opts := defaultOpts()
+	h := NewHandler(&opts)
 	rec := doRequest(t, h, "GET", "/")
 
 	id := rec.Header().Get("X-Request-Id")
@@ -130,10 +133,11 @@ func TestNewHandler_RequestID_Generated(t *testing.T) {
 }
 
 func TestNewHandler_RequestID_Propagated(t *testing.T) {
-	h := NewHandler(defaultOpts())
+	opts := defaultOpts()
+	h := NewHandler(&opts)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/", nil)
+	req := httptest.NewRequest("GET", "/", http.NoBody)
 	req.Header.Set("X-Request-Id", "upstream-abc-123")
 	h.ServeHTTP(rec, req)
 
@@ -143,7 +147,8 @@ func TestNewHandler_RequestID_Propagated(t *testing.T) {
 }
 
 func TestNewHandler_RequestID_UniquePerRequest(t *testing.T) {
-	h := NewHandler(defaultOpts())
+	opts := defaultOpts()
+	h := NewHandler(&opts)
 	ids := make(map[string]bool)
 
 	for i := 0; i < 50; i++ {
@@ -167,7 +172,7 @@ func TestNewHandler_APIRoutes(t *testing.T) {
 		})
 	}
 
-	h := NewHandler(opts)
+	h := NewHandler(&opts)
 	rec := doRequest(t, h, "GET", "/api/test")
 
 	if rec.Code != http.StatusOK {
@@ -191,7 +196,7 @@ func TestNewHandler_APIRoutes_MultipleRoutes(t *testing.T) {
 		})
 	}
 
-	h := NewHandler(opts)
+	h := NewHandler(&opts)
 
 	rec1 := doRequest(t, h, "GET", "/api/one")
 	if !strings.Contains(rec1.Body.String(), "one") {
@@ -208,7 +213,7 @@ func TestNewHandler_APIRoutes_Nil(t *testing.T) {
 	opts := defaultOpts()
 	opts.APIRoutes = nil
 
-	h := NewHandler(opts)
+	h := NewHandler(&opts)
 	rec := doRequest(t, h, "GET", "/")
 
 	if rec.Code == 0 {
@@ -225,7 +230,7 @@ func TestNewHandler_SiteHandler(t *testing.T) {
 		w.Write([]byte("site-content"))
 	})
 
-	h := NewHandler(opts)
+	h := NewHandler(&opts)
 	rec := doRequest(t, h, "GET", "/anything")
 
 	if rec.Code != http.StatusOK {
@@ -240,7 +245,7 @@ func TestNewHandler_SiteHandler_Nil(t *testing.T) {
 	opts := defaultOpts()
 	opts.SiteHandler = nil
 
-	h := NewHandler(opts)
+	h := NewHandler(&opts)
 	rec := doRequest(t, h, "GET", "/unknown")
 
 	// chi default 404
@@ -262,7 +267,7 @@ func TestNewHandler_APIRoutes_TakePrecedenceOverFallback(t *testing.T) {
 		w.Write([]byte("fallback"))
 	})
 
-	h := NewHandler(opts)
+	h := NewHandler(&opts)
 
 	// Explicit route should be served by APIRoutes
 	rec := doRequest(t, h, "GET", "/api/data")
@@ -285,7 +290,7 @@ func TestNewHandler_SiteHandler_MethodNotAllowed(t *testing.T) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	})
 
-	h := NewHandler(opts)
+	h := NewHandler(&opts)
 	doRequest(t, h, "DELETE", "/anything")
 
 	if !fallbackCalled {
@@ -299,7 +304,7 @@ func TestNewHandler_HealthEndpoint(t *testing.T) {
 	opts := defaultOpts()
 	opts.Health = &stubProbe{err: nil}
 
-	h := NewHandler(opts)
+	h := NewHandler(&opts)
 	rec := doRequest(t, h, "GET", "/-/healthy")
 
 	if rec.Code != http.StatusOK {
@@ -314,7 +319,7 @@ func TestNewHandler_HealthEndpoint_Unhealthy(t *testing.T) {
 	opts := defaultOpts()
 	opts.Health = &stubProbe{err: fmt.Errorf("broken")}
 
-	h := NewHandler(opts)
+	h := NewHandler(&opts)
 	rec := doRequest(t, h, "GET", "/-/healthy")
 
 	if rec.Code != http.StatusServiceUnavailable {
@@ -326,7 +331,7 @@ func TestNewHandler_HealthEndpoint_NilProbe(t *testing.T) {
 	opts := defaultOpts()
 	opts.Health = nil
 
-	h := NewHandler(opts)
+	h := NewHandler(&opts)
 	rec := doRequest(t, h, "GET", "/-/healthy")
 
 	// No probe registered, chi returns 404
@@ -339,7 +344,7 @@ func TestNewHandler_ReadyEndpoint(t *testing.T) {
 	opts := defaultOpts()
 	opts.Readiness = &stubProbe{err: nil}
 
-	h := NewHandler(opts)
+	h := NewHandler(&opts)
 	rec := doRequest(t, h, "GET", "/-/ready")
 
 	if rec.Code != http.StatusOK {
@@ -354,7 +359,7 @@ func TestNewHandler_ReadyEndpoint_NotReady(t *testing.T) {
 	opts := defaultOpts()
 	opts.Readiness = &stubProbe{err: fmt.Errorf("content: no active snapshot")}
 
-	h := NewHandler(opts)
+	h := NewHandler(&opts)
 	rec := doRequest(t, h, "GET", "/-/ready")
 
 	if rec.Code != http.StatusServiceUnavailable {
@@ -366,7 +371,7 @@ func TestNewHandler_ReadyEndpoint_NilProbe(t *testing.T) {
 	opts := defaultOpts()
 	opts.Readiness = nil
 
-	h := NewHandler(opts)
+	h := NewHandler(&opts)
 	rec := doRequest(t, h, "GET", "/-/ready")
 
 	if rec.Code != http.StatusNotFound {
@@ -383,7 +388,7 @@ func TestNewHandler_HealthEndpoints_NotOverriddenByFallback(t *testing.T) {
 		w.Write([]byte("site"))
 	})
 
-	h := NewHandler(opts)
+	h := NewHandler(&opts)
 
 	rec := doRequest(t, h, "GET", "/-/healthy")
 	if !strings.Contains(rec.Body.String(), "ok") {
@@ -405,7 +410,7 @@ func TestNewHandler_ContentHeaders_WhenProvided(t *testing.T) {
 		hash:    "abcdef1234567890abcdef",
 	}
 
-	h := NewHandler(opts)
+	h := NewHandler(&opts)
 	rec := doRequest(t, h, "GET", "/")
 
 	if got := rec.Header().Get("X-Content-Bundle-Version"); got != "v1.2.3" {
@@ -420,7 +425,7 @@ func TestNewHandler_ContentHeaders_NilSkipped(t *testing.T) {
 	opts := defaultOpts()
 	opts.ContentInfo = nil
 
-	h := NewHandler(opts)
+	h := NewHandler(&opts)
 	rec := doRequest(t, h, "GET", "/")
 
 	if got := rec.Header().Get("X-Content-Bundle-Version"); got != "" {
@@ -438,7 +443,7 @@ func TestNewHandler_RateLimitMW_Applied(t *testing.T) {
 		})
 	}
 
-	h := NewHandler(opts)
+	h := NewHandler(&opts)
 	doRequest(t, h, "GET", "/")
 
 	if !rateLimited {
@@ -450,7 +455,7 @@ func TestNewHandler_RateLimitMW_NilSkipped(t *testing.T) {
 	opts := defaultOpts()
 	opts.RateLimitMW = nil
 
-	h := NewHandler(opts)
+	h := NewHandler(&opts)
 	rec := doRequest(t, h, "GET", "/")
 	if rec.Code == 0 {
 		t.Fatal("no response")
@@ -467,7 +472,7 @@ func TestNewHandler_MetricsMW_Applied(t *testing.T) {
 		})
 	}
 
-	h := NewHandler(opts)
+	h := NewHandler(&opts)
 	doRequest(t, h, "GET", "/")
 
 	if !metricsHit {
@@ -484,7 +489,7 @@ func TestNewHandler_RecoverMW_Enabled(t *testing.T) {
 		})
 	}
 
-	h := NewHandler(opts)
+	h := NewHandler(&opts)
 	rec := doRequest(t, h, "GET", "/panic")
 
 	if rec.Code != http.StatusInternalServerError {
@@ -501,7 +506,7 @@ func TestNewHandler_RecoverMW_Disabled(t *testing.T) {
 		})
 	}
 
-	h := NewHandler(opts)
+	h := NewHandler(&opts)
 
 	defer func() {
 		if r := recover(); r == nil {
@@ -523,7 +528,7 @@ func TestNewHandler_RecoverMW_CallsOnPanic(t *testing.T) {
 		})
 	}
 
-	h := NewHandler(opts)
+	h := NewHandler(&opts)
 	doRequest(t, h, "GET", "/panic")
 
 	if !called {
@@ -542,7 +547,7 @@ func TestNewHandler_MiddlewareOrder_SecurityHeadersOutermost(t *testing.T) {
 		})
 	}
 
-	h := NewHandler(opts)
+	h := NewHandler(&opts)
 	rec := doRequest(t, h, "GET", "/boom")
 
 	if rec.Code != http.StatusInternalServerError {
@@ -562,10 +567,10 @@ func TestNewHandler_ClientIP_InContext(t *testing.T) {
 		})
 	}
 
-	h := NewHandler(opts)
+	h := NewHandler(&opts)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/ip", nil)
+	req := httptest.NewRequest("GET", "/ip", http.NoBody)
 	req.RemoteAddr = "10.0.0.1:12345"
 	h.ServeHTTP(rec, req)
 
@@ -586,10 +591,10 @@ func TestNewHandler_CompressesJSON(t *testing.T) {
 		})
 	}
 
-	h := NewHandler(opts)
+	h := NewHandler(&opts)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/api/data", nil)
+	req := httptest.NewRequest("GET", "/api/data", http.NoBody)
 	req.Header.Set("Accept-Encoding", "gzip")
 	h.ServeHTTP(rec, req)
 
@@ -613,10 +618,10 @@ func TestNewHandler_NoCompressionWithoutAcceptEncoding(t *testing.T) {
 		})
 	}
 
-	h := NewHandler(opts)
+	h := NewHandler(&opts)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/api/data", nil)
+	req := httptest.NewRequest("GET", "/api/data", http.NoBody)
 	h.ServeHTTP(rec, req)
 
 	ce := rec.Header().Get("Content-Encoding")
@@ -628,7 +633,8 @@ func TestNewHandler_NoCompressionWithoutAcceptEncoding(t *testing.T) {
 // NewHandler - no options
 
 func TestNewHandler_NoOptions(t *testing.T) {
-	h := NewHandler(defaultOpts())
+	opts := defaultOpts()
+	h := NewHandler(&opts)
 	rec := doRequest(t, h, "GET", "/")
 
 	if rec.Header().Get("Strict-Transport-Security") == "" {
@@ -691,7 +697,7 @@ func TestStart_CustomPort(t *testing.T) {
 	opts.Port = port
 
 	ctx := context.Background()
-	stop, err := Start(ctx, opts)
+	stop, err := Start(ctx, &opts)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -716,7 +722,7 @@ func TestStart_GracefulShutdown(t *testing.T) {
 	opts.Port = port
 
 	ctx := context.Background()
-	stop, err := Start(ctx, opts)
+	stop, err := Start(ctx, &opts)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -750,7 +756,7 @@ func TestStart_StopIdempotent(t *testing.T) {
 	opts.Port = port
 
 	ctx := context.Background()
-	stop, err := Start(ctx, opts)
+	stop, err := Start(ctx, &opts)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -774,13 +780,13 @@ func TestStart_PortConflict(t *testing.T) {
 
 	ctx := context.Background()
 
-	stop1, err := Start(ctx, opts)
+	stop1, err := Start(ctx, &opts)
 	if err != nil {
 		t.Fatalf("first Start: %v", err)
 	}
 	defer stop1(ctx)
 
-	_, err = Start(ctx, opts)
+	_, err = Start(ctx, &opts)
 	if err == nil {
 		t.Fatal("expected error for port conflict")
 	}
@@ -793,7 +799,7 @@ func TestStart_RequestID_OnLiveServer(t *testing.T) {
 	opts.Port = port
 
 	ctx := context.Background()
-	stop, err := Start(ctx, opts)
+	stop, err := Start(ctx, &opts)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -828,7 +834,7 @@ func TestStart_WithAPIRoutes(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	stop, err := Start(ctx, opts)
+	stop, err := Start(ctx, &opts)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}

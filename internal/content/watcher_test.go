@@ -178,7 +178,7 @@ func (f *watcherFixture) newWatcher(opts ...func(*WatcherOptions)) *Watcher {
 	for _, fn := range opts {
 		fn(&wopts)
 	}
-	return NewWatcher(wopts)
+	return NewWatcher(&wopts)
 }
 
 // storeBundle creates a valid content bundle, stores it in fakeS3, and returns
@@ -742,7 +742,7 @@ func TestRun_DetectsChange(t *testing.T) {
 
 	var swapCount atomic.Int32
 
-	w := NewWatcher(WatcherOptions{
+	w := NewWatcher(&WatcherOptions{
 		Logger:       log.Nop(),
 		Loader:       f.loader,
 		Manager:      f.mgr,
@@ -882,7 +882,7 @@ func TestRun_StaleLogging_EmitsOnceOnTransition(t *testing.T) {
 
 	cl := newCapturingLogger()
 
-	w := NewWatcher(WatcherOptions{
+	w := NewWatcher(&WatcherOptions{
 		Logger:         cl,
 		Loader:         f.loader,
 		Manager:        f.mgr,

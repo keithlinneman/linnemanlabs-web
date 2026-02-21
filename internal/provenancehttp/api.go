@@ -655,11 +655,11 @@ func (api *API) HandleEvidenceFile(w http.ResponseWriter, r *http.Request) {
 	)
 }
 
-func (api *API) writeJSON(ctx context.Context, w http.ResponseWriter, status int, v any) {
+func (api *API) writeJSON(ctx context.Context, w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(v); err != nil {
+	if err := json.NewEncoder(w).Encode(data); err != nil {
 		api.logger.Warn(ctx, "failed to encode JSON response", "error", err)
 	}
 }

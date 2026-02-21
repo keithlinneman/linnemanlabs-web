@@ -20,7 +20,7 @@ type Options struct {
 	BlockProfileRate     int
 }
 
-func Start(ctx context.Context, opts Options) (func(), error) {
+func Start(ctx context.Context, opts *Options) (func(), error) {
 	L := log.FromContext(ctx)
 
 	if !opts.Enabled {

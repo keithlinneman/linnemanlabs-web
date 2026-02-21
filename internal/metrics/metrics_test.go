@@ -28,7 +28,7 @@ func TestNew_RegistryPopulated(t *testing.T) {
 	// MustRegister in New() would panic if any metric failed to register.
 	// Verify the registry is functional by scraping it.
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/metrics", nil)
+	req := httptest.NewRequest("GET", "/metrics", http.NoBody)
 	m.Handler().ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -100,7 +100,7 @@ func TestHandler_ServesMetrics(t *testing.T) {
 	m := New()
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/metrics", nil)
+	req := httptest.NewRequest("GET", "/metrics", http.NoBody)
 	m.Handler().ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -120,7 +120,7 @@ func TestHandler_ContentType(t *testing.T) {
 	m := New()
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/metrics", nil)
+	req := httptest.NewRequest("GET", "/metrics", http.NoBody)
 	m.Handler().ServeHTTP(rec, req)
 
 	ct := rec.Header().Get("Content-Type")
@@ -175,7 +175,7 @@ func TestSetBuildInfoFromVersion(t *testing.T) {
 		VCSDirty:   &dirty,
 	}
 
-	m.SetBuildInfoFromVersion("myapp", "server", vi)
+	m.SetBuildInfoFromVersion("myapp", "server", &vi)
 
 	f := gatherMetric(t, m.reg, "build_info")
 	if f == nil {
@@ -222,7 +222,7 @@ func TestSetBuildInfoFromVersion_NilVCSDirty(t *testing.T) {
 		VCSDirty: nil,
 	}
 
-	m.SetBuildInfoFromVersion("app", "comp", vi)
+	m.SetBuildInfoFromVersion("app", "comp", &vi)
 
 	f := gatherMetric(t, m.reg, "build_info")
 	if f == nil {
@@ -249,7 +249,7 @@ func TestHandler_ReflectsCounterIncrements(t *testing.T) {
 	m.IncRateLimitDenied()
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/metrics", nil)
+	req := httptest.NewRequest("GET", "/metrics", http.NoBody)
 	m.Handler().ServeHTTP(rec, req)
 
 	body := rec.Body.String()
@@ -295,12 +295,12 @@ func TestHandler_FullScrape(t *testing.T) {
 
 	// Exercise all the metric types before scraping
 	dirty := false
-	m.SetBuildInfoFromVersion("test", "test", version.Info{Version: "test", VCSDirty: &dirty})
+	m.SetBuildInfoFromVersion("test", "test", &version.Info{Version: "test", VCSDirty: &dirty})
 	m.IncHttpPanic()
 	m.IncRateLimitDenied()
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/metrics", nil)
+	req := httptest.NewRequest("GET", "/metrics", http.NoBody)
 	m.Handler().ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -364,7 +364,7 @@ func TestNew_ResponseSizeBuckets(t *testing.T) {
 	handler := m.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("x"))
 	}))
-	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/", nil))
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/", http.NoBody))
 
 	f := gatherMetric(t, m.reg, "http_response_size_bytes")
 	if f == nil {
@@ -480,7 +480,7 @@ func TestMiddleware_5xxIncrementsErrorCounter(t *testing.T) {
 	handler := m.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
-	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/", nil))
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/", http.NoBody))
 
 	f := gatherMetric(t, m.reg, "http_errors_total")
 	if f == nil {
@@ -497,7 +497,7 @@ func TestMiddleware_4xxDoesNotIncrementErrorCounter(t *testing.T) {
 	handler := m.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 	}))
-	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/", nil))
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/", http.NoBody))
 
 	f := gatherMetric(t, m.reg, "http_errors_total")
 	if f != nil {
@@ -510,7 +510,7 @@ func TestMiddleware_200DoesNotIncrementErrorCounter(t *testing.T) {
 	handler := m.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
-	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/", nil))
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/", http.NoBody))
 
 	f := gatherMetric(t, m.reg, "http_errors_total")
 	if f != nil {

@@ -175,7 +175,7 @@ func TestExtractRealClientAddr(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := httptest.NewRequest(http.MethodGet, "/", nil)
+			r := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 			r.RemoteAddr = tt.remoteAddr
 			if tt.xff != "" {
 				r.Header.Set("X-Forwarded-For", tt.xff)
@@ -226,7 +226,7 @@ func TestClientIP_Middleware(t *testing.T) {
 
 			handler := ClientIP(inner)
 
-			r := httptest.NewRequest(http.MethodGet, "/", nil)
+			r := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 			r.RemoteAddr = tt.remoteAddr
 			if tt.xff != "" {
 				r.Header.Set("X-Forwarded-For", tt.xff)
@@ -311,7 +311,7 @@ func TestExtractRealClientAddr_TrustedHops(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := httptest.NewRequest(http.MethodGet, "/", nil)
+			r := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 			r.RemoteAddr = tt.remoteAddr
 			if tt.xff != "" {
 				r.Header.Set("X-Forwarded-For", tt.xff)
@@ -334,7 +334,7 @@ func TestClientIPWithOptions_Middleware(t *testing.T) {
 	// CDN -> ALB -> app: 2 hops, take 2nd from end
 	handler := ClientIPWithOptions(ClientIPOptions{TrustedHops: 2})(inner)
 
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	r.RemoteAddr = "10.0.0.1:1234"
 	r.Header.Set("X-Forwarded-For", "203.0.113.50, 10.0.0.5, 10.0.0.6")
 	w := httptest.NewRecorder()
@@ -379,7 +379,7 @@ func FuzzExtractClientAddr(f *testing.F) {
 	f.Add("[::1]:8080", "2001:db8::1")               // IPv6
 	f.Add("127.0.0.1:80", "")                        // loopback, no XFF
 	f.Fuzz(func(t *testing.T, remoteAddr, xff string) {
-		r := httptest.NewRequest("GET", "/", nil)
+		r := httptest.NewRequest("GET", "/", http.NoBody)
 		r.RemoteAddr = remoteAddr
 		if xff != "" {
 			r.Header.Set("X-Forwarded-For", xff)

@@ -66,7 +66,8 @@ func BuildFileIndex(raw []byte) (map[string]*EvidenceFileRef, error) {
 		indexEvidence(idx, se.SBOM, se.Scans, se.License, "source", "")
 	}
 
-	for _, t := range inv.Targets {
+	for i := range inv.Targets {
+		t := &inv.Targets[i]
 		platform := t.Platform
 		if platform == "" && t.OS != "" {
 			platform = t.OS + "/" + t.Arch

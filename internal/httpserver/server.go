@@ -21,7 +21,7 @@ import (
 
 // NewHandler builds an HTTP handler with routes + middleware
 // main() owns *http.Server so it can do graceful shutdown
-func NewHandler(opts Options) http.Handler {
+func NewHandler(opts *Options) http.Handler {
 	// chi router
 	r := chi.NewRouter()
 
@@ -161,7 +161,7 @@ func NewServer(addr string, handler http.Handler) *http.Server {
 
 // Start public HTTP server
 // Returns stop(ctx) for graceful shutdown
-func Start(ctx context.Context, opts Options) (func(context.Context) error, error) {
+func Start(ctx context.Context, opts *Options) (func(context.Context) error, error) {
 	port := opts.Port
 	if port == 0 {
 		port = 8080

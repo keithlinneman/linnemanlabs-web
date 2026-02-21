@@ -29,7 +29,7 @@ func testFS() fstest.MapFS {
 }
 
 func TestResolvePath(t *testing.T) {
-	fs := testFS()
+	testingFS := testFS()
 
 	tests := []struct {
 		name      string
@@ -247,7 +247,7 @@ func TestResolvePath(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			file, redir, ok := resolvePath(tt.path, fs)
+			file, redir, ok := resolvePath(tt.path, testingFS)
 
 			if ok != tt.wantOK {
 				t.Fatalf("ok = %v, want %v", ok, tt.wantOK)
@@ -310,7 +310,7 @@ func TestResolvePath_EmptyFS(t *testing.T) {
 
 // TestExistsFile tests the file existence helper
 func TestExistsFile(t *testing.T) {
-	fs := testFS()
+	testingFS := testFS()
 
 	tests := []struct {
 		name string
@@ -326,7 +326,7 @@ func TestExistsFile(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := existsFile(fs, tt.path)
+			got := existsFile(testingFS, tt.path)
 			if got != tt.want {
 				t.Errorf("existsFile(%q) = %v, want %v", tt.path, got, tt.want)
 			}

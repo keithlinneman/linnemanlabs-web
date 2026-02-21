@@ -28,7 +28,7 @@ func getFreePort(t *testing.T) int {
 	return port
 }
 
-func startOps(t *testing.T, opts Options) (int, func(context.Context) error) {
+func startOps(t *testing.T, opts *Options) (port int, stopFunc func(context.Context) error) {
 	t.Helper()
 	if opts.Port == 0 {
 		opts.Port = getFreePort(t)
@@ -65,7 +65,7 @@ func readBody(t *testing.T, resp *http.Response) string {
 // Start - lifecycle
 
 func TestStart_ReturnsStopFunc(t *testing.T) {
-	port, stop := startOps(t, Options{})
+	port, stop := startOps(t, &Options{})
 	_ = port
 	if stop == nil {
 		t.Fatal("stop func is nil")
@@ -79,7 +79,7 @@ func TestStart_DefaultPort(t *testing.T) {
 }
 
 func TestStart_CustomPort(t *testing.T) {
-	port, _ := startOps(t, Options{
+	port, _ := startOps(t, &Options{
 		Health:    health.Fixed(true, ""),
 		Readiness: health.Fixed(true, ""),
 	})
@@ -96,7 +96,7 @@ func TestStart_GracefulShutdown(t *testing.T) {
 	port := getFreePort(t)
 	ctx := context.Background()
 
-	stop, err := Start(ctx, log.Nop(), Options{
+	stop, err := Start(ctx, log.Nop(), &Options{
 		Port:      port,
 		Health:    health.Fixed(true, ""),
 		Readiness: health.Fixed(true, ""),
@@ -130,7 +130,7 @@ func TestStart_StopIdempotent(t *testing.T) {
 	port := getFreePort(t)
 	ctx := context.Background()
 
-	stop, err := Start(ctx, log.Nop(), Options{Port: port})
+	stop, err := Start(ctx, log.Nop(), &Options{Port: port})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -150,13 +150,13 @@ func TestStart_PortConflict(t *testing.T) {
 	port := getFreePort(t)
 	ctx := context.Background()
 
-	stop1, err := Start(ctx, log.Nop(), Options{Port: port})
+	stop1, err := Start(ctx, log.Nop(), &Options{Port: port})
 	if err != nil {
 		t.Fatalf("first Start: %v", err)
 	}
 	defer stop1(ctx)
 
-	_, err = Start(ctx, log.Nop(), Options{Port: port})
+	_, err = Start(ctx, log.Nop(), &Options{Port: port})
 	if err == nil {
 		t.Fatal("expected error for port conflict")
 	}
@@ -165,7 +165,7 @@ func TestStart_PortConflict(t *testing.T) {
 // Health endpoints
 
 func TestStart_HealthzEndpoint_Healthy(t *testing.T) {
-	port, _ := startOps(t, Options{
+	port, _ := startOps(t, &Options{
 		Health: health.Fixed(true, ""),
 	})
 
@@ -181,7 +181,7 @@ func TestStart_HealthzEndpoint_Healthy(t *testing.T) {
 }
 
 func TestStart_HealthzEndpoint_Unhealthy(t *testing.T) {
-	port, _ := startOps(t, Options{
+	port, _ := startOps(t, &Options{
 		Health: health.Fixed(false, "something broke"),
 	})
 
@@ -197,7 +197,7 @@ func TestStart_HealthzEndpoint_Unhealthy(t *testing.T) {
 }
 
 func TestStart_ReadyzEndpoint_Ready(t *testing.T) {
-	port, _ := startOps(t, Options{
+	port, _ := startOps(t, &Options{
 		Readiness: health.Fixed(true, ""),
 	})
 
@@ -213,7 +213,7 @@ func TestStart_ReadyzEndpoint_Ready(t *testing.T) {
 }
 
 func TestStart_ReadyzEndpoint_NotReady(t *testing.T) {
-	port, _ := startOps(t, Options{
+	port, _ := startOps(t, &Options{
 		Readiness: health.Fixed(false, "content: no active snapshot"),
 	})
 
@@ -231,7 +231,7 @@ func TestStart_ReadyzEndpoint_NotReady(t *testing.T) {
 func TestStart_HealthzEndpoint_DynamicProbe(t *testing.T) {
 	var gate health.ShutdownGate
 
-	port, _ := startOps(t, Options{
+	port, _ := startOps(t, &Options{
 		Health: gate.Probe(),
 	})
 
@@ -259,7 +259,7 @@ func TestStart_MetricsEndpoint(t *testing.T) {
 		w.Write([]byte("# HELP fake_metric\n"))
 	})
 
-	port, _ := startOps(t, Options{
+	port, _ := startOps(t, &Options{
 		Metrics: metricsHandler,
 	})
 
@@ -275,7 +275,7 @@ func TestStart_MetricsEndpoint(t *testing.T) {
 }
 
 func TestStart_MetricsEndpoint_Nil(t *testing.T) {
-	port, _ := startOps(t, Options{
+	port, _ := startOps(t, &Options{
 		Metrics: nil,
 	})
 
@@ -291,7 +291,7 @@ func TestStart_MetricsEndpoint_Nil(t *testing.T) {
 // Pprof endpoints
 
 func TestStart_PprofEnabled(t *testing.T) {
-	port, _ := startOps(t, Options{
+	port, _ := startOps(t, &Options{
 		EnablePprof: true,
 	})
 
@@ -304,7 +304,7 @@ func TestStart_PprofEnabled(t *testing.T) {
 }
 
 func TestStart_PprofDisabled(t *testing.T) {
-	port, _ := startOps(t, Options{
+	port, _ := startOps(t, &Options{
 		EnablePprof: false,
 	})
 
@@ -327,7 +327,7 @@ func TestRequireNonPublicNetwork_Loopback(t *testing.T) {
 	h := requireNonPublicNetwork(log.Nop(), inner)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/healthz", nil)
+	req := httptest.NewRequest("GET", "/healthz", http.NoBody)
 	req.RemoteAddr = "127.0.0.1:12345"
 	h.ServeHTTP(rec, req)
 
@@ -344,7 +344,7 @@ func TestRequireNonPublicNetwork_IPv6Loopback(t *testing.T) {
 	h := requireNonPublicNetwork(log.Nop(), inner)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/healthz", nil)
+	req := httptest.NewRequest("GET", "/healthz", http.NoBody)
 	req.RemoteAddr = "[::1]:12345"
 	h.ServeHTTP(rec, req)
 
@@ -368,7 +368,7 @@ func TestRequireNonPublicNetwork_PrivateIP(t *testing.T) {
 
 	for _, addr := range privateIPs {
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest("GET", "/healthz", nil)
+		req := httptest.NewRequest("GET", "/healthz", http.NoBody)
 		req.RemoteAddr = addr
 		h.ServeHTTP(rec, req)
 
@@ -394,7 +394,7 @@ func TestRequireNonPublicNetwork_PublicIP_Rejected(t *testing.T) {
 
 	for _, addr := range publicIPs {
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest("GET", "/healthz", nil)
+		req := httptest.NewRequest("GET", "/healthz", http.NoBody)
 		req.RemoteAddr = addr
 		h.ServeHTTP(rec, req)
 
@@ -412,7 +412,7 @@ func TestRequireNonPublicNetwork_LinkLocal(t *testing.T) {
 	h := requireNonPublicNetwork(log.Nop(), inner)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/healthz", nil)
+	req := httptest.NewRequest("GET", "/healthz", http.NoBody)
 	req.RemoteAddr = "169.254.1.1:8080"
 	h.ServeHTTP(rec, req)
 
@@ -429,7 +429,7 @@ func TestRequireNonPublicNetwork_BadRemoteAddr(t *testing.T) {
 	h := requireNonPublicNetwork(log.Nop(), inner)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/healthz", nil)
+	req := httptest.NewRequest("GET", "/healthz", http.NoBody)
 	req.RemoteAddr = "not-an-address"
 	h.ServeHTTP(rec, req)
 
@@ -446,7 +446,7 @@ func TestRequireNonPublicNetwork_EmptyRemoteAddr(t *testing.T) {
 	h := requireNonPublicNetwork(log.Nop(), inner)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/healthz", nil)
+	req := httptest.NewRequest("GET", "/healthz", http.NoBody)
 	req.RemoteAddr = ""
 	h.ServeHTTP(rec, req)
 
@@ -463,7 +463,7 @@ func TestRequireNonPublicNetwork_InvalidIP(t *testing.T) {
 	h := requireNonPublicNetwork(log.Nop(), inner)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/healthz", nil)
+	req := httptest.NewRequest("GET", "/healthz", http.NoBody)
 	req.RemoteAddr = "999.999.999.999:8080"
 	h.ServeHTTP(rec, req)
 
@@ -482,7 +482,7 @@ func TestRequireNonPublicNetwork_IPv4MappedIPv6_Rejected(t *testing.T) {
 	h := requireNonPublicNetwork(log.Nop(), inner)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/healthz", nil)
+	req := httptest.NewRequest("GET", "/healthz", http.NoBody)
 	req.RemoteAddr = "[::ffff:8.8.8.8]:12345"
 	h.ServeHTTP(rec, req)
 
@@ -501,7 +501,7 @@ func TestRequireNonPublicNetwork_IPv4MappedIPv6_PrivateAllowed(t *testing.T) {
 	h := requireNonPublicNetwork(log.Nop(), inner)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/healthz", nil)
+	req := httptest.NewRequest("GET", "/healthz", http.NoBody)
 	req.RemoteAddr = "[::ffff:10.0.0.1]:12345"
 	h.ServeHTTP(rec, req)
 

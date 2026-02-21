@@ -12,7 +12,7 @@ import (
 // Disabled path
 
 func TestInit_Disabled_ReturnsShutdownFunc(t *testing.T) {
-	shutdown, err := Init(context.Background(), Options{Enabled: false})
+	shutdown, err := Init(context.Background(), &Options{Enabled: false})
 	if err != nil {
 		t.Fatalf("Init disabled: %v", err)
 	}
@@ -22,7 +22,7 @@ func TestInit_Disabled_ReturnsShutdownFunc(t *testing.T) {
 }
 
 func TestInit_Disabled_ShutdownIsNoop(t *testing.T) {
-	shutdown, _ := Init(context.Background(), Options{Enabled: false})
+	shutdown, _ := Init(context.Background(), &Options{Enabled: false})
 
 	// Calling shutdown should not error or panic
 	if err := shutdown(context.Background()); err != nil {
@@ -36,7 +36,7 @@ func TestInit_Disabled_ShutdownIsNoop(t *testing.T) {
 }
 
 func TestInit_Disabled_SetsTracerProvider(t *testing.T) {
-	_, _ = Init(context.Background(), Options{Enabled: false})
+	_, _ = Init(context.Background(), &Options{Enabled: false})
 
 	tp := otel.GetTracerProvider()
 	if tp == nil {
@@ -50,7 +50,7 @@ func TestInit_Disabled_SetsTracerProvider(t *testing.T) {
 }
 
 func TestInit_Disabled_SetsPropagator(t *testing.T) {
-	_, _ = Init(context.Background(), Options{Enabled: false})
+	_, _ = Init(context.Background(), &Options{Enabled: false})
 
 	prop := otel.GetTextMapPropagator()
 	if prop == nil {
@@ -73,7 +73,7 @@ func TestInit_Disabled_SetsPropagator(t *testing.T) {
 }
 
 func TestInit_Disabled_TracerProducesNoopSpans(t *testing.T) {
-	_, _ = Init(context.Background(), Options{Enabled: false})
+	_, _ = Init(context.Background(), &Options{Enabled: false})
 
 	tracer := otel.Tracer("test")
 	ctx, span := tracer.Start(context.Background(), "test-span")
@@ -96,7 +96,7 @@ func TestInit_Disabled_TracerProducesNoopSpans(t *testing.T) {
 
 func TestInit_Disabled_IgnoresAllOptions(t *testing.T) {
 	// Even with nonsense options, disabled should succeed
-	shutdown, err := Init(context.Background(), Options{
+	shutdown, err := Init(context.Background(), &Options{
 		Enabled:   false,
 		Endpoint:  "",
 		Sample:    99.9,
@@ -117,7 +117,7 @@ func TestInit_Disabled_IgnoresAllOptions(t *testing.T) {
 
 func TestInit_Disabled_MultipleCalls(t *testing.T) {
 	for i := 0; i < 3; i++ {
-		shutdown, err := Init(context.Background(), Options{Enabled: false})
+		shutdown, err := Init(context.Background(), &Options{Enabled: false})
 		if err != nil {
 			t.Fatalf("call %d: %v", i, err)
 		}
@@ -140,7 +140,7 @@ func TestInit_Enabled_ReturnsPromptly(t *testing.T) {
 	// The 10s dial timeout bounds the worst case; gRPC defers connection
 	// establishment so this should return quickly.
 	start := time.Now()
-	shutdown, err := Init(context.Background(), Options{
+	shutdown, err := Init(context.Background(), &Options{
 		Enabled:   true,
 		Endpoint:  "localhost:1",
 		Insecure:  true,
@@ -176,7 +176,7 @@ func TestInit_Enabled_ReturnsPromptly(t *testing.T) {
 // Propagator type - verify composite propagator
 
 func TestInit_Disabled_CompositePropagator(t *testing.T) {
-	_, _ = Init(context.Background(), Options{Enabled: false})
+	_, _ = Init(context.Background(), &Options{Enabled: false})
 
 	prop := otel.GetTextMapPropagator()
 

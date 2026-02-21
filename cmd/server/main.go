@@ -57,7 +57,7 @@ func main() { //nolint:gocognit // main wires everything together, splitting it 
 			vi.AppName, vi.Version, vi.Commit, vi.CommitDate, vi.BuildId, vi.BuildDate, vi.GoVersion,
 			vi.VCSDirty != nil && *vi.VCSDirty,
 		)
-		os.Exit(0)
+		os.Exit(0) //nolint:gocritic // exitAfterDefer: intentional early exit for --version flag
 	}
 
 	// Fill in config from environment variables with prefix LMLABS_ and validate
@@ -66,7 +66,7 @@ func main() { //nolint:gocognit // main wires everything together, splitting it 
 	})
 
 	// validate config
-	if err := cfg.Validate(conf, hasProvenance); err != nil {
+	if err := cfg.Validate(&conf, hasProvenance); err != nil {
 		fmt.Fprintln(os.Stderr, "config error:", err)
 		os.Exit(1)
 	}
@@ -77,7 +77,7 @@ func main() { //nolint:gocognit // main wires everything together, splitting it 
 		fmt.Fprintf(os.Stderr, "invalid log level %s: %v\n", conf.LogLevel, err)
 		os.Exit(1)
 	}
-	lg, err := log.New(log.Options{
+	lg, err := log.New(&log.Options{
 		App:               v.AppName,
 		Version:           v.Version,
 		Commit:            v.Commit,
@@ -124,7 +124,7 @@ func main() { //nolint:gocognit // main wires everything together, splitting it 
 	)
 
 	// Setup pyroscope profiling
-	stopProf, profErr := prof.Start(ctx, prof.Options{
+	stopProf, profErr := prof.Start(ctx, &prof.Options{
 		Enabled:       conf.EnablePyroscope,
 		AppName:       v.AppName,
 		ServerAddress: conf.PyroServer,
@@ -141,11 +141,11 @@ func main() { //nolint:gocognit // main wires everything together, splitting it 
 	if profErr != nil {
 		L.Error(ctx, profErr, "pyroscope start failed", "pyro_server", conf.PyroServer)
 	}
-	defer func() { stopProf() }()
+	defer stopProf()
 
 	// Setup otel for tracing
 	// Insecure is true because we are only writing to a collector on localhost
-	shutdownOTEL, err := otelx.Init(ctx, otelx.Options{
+	shutdownOTEL, err := otelx.Init(ctx, &otelx.Options{
 		Enabled:   conf.EnableTracing,
 		Endpoint:  conf.OTLPEndpoint,
 		Insecure:  true,
@@ -161,7 +161,7 @@ func main() { //nolint:gocognit // main wires everything together, splitting it 
 
 	// Setup metrics / admin listener
 	var m = metrics.New()
-	m.SetBuildInfoFromVersion(v.AppName, "server", vi)
+	m.SetBuildInfoFromVersion(v.AppName, "server", &vi)
 	m.SetProfilingActive(profErr == nil && conf.EnablePyroscope)
 
 	awsCfg, err := config.LoadDefaultConfig(ctx)
@@ -242,7 +242,7 @@ func main() { //nolint:gocognit // main wires everything together, splitting it 
 	}
 
 	// setup content bundle loader
-	contentLoader, err := content.NewLoader(ctx, content.LoaderOptions{
+	contentLoader, err := content.NewLoader(ctx, &content.LoaderOptions{
 		Logger:    L,
 		SSMParam:  conf.ContentSSMParam,
 		S3Bucket:  conf.ContentS3Bucket,
@@ -271,7 +271,7 @@ func main() { //nolint:gocognit // main wires everything together, splitting it 
 
 	if contentLoader != nil && conf.EnableContentUpdates {
 		// setup content watcher to poll for new bundles, validate and swap into manager
-		watcher := content.NewWatcher(content.WatcherOptions{
+		watcher := content.NewWatcher(&content.WatcherOptions{
 			Logger:       L,
 			Loader:       contentLoader,
 			Manager:      contentMgr,
@@ -291,7 +291,7 @@ func main() { //nolint:gocognit // main wires everything together, splitting it 
 	var evidenceStore *evidence.Store
 	if hasProvenance {
 		evidenceStore = evidence.NewStore()
-		evidenceLoader, err := evidence.NewLoader(ctx, evidence.LoaderOptions{
+		evidenceLoader, err := evidence.NewLoader(ctx, &evidence.LoaderOptions{
 			Logger:           L,
 			Bucket:           vi.EvidenceBucket,
 			Prefix:           vi.EvidencePrefix,
@@ -330,7 +330,7 @@ func main() { //nolint:gocognit // main wires everything together, splitting it 
 	provenanceAPI := provenancehttp.NewAPI(contentMgr, evidenceStore, L)
 
 	// setup site handler that serves site content
-	siteHandler, err := sitehandler.New(sitehandler.Options{
+	siteHandler, err := sitehandler.New(&sitehandler.Options{
 		Logger:     L,
 		Content:    contentMgr,
 		FallbackFS: fallbackFS,
@@ -371,7 +371,7 @@ func main() { //nolint:gocognit // main wires everything together, splitting it 
 	// start site http server
 	siteHTTPStop, err := httpserver.Start(
 		ctx,
-		httpserver.Options{
+		&httpserver.Options{
 			Port:         conf.HTTPPort,
 			Health:       health.Fixed(true, ""),
 			Readiness:    readiness,
@@ -396,7 +396,7 @@ func main() { //nolint:gocognit // main wires everything together, splitting it 
 	// sg restricts inbound to internal monitoring infrastructure
 	// we reject connections from public ips and requests with x-forwarded set in middleware
 	// to prevent accidental exposure if sg is misconfigured or load balancer ever sends traffic there
-	opsHTTPStop, err := opshttp.Start(ctx, L, opshttp.Options{
+	opsHTTPStop, err := opshttp.Start(ctx, L, &opshttp.Options{
 		Port:         conf.AdminPort,
 		Metrics:      m.Handler(),
 		EnablePprof:  conf.EnablePprof,

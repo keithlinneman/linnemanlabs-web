@@ -16,7 +16,7 @@ import (
 
 // Start admin HTTP server with /metrics, /healthz, /readyz, pprof debug endpoints
 // Returns stop(ctx) for graceful shutdown
-func Start(ctx context.Context, L log.Logger, opts Options) (func(context.Context) error, error) {
+func Start(ctx context.Context, l log.Logger, opts *Options) (func(context.Context) error, error) {
 	port := opts.Port
 	if port == 0 {
 		port = 9000
@@ -44,7 +44,7 @@ func Start(ctx context.Context, L log.Logger, opts Options) (func(context.Contex
 		})
 	}
 
-	handler := requireNonPublicNetwork(L, mux)
+	handler := requireNonPublicNetwork(l, mux)
 
 	srv := &http.Server{
 		Addr:              addr,
@@ -62,16 +62,16 @@ func Start(ctx context.Context, L log.Logger, opts Options) (func(context.Contex
 	}
 
 	go func() {
-		L.Info(ctx, "ops http server listening", "addr", addr)
+		l.Info(ctx, "ops http server listening", "addr", addr)
 		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
-			L.Error(ctx, err, "ops http server error")
+			l.Error(ctx, err, "ops http server error")
 		}
 	}()
 
 	var once sync.Once
 	stop := func(sctx context.Context) (retErr error) {
 		once.Do(func() {
-			L.Info(sctx, "ops http server shutting down")
+			l.Info(sctx, "ops http server shutting down")
 			c, cancel := context.WithTimeout(sctx, 5*time.Second)
 			defer cancel()
 			retErr = srv.Shutdown(c)
@@ -82,24 +82,24 @@ func Start(ctx context.Context, L log.Logger, opts Options) (func(context.Contex
 }
 
 // requireNonPublicNetwork is a middleware that only allows requests from non-public IPs, loopback or link-local addresses. This is used to protect the admin HTTP server from external access
-func requireNonPublicNetwork(L log.Logger, next http.Handler) http.Handler {
+func requireNonPublicNetwork(l log.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		host, _, err := net.SplitHostPort(r.RemoteAddr)
 		if err != nil {
-			L.Warn(r.Context(), "admin: rejected request, bad remote addr", "remote_addr", r.RemoteAddr)
+			l.Warn(r.Context(), "admin: rejected request, bad remote addr", "remote_addr", r.RemoteAddr)
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
 
 		ip := net.ParseIP(host)
 		if ip == nil {
-			L.Warn(r.Context(), "admin: rejected invalid IP", "remote_ip", host)
+			l.Warn(r.Context(), "admin: rejected invalid IP", "remote_ip", host)
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
 		// only allow private, loopback or link-local ips
 		if !ip.IsPrivate() && !ip.IsLoopback() && !ip.IsLinkLocalUnicast() {
-			L.Warn(r.Context(), "admin: rejected non-private IP", "remote_ip", host)
+			l.Warn(r.Context(), "admin: rejected non-private IP", "remote_ip", host)
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}

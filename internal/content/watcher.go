@@ -107,7 +107,7 @@ type Watcher struct {
 }
 
 // NewWatcher creates a content watcher. Call Run to start the poll loop.
-func NewWatcher(opts WatcherOptions) *Watcher {
+func NewWatcher(opts *WatcherOptions) *Watcher {
 	if opts.Logger == nil {
 		opts.Logger = log.Nop()
 	}

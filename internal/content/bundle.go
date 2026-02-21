@@ -35,7 +35,7 @@ const (
 // readWithHash reads all bytes from r up to maxSize, computing hash
 // as it reads. Returns the data, hex-encoded hash, and any error.
 // Used by LoadHash to verify bundle integrity without temp files.
-func readWithHash(r io.Reader, maxSize int64, algorithm string) ([]byte, string, error) {
+func readWithHash(r io.Reader, maxSize int64, algorithm string) (contentData []byte, contentHash string, ioError error) {
 	var hasher hash.Hash
 	switch algorithm {
 	case "sha256":
@@ -61,7 +61,7 @@ func readWithHash(r io.Reader, maxSize int64, algorithm string) ([]byte, string,
 }
 
 // copyWithHash copies from src to dst while computing SHA256
-func copyWithHash(dst io.Writer, src io.Reader) (written int64, hash string, err error) {
+func copyWithHash(dst io.Writer, src io.Reader) (written int64, contentHash string, err error) {
 	h := sha256.New()
 	w := io.MultiWriter(dst, h)
 
@@ -140,7 +140,7 @@ func extractTarGzToMem(data []byte) (fs.FS, error) {
 			mfs[cleanName] = &fstest.MapFile{
 				Data: content,
 				// all files are read-only in-mem fs, setting to 600 instead of tar permissions to avoid confusion
-				Mode: 0600,
+				Mode: 0o600,
 			}
 
 		default:
@@ -154,8 +154,8 @@ func extractTarGzToMem(data []byte) (fs.FS, error) {
 
 // ComputeFileHash computes SHA256 of a file. Only called by ValidateBundle()
 // which is used for validating local files, never accepts user input.
-func ComputeFileHash(path string) (string, error) {
-	f, err := os.Open(path) //nolint:gosec // G304: path comes from trusted bundle content paths
+func ComputeFileHash(filepath string) (string, error) {
+	f, err := os.Open(filepath) //nolint:gosec // G304: path comes from trusted bundle content paths
 	if err != nil {
 		return "", err
 	}
@@ -170,14 +170,14 @@ func ComputeFileHash(path string) (string, error) {
 }
 
 // ValidateBundle checks if a bundle file matches the expected hash
-func ValidateBundle(path, expectedHash string) error {
-	hash, err := ComputeFileHash(path)
+func ValidateBundle(filepath, expectedHash string) error {
+	fileHash, err := ComputeFileHash(filepath)
 	if err != nil {
-		return xerrors.Wrapf(err, "compute hash of %s", path)
+		return xerrors.Wrapf(err, "compute hash of %s", filepath)
 	}
 
-	if !cryptoutil.HashEqual(hash, expectedHash) {
-		return fmt.Errorf("hash mismatch: expected %s, got %s", expectedHash, hash)
+	if !cryptoutil.HashEqual(fileHash, expectedHash) {
+		return fmt.Errorf("hash mismatch: expected %s, got %s", expectedHash, fileHash)
 	}
 
 	return nil

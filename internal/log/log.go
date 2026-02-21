@@ -32,7 +32,7 @@ type Options struct {
 	Writer            io.Writer
 }
 
-func New(opts Options) (Logger, error) { return newSlog(opts) }
+func New(opts *Options) (Logger, error) { return newSlog(opts) }
 
 func ParseLevel(s string) (slog.Level, error) {
 	x := strings.ToLower(strings.TrimSpace(s))

@@ -162,12 +162,11 @@ func emptyEvidenceStore() *evidence.Store {
 // serveWithChi wires up a handler through chi so chi.URLParam works.
 func serveWithChi(pattern, method, url string, handler http.HandlerFunc) *httptest.ResponseRecorder { //nolint:unparam // pattern will vary this is re-usable for future tests
 	r := chi.NewRouter()
-	switch method {
-	case "GET":
+	if method == "GET" {
 		r.Get(pattern, handler)
 	}
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(method, url, nil)
+	req := httptest.NewRequest(method, url, http.NoBody)
 	r.ServeHTTP(rec, req)
 	return rec
 }
@@ -234,7 +233,7 @@ func TestRegisterRoutes_AllEndpoints(t *testing.T) {
 
 	for _, ep := range endpoints {
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(ep.method, ep.path, nil)
+		req := httptest.NewRequest(ep.method, ep.path, http.NoBody)
 		r.ServeHTTP(rec, req)
 
 		if rec.Code == http.StatusNotFound || rec.Code == http.StatusMethodNotAllowed {
@@ -249,7 +248,7 @@ func TestWriteJSON_ContentType(t *testing.T) {
 	api := NewAPI(noContentProvider(), nil, log.Nop())
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/", nil)
+	req := httptest.NewRequest("GET", "/", http.NoBody)
 	api.HandleAppProvenance(rec, req)
 
 	ct := rec.Header().Get("Content-Type")
@@ -262,7 +261,7 @@ func TestWriteJSON_CacheControl(t *testing.T) {
 	api := NewAPI(noContentProvider(), nil, log.Nop())
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/", nil)
+	req := httptest.NewRequest("GET", "/", http.NoBody)
 	api.HandleAppProvenance(rec, req)
 
 	cc := rec.Header().Get("Cache-Control")
@@ -277,7 +276,7 @@ func TestHandleAppProvenance_NoEvidence(t *testing.T) {
 	api := NewAPI(noContentProvider(), nil, log.Nop())
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/api/provenance/app", nil)
+	req := httptest.NewRequest("GET", "/api/provenance/app", http.NoBody)
 	api.HandleAppProvenance(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -297,7 +296,7 @@ func TestHandleAppProvenance_EmptyStore(t *testing.T) {
 	api := NewAPI(noContentProvider(), emptyEvidenceStore(), log.Nop())
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/api/provenance/app", nil)
+	req := httptest.NewRequest("GET", "/api/provenance/app", http.NoBody)
 	api.HandleAppProvenance(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -314,7 +313,7 @@ func TestHandleAppProvenance_WithEvidence(t *testing.T) {
 	api := NewAPI(noContentProvider(), evidenceStore(), log.Nop())
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/api/provenance/app", nil)
+	req := httptest.NewRequest("GET", "/api/provenance/app", http.NoBody)
 	api.HandleAppProvenance(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -335,7 +334,7 @@ func TestHandleAppProvenance_AlwaysHasLinks(t *testing.T) {
 	api := NewAPI(noContentProvider(), nil, log.Nop())
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/api/provenance/app", nil)
+	req := httptest.NewRequest("GET", "/api/provenance/app", http.NoBody)
 	api.HandleAppProvenance(rec, req)
 
 	m := parseJSON(t, rec)
@@ -356,7 +355,7 @@ func TestHandleAppProvenance_BuildInfoPresent(t *testing.T) {
 	api := NewAPI(noContentProvider(), nil, log.Nop())
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/api/provenance/app", nil)
+	req := httptest.NewRequest("GET", "/api/provenance/app", http.NoBody)
 	api.HandleAppProvenance(rec, req)
 
 	m := parseJSON(t, rec)
@@ -371,7 +370,7 @@ func TestHandleAppSummary_NoEvidence(t *testing.T) {
 	api := NewAPI(noContentProvider(), nil, log.Nop())
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/api/provenance/app/summary", nil)
+	req := httptest.NewRequest("GET", "/api/provenance/app/summary", http.NoBody)
 	api.HandleAppSummary(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -391,7 +390,7 @@ func TestHandleAppSummary_EmptyStore(t *testing.T) {
 	api := NewAPI(noContentProvider(), emptyEvidenceStore(), log.Nop())
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/api/provenance/app/summary", nil)
+	req := httptest.NewRequest("GET", "/api/provenance/app/summary", http.NoBody)
 	api.HandleAppSummary(rec, req)
 
 	m := parseJSON(t, rec)
@@ -404,7 +403,7 @@ func TestHandleAppSummary_WithEvidence(t *testing.T) {
 	api := NewAPI(noContentProvider(), evidenceStore(), log.Nop())
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/api/provenance/app/summary", nil)
+	req := httptest.NewRequest("GET", "/api/provenance/app/summary", http.NoBody)
 	api.HandleAppSummary(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -427,7 +426,7 @@ func TestHandleAppSummary_AlwaysHasLinks(t *testing.T) {
 	api := NewAPI(noContentProvider(), nil, log.Nop())
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/api/provenance/app/summary", nil)
+	req := httptest.NewRequest("GET", "/api/provenance/app/summary", http.NoBody)
 	api.HandleAppSummary(rec, req)
 
 	m := parseJSON(t, rec)
@@ -442,7 +441,7 @@ func TestHandleContentProvenance_NoContent(t *testing.T) {
 	api := NewAPI(noContentProvider(), nil, log.Nop())
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/api/provenance/content", nil)
+	req := httptest.NewRequest("GET", "/api/provenance/content", http.NoBody)
 	api.HandleContentProvenance(rec, req)
 
 	if rec.Code != http.StatusServiceUnavailable {
@@ -459,7 +458,7 @@ func TestHandleContentProvenance_WithContent(t *testing.T) {
 	api := NewAPI(contentProvider(), nil, log.Nop())
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/api/provenance/content", nil)
+	req := httptest.NewRequest("GET", "/api/provenance/content", http.NoBody)
 	api.HandleContentProvenance(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -480,7 +479,7 @@ func TestHandleContentProvenance_NoProvenance(t *testing.T) {
 	api := NewAPI(contentProviderNoProvenance(), nil, log.Nop())
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/api/provenance/content", nil)
+	req := httptest.NewRequest("GET", "/api/provenance/content", http.NoBody)
 	api.HandleContentProvenance(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -499,7 +498,7 @@ func TestHandleContentSummary_NoContent(t *testing.T) {
 	api := NewAPI(noContentProvider(), nil, log.Nop())
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/api/provenance/content/summary", nil)
+	req := httptest.NewRequest("GET", "/api/provenance/content/summary", http.NoBody)
 	api.HandleContentSummary(rec, req)
 
 	if rec.Code != http.StatusServiceUnavailable {
@@ -511,7 +510,7 @@ func TestHandleContentSummary_WithProvenance(t *testing.T) {
 	api := NewAPI(contentProvider(), nil, log.Nop())
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/api/provenance/content/summary", nil)
+	req := httptest.NewRequest("GET", "/api/provenance/content/summary", http.NoBody)
 	api.HandleContentSummary(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -534,7 +533,7 @@ func TestHandleContentSummary_NoProvenance_Fallback(t *testing.T) {
 	api := NewAPI(contentProviderNoProvenance(), nil, log.Nop())
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/api/provenance/content/summary", nil)
+	req := httptest.NewRequest("GET", "/api/provenance/content/summary", http.NoBody)
 	api.HandleContentSummary(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -557,7 +556,7 @@ func TestHandleEvidenceManifest_NoEvidence(t *testing.T) {
 	api := NewAPI(noContentProvider(), nil, log.Nop())
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/api/provenance/evidence", nil)
+	req := httptest.NewRequest("GET", "/api/provenance/evidence", http.NoBody)
 	api.HandleEvidenceManifest(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -574,7 +573,7 @@ func TestHandleEvidenceManifest_EmptyStore(t *testing.T) {
 	api := NewAPI(noContentProvider(), emptyEvidenceStore(), log.Nop())
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/api/provenance/evidence", nil)
+	req := httptest.NewRequest("GET", "/api/provenance/evidence", http.NoBody)
 	api.HandleEvidenceManifest(rec, req)
 
 	m := parseJSON(t, rec)
@@ -587,7 +586,7 @@ func TestHandleEvidenceManifest_WithEvidence(t *testing.T) {
 	api := NewAPI(noContentProvider(), evidenceStore(), log.Nop())
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/api/provenance/evidence", nil)
+	req := httptest.NewRequest("GET", "/api/provenance/evidence", http.NoBody)
 	api.HandleEvidenceManifest(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -612,7 +611,7 @@ func TestHandleReleaseJSON_NoEvidence(t *testing.T) {
 	api := NewAPI(noContentProvider(), nil, log.Nop())
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/api/provenance/evidence/release.json", nil)
+	req := httptest.NewRequest("GET", "/api/provenance/evidence/release.json", http.NoBody)
 	api.HandleReleaseJSON(rec, req)
 
 	if rec.Code != http.StatusNotFound {
@@ -624,7 +623,7 @@ func TestHandleReleaseJSON_EmptyStore(t *testing.T) {
 	api := NewAPI(noContentProvider(), emptyEvidenceStore(), log.Nop())
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/api/provenance/evidence/release.json", nil)
+	req := httptest.NewRequest("GET", "/api/provenance/evidence/release.json", http.NoBody)
 	api.HandleReleaseJSON(rec, req)
 
 	if rec.Code != http.StatusNotFound {
@@ -636,7 +635,7 @@ func TestHandleReleaseJSON_WithEvidence(t *testing.T) {
 	api := NewAPI(noContentProvider(), evidenceStore(), log.Nop())
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/api/provenance/evidence/release.json", nil)
+	req := httptest.NewRequest("GET", "/api/provenance/evidence/release.json", http.NoBody)
 	api.HandleReleaseJSON(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -652,7 +651,7 @@ func TestHandleReleaseJSON_CacheHeaders(t *testing.T) {
 	api := NewAPI(noContentProvider(), evidenceStore(), log.Nop())
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/api/provenance/evidence/release.json", nil)
+	req := httptest.NewRequest("GET", "/api/provenance/evidence/release.json", http.NoBody)
 	api.HandleReleaseJSON(rec, req)
 
 	cc := rec.Header().Get("Cache-Control")
@@ -671,7 +670,7 @@ func TestHandleInventoryJSON_NoEvidence(t *testing.T) {
 	api := NewAPI(noContentProvider(), nil, log.Nop())
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/api/provenance/evidence/inventory.json", nil)
+	req := httptest.NewRequest("GET", "/api/provenance/evidence/inventory.json", http.NoBody)
 	api.HandleInventoryJSON(rec, req)
 
 	if rec.Code != http.StatusNotFound {
@@ -683,7 +682,7 @@ func TestHandleInventoryJSON_WithEvidence(t *testing.T) {
 	api := NewAPI(noContentProvider(), evidenceStore(), log.Nop())
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/api/provenance/evidence/inventory.json", nil)
+	req := httptest.NewRequest("GET", "/api/provenance/evidence/inventory.json", http.NoBody)
 	api.HandleInventoryJSON(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -699,7 +698,7 @@ func TestHandleInventoryJSON_CacheHeaders(t *testing.T) {
 	api := NewAPI(noContentProvider(), evidenceStore(), log.Nop())
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/api/provenance/evidence/inventory.json", nil)
+	req := httptest.NewRequest("GET", "/api/provenance/evidence/inventory.json", http.NoBody)
 	api.HandleInventoryJSON(rec, req)
 
 	cc := rec.Header().Get("Cache-Control")
@@ -1025,7 +1024,7 @@ func TestIntegration_FullRouter(t *testing.T) {
 
 	for _, path := range jsonEndpoints {
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest("GET", path, nil)
+		req := httptest.NewRequest("GET", path, http.NoBody)
 		r.ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusOK {
@@ -1051,7 +1050,7 @@ func TestIntegration_EvidenceFileViaRouter(t *testing.T) {
 	api.RegisterRoutes(r)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/api/provenance/evidence/files/source/sbom/report.json", nil)
+	req := httptest.NewRequest("GET", "/api/provenance/evidence/files/source/sbom/report.json", http.NoBody)
 	r.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -1095,7 +1094,7 @@ func FuzzEvidenceFilePath(f *testing.F) {
 
 		// If the URL itself is invalid (control chars), Go blocks it at the
 		// transport layer. That's fine - attacker can't reach us either.
-		req, err := http.NewRequest("GET", safePath, nil)
+		req, err := http.NewRequest("GET", safePath, http.NoBody)
 		if err != nil {
 			return // Go rejected the URL - transport-layer protection, not our problem
 		}

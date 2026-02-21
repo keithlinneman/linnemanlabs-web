@@ -168,7 +168,7 @@ func (m *ServerMetrics) Handler() http.Handler {
 }
 
 // set once at startup.
-func (m *ServerMetrics) SetBuildInfoFromVersion(app, component string, vi version.Info) {
+func (m *ServerMetrics) SetBuildInfoFromVersion(app, component string, vi *version.Info) {
 	dirty := "unknown"
 	if vi.VCSDirty != nil {
 		dirty = strconv.FormatBool(*vi.VCSDirty)

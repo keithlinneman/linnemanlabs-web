@@ -31,7 +31,7 @@ func TestTraceResponseHeaders_ValidSpan(t *testing.T) {
 
 	mw := TraceResponseHeaders("X-Trace-Id", "X-Span-Id")
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/", nil).WithContext(validSpanContext())
+	req := httptest.NewRequest("GET", "/", http.NoBody).WithContext(validSpanContext())
 
 	mw(handler).ServeHTTP(rec, req)
 
@@ -53,7 +53,7 @@ func TestTraceResponseHeaders_NoSpan(t *testing.T) {
 
 	mw := TraceResponseHeaders("X-Trace-Id", "X-Span-Id")
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/", nil)
+	req := httptest.NewRequest("GET", "/", http.NoBody)
 
 	mw(handler).ServeHTTP(rec, req)
 
@@ -74,7 +74,7 @@ func TestTraceResponseHeaders_NoopSpan(t *testing.T) {
 
 	mw := TraceResponseHeaders("X-Trace-Id", "X-Span-Id")
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/", nil).WithContext(ctx)
+	req := httptest.NewRequest("GET", "/", http.NoBody).WithContext(ctx)
 
 	mw(handler).ServeHTTP(rec, req)
 
@@ -89,7 +89,7 @@ func TestTraceResponseHeaders_CustomHeaderNames(t *testing.T) {
 
 	mw := TraceResponseHeaders("X-Custom-Trace", "X-Custom-Span")
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/", nil).WithContext(validSpanContext())
+	req := httptest.NewRequest("GET", "/", http.NoBody).WithContext(validSpanContext())
 
 	mw(handler).ServeHTTP(rec, req)
 
@@ -107,7 +107,7 @@ func TestTraceResponseHeaders_DefaultHeaderNames(t *testing.T) {
 	// Empty strings should default to X-Trace-Id / X-Span-Id
 	mw := TraceResponseHeaders("", "")
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/", nil).WithContext(validSpanContext())
+	req := httptest.NewRequest("GET", "/", http.NoBody).WithContext(validSpanContext())
 
 	mw(handler).ServeHTTP(rec, req)
 
@@ -126,7 +126,7 @@ func TestTraceResponseHeaders_HandlerCalled(t *testing.T) {
 	})
 
 	mw := TraceResponseHeaders("X-Trace-Id", "X-Span-Id")
-	mw(handler).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/", nil))
+	mw(handler).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/", http.NoBody))
 
 	if !called {
 		t.Fatal("next handler not called")

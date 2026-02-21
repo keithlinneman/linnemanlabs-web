@@ -32,7 +32,7 @@ func makeTarGz(t *testing.T, entries map[string]string) []byte {
 	for name, content := range entries {
 		if err := tw.WriteHeader(&tar.Header{
 			Name: name,
-			Mode: 0640,
+			Mode: 0o640,
 			Size: int64(len(content)),
 		}); err != nil {
 			t.Fatalf("write tar header %q: %v", name, err)
@@ -60,7 +60,7 @@ func makeTarGzWithType(t *testing.T, name string, typeflag byte) []byte {
 
 	hdr := &tar.Header{
 		Name:     name,
-		Mode:     0640,
+		Mode:     0o640,
 		Size:     0,
 		Typeflag: typeflag,
 	}
@@ -218,7 +218,7 @@ func TestReadWithHash_Basic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("readWithHash: %v", err)
 	}
-	if string(data) != string(input) {
+	if !bytes.Equal(data, input) {
 		t.Fatalf("data = %q, want %q", data, input)
 	}
 	wantHash := sha256hex(input)
@@ -311,14 +311,14 @@ func TestExtractTarGzToMem_DirectoryEntry_Skipped(t *testing.T) {
 	// explicit directory entry - should be skipped (implicit in MapFS)
 	tw.WriteHeader(&tar.Header{
 		Name:     "mydir/",
-		Mode:     0750,
+		Mode:     0o750,
 		Typeflag: tar.TypeDir,
 	})
 	// file inside that directory
 	content := "inside dir"
 	tw.WriteHeader(&tar.Header{
 		Name: "mydir/file.txt",
-		Mode: 0640,
+		Mode: 0o640,
 		Size: int64(len(content)),
 	})
 	tw.Write([]byte(content))
@@ -393,7 +393,7 @@ func TestExtractTarGzToMem_RejectsPathTraversal(t *testing.T) {
 
 	tw.WriteHeader(&tar.Header{
 		Name: "../../../etc/passwd",
-		Mode: 0640,
+		Mode: 0o640,
 		Size: 4,
 	})
 	tw.Write([]byte("evil"))
@@ -417,7 +417,7 @@ func TestExtractTarGzToMem_RejectsAbsolutePath(t *testing.T) {
 
 	tw.WriteHeader(&tar.Header{
 		Name: "/etc/passwd",
-		Mode: 0640,
+		Mode: 0o640,
 		Size: 4,
 	})
 	tw.Write([]byte("evil"))
@@ -471,7 +471,7 @@ func TestExtractTarGzToMem_OversizedFile(t *testing.T) {
 	// declare file size exceeding maxSingleFile
 	tw.WriteHeader(&tar.Header{
 		Name: "bomb.bin",
-		Mode: 0640,
+		Mode: 0o640,
 		Size: maxSingleFile + 1,
 	})
 
@@ -514,7 +514,7 @@ func TestExtractTarGzToMem_TotalSizeLimit(t *testing.T) {
 		name := fmt.Sprintf("file_%d.bin", i)
 		tw.WriteHeader(&tar.Header{
 			Name: name,
-			Mode: 0640,
+			Mode: 0o640,
 			Size: fileSize,
 		})
 		tw.Write(content)
@@ -540,7 +540,7 @@ func TestExtractTarGzToMem_SetsSafeFileMode(t *testing.T) {
 	content := "executable script"
 	tw.WriteHeader(&tar.Header{
 		Name: "script.sh",
-		Mode: 0755,
+		Mode: 0o750,
 		Size: int64(len(content)),
 	})
 	tw.Write([]byte(content))
@@ -561,8 +561,8 @@ func TestExtractTarGzToMem_SetsSafeFileMode(t *testing.T) {
 	if !exists {
 		t.Fatal("script.sh not found in MapFS")
 	}
-	if entry.Mode&0755 != 0600 {
-		t.Fatalf("mode = %o, want 0600", entry.Mode)
+	if entry.Mode&0o750 != 0o600 {
+		t.Fatalf("mode = %o, want 0o600", entry.Mode)
 	}
 }
 
@@ -574,14 +574,14 @@ func TestExtractTarGzToMem_DotPath_Skipped(t *testing.T) {
 
 	tw.WriteHeader(&tar.Header{
 		Name:     "./",
-		Mode:     0750,
+		Mode:     0o750,
 		Typeflag: tar.TypeDir,
 	})
 
 	content := "valid file"
 	tw.WriteHeader(&tar.Header{
 		Name: "file.txt",
-		Mode: 0640,
+		Mode: 0o640,
 		Size: int64(len(content)),
 	})
 	tw.Write([]byte(content))
@@ -641,7 +641,7 @@ func buildSeedArchive() []byte {
 	for name, content := range entries {
 		tw.WriteHeader(&tar.Header{
 			Name: name,
-			Mode: 0640,
+			Mode: 0o640,
 			Size: int64(len(content)),
 		})
 		tw.Write([]byte(content))
@@ -659,14 +659,14 @@ func buildSeedArchiveWithDir() []byte {
 
 	tw.WriteHeader(&tar.Header{
 		Name:     "mydir/",
-		Mode:     0750,
+		Mode:     0o750,
 		Typeflag: tar.TypeDir,
 	})
 
 	content := "inside dir"
 	tw.WriteHeader(&tar.Header{
 		Name: "mydir/file.txt",
-		Mode: 0640,
+		Mode: 0o640,
 		Size: int64(len(content)),
 	})
 	tw.Write([]byte(content))
@@ -689,7 +689,7 @@ func buildSeedArchiveWithLabel() []byte {
 	content := "after label"
 	tw.WriteHeader(&tar.Header{
 		Name: "file.txt",
-		Mode: 0640,
+		Mode: 0o640,
 		Size: int64(len(content)),
 	})
 	tw.Write([]byte(content))

@@ -72,7 +72,7 @@ type BlobVerifier interface {
 }
 
 // NewLoader creates a new content Loader with the given options
-func NewLoader(ctx context.Context, opts LoaderOptions) (*Loader, error) {
+func NewLoader(ctx context.Context, opts *LoaderOptions) (*Loader, error) {
 	if opts.S3Client == nil {
 		return nil, xerrors.New("content: S3Client is required")
 	}
@@ -93,7 +93,7 @@ func NewLoader(ctx context.Context, opts LoaderOptions) (*Loader, error) {
 	}
 
 	return &Loader{
-		opts:      opts,
+		opts:      *opts,
 		s3Client:  opts.S3Client,
 		ssmClient: opts.SSMClient,
 		logger:    opts.Logger,
@@ -102,7 +102,7 @@ func NewLoader(ctx context.Context, opts LoaderOptions) (*Loader, error) {
 
 // FetchCurrentBundleHash gets the current bundle hash from SSM
 // returns the hash algorithm, hash value, and error if any
-func (l *Loader) FetchCurrentBundleHash(ctx context.Context) (string, string, error) {
+func (l *Loader) FetchCurrentBundleHash(ctx context.Context) (hashAlgorithm, contentHash string, err error) {
 	out, err := l.ssmClient.GetParameter(ctx, &ssm.GetParameterInput{
 		Name:           aws.String(l.opts.SSMParam),
 		WithDecryption: aws.Bool(true),

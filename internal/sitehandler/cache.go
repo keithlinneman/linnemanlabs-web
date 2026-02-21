@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-func cacheControlForFile(name string, o Options) string {
+func cacheControlForFile(name string, o *Options) string {
 	ext := strings.ToLower(path.Ext(name))
 
 	switch ext {

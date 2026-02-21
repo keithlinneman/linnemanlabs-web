@@ -9,12 +9,12 @@ type Handler struct {
 	opts Options
 }
 
-func New(opts Options) (*Handler, error) {
+func New(opts *Options) (*Handler, error) {
 	opts.setDefaults()
 	if err := opts.validate(); err != nil {
 		return nil, err
 	}
-	return &Handler{opts: opts}, nil
+	return &Handler{opts: *opts}, nil
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -52,7 +52,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// apply cache-control policy (basic version based on file extension for now, will expand to cache posts and not homepage/tags/categories/etc)
-	if cc := cacheControlForFile(file, h.opts); cc != "" {
+	if cc := cacheControlForFile(file, &h.opts); cc != "" {
 		w.Header().Set("Cache-Control", cc)
 	}
 

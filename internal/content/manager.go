@@ -13,7 +13,7 @@ type Manager struct {
 func NewManager() *Manager { return &Manager{} }
 
 // Set sets the active snapshot safely
-func (m *Manager) Set(s Snapshot) {
+func (m *Manager) Set(s Snapshot) { //nolint:gocritic // hugeParam: value param is intentional defensive copy for atomic store
 	cp := new(Snapshot)
 	*cp = s
 	if cp.LoadedAt.IsZero() {

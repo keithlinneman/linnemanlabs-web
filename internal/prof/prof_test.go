@@ -11,7 +11,7 @@ import (
 // Disabled path
 
 func TestStart_Disabled_ReturnsStopFunc(t *testing.T) {
-	stop, err := Start(context.Background(), Options{Enabled: false})
+	stop, err := Start(context.Background(), &Options{Enabled: false})
 	if err != nil {
 		t.Fatalf("Start disabled: %v", err)
 	}
@@ -21,7 +21,7 @@ func TestStart_Disabled_ReturnsStopFunc(t *testing.T) {
 }
 
 func TestStart_Disabled_StopIsNoop(t *testing.T) {
-	stop, _ := Start(context.Background(), Options{Enabled: false})
+	stop, _ := Start(context.Background(), &Options{Enabled: false})
 
 	// Should not panic
 	stop()
@@ -29,7 +29,7 @@ func TestStart_Disabled_StopIsNoop(t *testing.T) {
 }
 
 func TestStart_Disabled_NoError(t *testing.T) {
-	_, err := Start(context.Background(), Options{Enabled: false})
+	_, err := Start(context.Background(), &Options{Enabled: false})
 	if err != nil {
 		t.Fatalf("disabled should never error, got: %v", err)
 	}
@@ -37,7 +37,7 @@ func TestStart_Disabled_NoError(t *testing.T) {
 
 func TestStart_Disabled_IgnoresAllOptions(t *testing.T) {
 	// Even with nonsense values, disabled should succeed
-	stop, err := Start(context.Background(), Options{
+	stop, err := Start(context.Background(), &Options{
 		Enabled:              false,
 		AppName:              "",
 		ServerAddress:        "",
@@ -56,7 +56,7 @@ func TestStart_Disabled_IgnoresAllOptions(t *testing.T) {
 func TestStart_Disabled_WithLogger(t *testing.T) {
 	ctx := log.WithContext(context.Background(), log.Nop())
 
-	stop, err := Start(ctx, Options{Enabled: false})
+	stop, err := Start(ctx, &Options{Enabled: false})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestStart_Disabled_WithLogger(t *testing.T) {
 // Enabled - validation
 
 func TestStart_Enabled_EmptyServerAddress_Errors(t *testing.T) {
-	stop, err := Start(context.Background(), Options{
+	stop, err := Start(context.Background(), &Options{
 		Enabled:       true,
 		ServerAddress: "",
 		AppName:       "test",
@@ -87,7 +87,7 @@ func TestStart_Enabled_EmptyServerAddress_Errors(t *testing.T) {
 }
 
 func TestStart_Enabled_EmptyServerAddress_StopIdempotent(t *testing.T) {
-	stop, _ := Start(context.Background(), Options{
+	stop, _ := Start(context.Background(), &Options{
 		Enabled:       true,
 		ServerAddress: "",
 	})
@@ -104,7 +104,7 @@ func TestStart_Enabled_UnreachableServer(t *testing.T) {
 	// pyroscope.Start may or may not error for unreachable servers
 	// 1. Always returns a non-nil stop func
 	// 2. stop() never panics
-	stop, err := Start(context.Background(), Options{
+	stop, err := Start(context.Background(), &Options{
 		Enabled:       true,
 		ServerAddress: "http://localhost:0/nonexistent",
 		AppName:       "test",
@@ -125,7 +125,7 @@ func TestStart_Enabled_UnreachableServer(t *testing.T) {
 func TestStart_Enabled_EmptyAddress_WithFullOptions(t *testing.T) {
 	// Validates that all option fields are accepted without panic
 	// before the address check rejects the call
-	_, err := Start(context.Background(), Options{
+	_, err := Start(context.Background(), &Options{
 		Enabled:              true,
 		AppName:              "myapp",
 		ServerAddress:        "", // will fail validation
@@ -147,7 +147,7 @@ func TestStart_ErrorContract(t *testing.T) {
 	// return func() {}, err
 	// This means even on error, stop is always a valid callable.
 
-	stop, err := Start(context.Background(), Options{
+	stop, err := Start(context.Background(), &Options{
 		Enabled:       true,
 		ServerAddress: "",
 	})
@@ -168,7 +168,7 @@ func TestStart_ErrorContract(t *testing.T) {
 func TestStart_Enabled_EmptyAddress_WithContextLogger(t *testing.T) {
 	ctx := log.WithContext(context.Background(), log.Nop())
 
-	stop, err := Start(ctx, Options{
+	stop, err := Start(ctx, &Options{
 		Enabled:       true,
 		ServerAddress: "",
 	})
@@ -181,7 +181,7 @@ func TestStart_Enabled_EmptyAddress_WithContextLogger(t *testing.T) {
 
 func TestStart_Disabled_NoLogger(t *testing.T) {
 	// No logger in context - FromContext returns Nop, should not panic
-	stop, err := Start(context.Background(), Options{Enabled: false})
+	stop, err := Start(context.Background(), &Options{Enabled: false})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}

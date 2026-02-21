@@ -1,6 +1,7 @@
 package evidence
 
 import (
+	"bytes"
 	"encoding/json"
 	"runtime"
 	"testing"
@@ -488,7 +489,7 @@ func TestFilterBundleByPlatform_PreservesMetadata(t *testing.T) {
 	if !filtered.FetchedAt.Equal(b.FetchedAt) {
 		t.Fatalf("FetchedAt mismatch")
 	}
-	if string(filtered.ReleaseSigstoreBundle) != string(b.ReleaseSigstoreBundle) {
+	if !bytes.Equal(filtered.ReleaseSigstoreBundle, b.ReleaseSigstoreBundle) {
 		t.Fatal("ReleaseSigstoreBundle should be preserved")
 	}
 }

@@ -29,7 +29,7 @@ type hasStack interface {
 	StackPCs() []uintptr
 }
 
-func newSlog(opts Options) (Logger, error) {
+func newSlog(opts *Options) (Logger, error) {
 	w := opts.Writer
 	if w == nil {
 		w = os.Stdout
@@ -158,7 +158,7 @@ type otelHandler struct{ next slog.Handler }
 func (h otelHandler) Enabled(ctx context.Context, lvl slog.Level) bool {
 	return h.next.Enabled(ctx, lvl)
 }
-func (h otelHandler) Handle(ctx context.Context, r slog.Record) error {
+func (h otelHandler) Handle(ctx context.Context, r slog.Record) error { //nolint:gocritic // hugeParam: slog.Handler interface requires value
 	if sc := trace.SpanContextFromContext(ctx); sc.IsValid() {
 		r.AddAttrs(
 			slog.String("trace_id", sc.TraceID().String()),
@@ -183,7 +183,7 @@ type stackHandler struct {
 func (h stackHandler) Enabled(ctx context.Context, lvl slog.Level) bool {
 	return h.next.Enabled(ctx, lvl)
 }
-func (h stackHandler) Handle(ctx context.Context, r slog.Record) error {
+func (h stackHandler) Handle(ctx context.Context, r slog.Record) error { //nolint:gocritic // hugeParam: slog.Handler interface requires value
 
 	if r.Level >= h.level {
 		// try to pull a captured stack off the error attr
@@ -266,22 +266,23 @@ func errorChain(err error) []string {
 	return out
 }
 
-func chainLinks(err error, max int) []map[string]any {
+func chainLinks(err error, maxLinks int) []map[string]any {
 	links := make([]map[string]any, 0, 8)
 	depth := 0
-	for e := err; e != nil && (max <= 0 || depth < max); e = errors.Unwrap(e) {
+	for e := err; e != nil && (maxLinks <= 0 || depth < maxLinks); e = errors.Unwrap(e) {
 		link := map[string]any{"msg": e.Error()}
 		havePos := false
 
 		// prefer a single-frame PC (from Wrap/New)...
-		if hp, ok := any(e).(hasPC); ok {
-			if fn, file, line, ok := frameFromPC(hp.PC()); ok {
+		switch et := any(e).(type) {
+		case hasPC:
+			if fn, file, line, ok := frameFromPC(et.PC()); ok {
 				link["func"], link["file"], link["line"] = fn, file, line
 				havePos = true
 			}
-		} else if hs, ok := any(e).(hasStack); ok {
+		case hasStack:
 			// use the first external frame from a captured stack, (EnsureTrace) otherwise
-			if fn, file, line, ok := firstExtFrame(hs.StackPCs()); ok {
+			if fn, file, line, ok := firstExtFrame(et.StackPCs()); ok {
 				link["func"], link["file"], link["line"] = fn, file, line
 				havePos = true
 			}
@@ -358,26 +359,29 @@ func classifyTypes(err error) (surface, root string) {
 
 	// surface = first non-wrapper type in the chain.
 	for e := err; e != nil; e = errors.Unwrap(e) {
-		if t := reflect.TypeOf(e); t != nil {
-			u := t
-			for u.Kind() == reflect.Ptr {
-				u = u.Elem()
-			}
-			pkg := u.PkgPath()
-			name := u.Name()
-
-			// Skip our own xerrors wrappers.
-			if strings.Contains(pkg, "/internal/xerrors") {
-				continue
-			}
-			// Skip fmt.Errorf wrappers.
-			if pkg == "fmt" && name == "wrapError" {
-				continue
-			}
-
-			surface = t.String()
-			break
+		t := reflect.TypeOf(e)
+		if t == nil {
+			continue
 		}
+		u := t
+		for u.Kind() == reflect.Ptr {
+			u = u.Elem()
+		}
+		pkg := u.PkgPath()
+		name := u.Name()
+
+		// Skip our own xerrors wrappers.
+		if strings.Contains(pkg, "/internal/xerrors") {
+			continue
+		}
+		// Skip fmt.Errorf wrappers.
+		if pkg == "fmt" && name == "wrapError" {
+			continue
+		}
+
+		surface = t.String()
+		break
+
 	}
 
 	if surface == "" {

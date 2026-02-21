@@ -298,7 +298,7 @@ func TestValidate_OK(t *testing.T) {
 		"-trace-sample=0.2",
 		"-content-signing-key-arn=arn:aws:kms:us-east-2:000000000000:key/content-key",
 	})
-	if err := Validate(c, false); err != nil {
+	if err := Validate(&c, false); err != nil {
 		t.Fatalf("Validate() unexpected error: %v", err)
 	}
 }
@@ -318,7 +318,7 @@ func TestValidate_InvalidCombined(t *testing.T) {
 		"-max-error-links=0",
 	})
 
-	err := Validate(c, false)
+	err := Validate(&c, false)
 	if err == nil {
 		t.Fatal("Validate() expected errors, got <nil>")
 	}
@@ -365,11 +365,11 @@ func TestValidate_ContentUpdatesRequireSigningKey(t *testing.T) {
 	c.ContentS3Prefix = "my/prefix"
 	c.ContentSigningKeyARN = ""
 
-	wantErrContains(t, Validate(c, false), "CONTENT_SIGNING_KEY_ARN is required when ENABLE_CONTENT_UPDATES=true")
+	wantErrContains(t, Validate(&c, false), "CONTENT_SIGNING_KEY_ARN is required when ENABLE_CONTENT_UPDATES=true")
 
 	// Setting the key should clear the error
 	c.ContentSigningKeyARN = "arn:aws:kms:us-east-2:000000000000:key/content-key"
-	if err := Validate(c, false); err != nil {
+	if err := Validate(&c, false); err != nil {
 		t.Fatalf("unexpected error with signing key set: %v", err)
 	}
 }
@@ -379,24 +379,24 @@ func TestValidate_ProvenanceRequiresBothKeys(t *testing.T) {
 		c := validConfig()
 		c.EvidenceSigningKeyARN = ""
 		c.ContentSigningKeyARN = ""
-		wantErrContains(t, Validate(c, true), "evidence-signing-key-arn")
+		wantErrContains(t, Validate(&c, true), "evidence-signing-key-arn")
 	})
 
 	t.Run("evidence missing", func(t *testing.T) {
 		c := validConfig()
 		c.EvidenceSigningKeyARN = ""
-		wantErrContains(t, Validate(c, true), "evidence-signing-key-arn")
+		wantErrContains(t, Validate(&c, true), "evidence-signing-key-arn")
 	})
 
 	t.Run("content missing", func(t *testing.T) {
 		c := validConfig()
 		c.ContentSigningKeyARN = ""
-		wantErrContains(t, Validate(c, true), "content-signing-key-arn")
+		wantErrContains(t, Validate(&c, true), "content-signing-key-arn")
 	})
 
 	t.Run("both present", func(t *testing.T) {
 		c := validConfig()
-		if err := Validate(c, true); err != nil {
+		if err := Validate(&c, true); err != nil {
 			t.Fatalf("unexpected error with both keys: %v", err)
 		}
 	})
@@ -405,26 +405,26 @@ func TestValidate_ProvenanceRequiresBothKeys(t *testing.T) {
 func TestValidate_DrainSeconds_Invalid(t *testing.T) {
 	c := validConfig()
 	c.DrainSeconds = 0
-	wantErrContains(t, Validate(c, false), "invalid DRAIN_SECONDS")
+	wantErrContains(t, Validate(&c, false), "invalid DRAIN_SECONDS")
 
 	c.DrainSeconds = -5
-	wantErrContains(t, Validate(c, false), "invalid DRAIN_SECONDS")
+	wantErrContains(t, Validate(&c, false), "invalid DRAIN_SECONDS")
 }
 
 func TestValidate_ShutdownBudgetSeconds_Invalid(t *testing.T) {
 	c := validConfig()
 	c.ShutdownBudgetSeconds = 0
-	wantErrContains(t, Validate(c, false), "invalid SHUTDOWN_BUDGET_SECONDS")
+	wantErrContains(t, Validate(&c, false), "invalid SHUTDOWN_BUDGET_SECONDS")
 
 	c.ShutdownBudgetSeconds = -1
-	wantErrContains(t, Validate(c, false), "invalid SHUTDOWN_BUDGET_SECONDS")
+	wantErrContains(t, Validate(&c, false), "invalid SHUTDOWN_BUDGET_SECONDS")
 }
 
 func TestValidate_NoProvenanceSkipsKeyCheck(t *testing.T) {
 	c := validConfig()
 	c.EvidenceSigningKeyARN = ""
 	c.ContentSigningKeyARN = ""
-	if err := Validate(c, false); err != nil {
+	if err := Validate(&c, false); err != nil {
 		t.Fatalf("unexpected error without provenance: %v", err)
 	}
 }

@@ -116,7 +116,7 @@ func TestParseLevel_ErrorMessage(t *testing.T) {
 // log.go
 
 func TestNew_ReturnsLogger(t *testing.T) {
-	l, err := New(Options{App: "test"})
+	l, err := New(&Options{App: "test"})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestNew_ReturnsLogger(t *testing.T) {
 }
 
 func TestNew_LoggerImplementsInterface(t *testing.T) {
-	l, err := New(Options{App: "test", Writer: io.Discard})
+	l, err := New(&Options{App: "test", Writer: io.Discard})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

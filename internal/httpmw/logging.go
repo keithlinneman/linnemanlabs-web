@@ -97,7 +97,6 @@ func (rw *responseWriter) Write(b []byte) (int, error) {
 	if rw.status == 0 {
 		rw.status = http.StatusOK
 	}
-	// n, err := rw.ResponseWriter.Write(b)
 	start := time.Now()
 	n, err := rw.ResponseWriter.Write(b)
 	rw.writeBlocked += time.Since(start)
@@ -147,7 +146,6 @@ func WithLogger(base log.Logger) func(http.Handler) http.Handler {
 			// could consider adding them to traces for debugging as its a tighter controlled pipeline, but no value for this app so leaving it out entirely
 			if span := trace.SpanFromContext(ctx); span != nil {
 				if sc := span.SpanContext(); sc.IsValid() {
-					//traceID = sc.TraceID().String()
 					span.SetAttributes(
 						attribute.String("request_id", reqID),
 						attribute.String("server.address", r.Host),

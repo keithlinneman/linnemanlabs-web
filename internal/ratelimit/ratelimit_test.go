@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -21,7 +22,7 @@ func newTestLimiter(opts ...Option) (*IPLimiter, context.CancelFunc) {
 		WithRate(10, 5), // 10/sec, burst of 5 - small burst makes tests fast
 		WithTTL(100 * time.Millisecond),
 	}
-	all := append(defaults, opts...)
+	all := slices.Concat(defaults, opts)
 	l := New(ctx, all...)
 	return l, cancel
 }
@@ -323,7 +324,7 @@ func TestNilCallbacks_NoPanic(t *testing.T) {
 // exercise the rate limiter's HTTP behavior.
 
 func makeRequestWithIP(handler http.Handler, clientIP string) *httptest.ResponseRecorder {
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
 	ctx := httpmw.WithClientIP(r.Context(), clientIP)
 	r = r.WithContext(ctx)
 	w := httptest.NewRecorder()

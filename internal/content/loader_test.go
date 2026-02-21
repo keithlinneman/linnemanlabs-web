@@ -156,7 +156,7 @@ func newTestLoaderWithVerifier(t *testing.T, s3fake *fakeS3, ssmFake *fakeSSM, v
 
 // buildContentBundle creates a valid tar.gz archive in memory containing
 // a single index.html file. Returns the raw bytes and their SHA-384 hash.
-func buildContentBundle(t *testing.T) ([]byte, string) {
+func buildContentBundle(t *testing.T) (content []byte, contentHash string) {
 	t.Helper()
 	data := makeTarGz(t, map[string]string{
 		"index.html": "<html><body>hello</body></html>",
@@ -167,7 +167,7 @@ func buildContentBundle(t *testing.T) ([]byte, string) {
 
 // buildContentBundleWithProvenance creates a tar.gz containing index.html
 // and a provenance.json file. Returns the raw bytes and their SHA-384 hash.
-func buildContentBundleWithProvenance(t *testing.T) ([]byte, string) {
+func buildContentBundleWithProvenance(t *testing.T) (content []byte, contentHash string) {
 	t.Helper()
 	data := makeTarGz(t, map[string]string{
 		"index.html":      "<html><body>hello</body></html>",
@@ -199,7 +199,7 @@ func ssmValue(hash string) string {
 // NewLoader
 
 func TestNewLoader_RequiresS3Client(t *testing.T) {
-	_, err := NewLoader(t.Context(), LoaderOptions{
+	_, err := NewLoader(t.Context(), &LoaderOptions{
 		SSMParam:  testSSMParam,
 		S3Bucket:  testBucket,
 		SSMClient: ssmWithValue("x"),
@@ -210,7 +210,7 @@ func TestNewLoader_RequiresS3Client(t *testing.T) {
 }
 
 func TestNewLoader_RequiresSSMClient(t *testing.T) {
-	_, err := NewLoader(t.Context(), LoaderOptions{
+	_, err := NewLoader(t.Context(), &LoaderOptions{
 		SSMParam: testSSMParam,
 		S3Bucket: testBucket,
 		S3Client: newFakeS3(),
@@ -221,7 +221,7 @@ func TestNewLoader_RequiresSSMClient(t *testing.T) {
 }
 
 func TestNewLoader_RequiresSSMParam(t *testing.T) {
-	_, err := NewLoader(t.Context(), LoaderOptions{
+	_, err := NewLoader(t.Context(), &LoaderOptions{
 		S3Bucket:  testBucket,
 		S3Client:  newFakeS3(),
 		SSMClient: ssmWithValue("x"),
@@ -232,7 +232,7 @@ func TestNewLoader_RequiresSSMParam(t *testing.T) {
 }
 
 func TestNewLoader_RequiresS3Bucket(t *testing.T) {
-	_, err := NewLoader(t.Context(), LoaderOptions{
+	_, err := NewLoader(t.Context(), &LoaderOptions{
 		SSMParam:  testSSMParam,
 		S3Client:  newFakeS3(),
 		SSMClient: ssmWithValue("x"),
@@ -243,7 +243,7 @@ func TestNewLoader_RequiresS3Bucket(t *testing.T) {
 }
 
 func TestNewLoader_RequiresVerifier(t *testing.T) {
-	_, err := NewLoader(t.Context(), LoaderOptions{
+	_, err := NewLoader(t.Context(), &LoaderOptions{
 		SSMParam:  testSSMParam,
 		S3Bucket:  testBucket,
 		S3Client:  newFakeS3(),
@@ -255,7 +255,7 @@ func TestNewLoader_RequiresVerifier(t *testing.T) {
 }
 
 func TestNewLoader_DefaultsLogger(t *testing.T) {
-	l, err := NewLoader(t.Context(), LoaderOptions{
+	l, err := NewLoader(t.Context(), &LoaderOptions{
 		SSMParam:  testSSMParam,
 		S3Bucket:  testBucket,
 		S3Client:  newFakeS3(),

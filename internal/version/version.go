@@ -135,6 +135,6 @@ func applyBuildInfo(out *Info, settings []debug.BuildSetting) {
 
 // HasProvenance returns whether this binary has ci injected provenance
 // used for conditional attestation fetching at startup
-func (i Info) HasProvenance() bool {
+func (i *Info) HasProvenance() bool {
 	return i.ReleaseId != "" && i.EvidenceBucket != ""
 }

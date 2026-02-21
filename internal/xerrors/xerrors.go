@@ -19,7 +19,7 @@ func (w *withStack) IsXerrorsWrapper()   {}
 func captureStack(skip int) []uintptr {
 	const maxDepth = 64
 	pcs := make([]uintptr, maxDepth)
-	// 2 = runtime.Callers + captureStack
+	// value of 2 means skip runtime.Callers + captureStack
 	n := runtime.Callers(2+skip, pcs)
 	return pcs[:n]
 }
@@ -58,7 +58,7 @@ func (w *wrap) IsXerrorsWrapper() {}
 
 func callerPC(skip int) uintptr {
 	var pcs [1]uintptr
-	// 2 = runtime.Callers + callerPC
+	// value of 2 means skip runtime.Callers + callerPC
 	if n := runtime.Callers(2+skip, pcs[:]); n == 0 {
 		return 0
 	}

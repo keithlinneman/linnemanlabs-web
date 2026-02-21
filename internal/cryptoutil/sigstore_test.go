@@ -193,7 +193,7 @@ func TestDecodeDSSEPayload_Valid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DecodeDSSEPayload: %v", err)
 	}
-	if string(got) != string(original) {
+	if !bytes.Equal(got, original) {
 		t.Fatalf("payload = %q, want %q", got, original)
 	}
 }
@@ -221,7 +221,7 @@ func TestDecodeSignature_Valid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DecodeSignature: %v", err)
 	}
-	if string(got) != string(original) {
+	if !bytes.Equal(got, original) {
 		t.Fatalf("sig = %q, want %q", got, original)
 	}
 }
@@ -260,7 +260,7 @@ func TestDecodeSignature_UsesFirstSignature(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DecodeSignature: %v", err)
 	}
-	if string(got) != string(first) {
+	if !bytes.Equal(got, first) {
 		t.Fatal("should use first signature")
 	}
 }

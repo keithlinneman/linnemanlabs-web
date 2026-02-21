@@ -91,7 +91,7 @@ type fetchResult struct {
 }
 
 // NewLoader creates a new evidence loader that will fetch artifacts
-func NewLoader(ctx context.Context, opts LoaderOptions) (*Loader, error) {
+func NewLoader(ctx context.Context, opts *LoaderOptions) (*Loader, error) {
 	if opts.S3Client == nil {
 		return nil, xerrors.New("evidence: S3Client is required")
 	}
@@ -109,7 +109,7 @@ func NewLoader(ctx context.Context, opts LoaderOptions) (*Loader, error) {
 	}
 
 	return &Loader{
-		opts:     opts,
+		opts:     *opts,
 		s3Client: opts.S3Client,
 		logger:   opts.Logger,
 	}, nil

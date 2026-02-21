@@ -94,7 +94,7 @@ func FillFromEnv(fs *flag.FlagSet, prefix string, logf func(string, ...any)) {
 
 // Validate checks that config values are within expected ranges and formats.
 // Returns an error describing all invalid fields, or nil if all valid.
-func Validate(c App, hasProvenance bool) error { //nolint:gocognit // config validation is intentionally a single linear checklist
+func Validate(c *App, hasProvenance bool) error { //nolint:gocognit // config validation is intentionally a single linear checklist
 	var errs []error
 
 	// Ports

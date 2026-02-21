@@ -17,7 +17,7 @@ import (
 // helpers
 
 // newTestLogger builds a slogLogger writing to buf so we can inspect output.
-func newTestLogger(t *testing.T, buf *bytes.Buffer, opts Options) *slogLogger {
+func newTestLogger(t *testing.T, buf *bytes.Buffer, opts *Options) *slogLogger {
 	t.Helper()
 	opts.Writer = buf
 	l, err := newSlog(opts)
@@ -43,7 +43,7 @@ func jsonRecord(t *testing.T, buf *bytes.Buffer) map[string]any {
 
 func TestNewSlog_DefaultWriter(t *testing.T) {
 	// Should not error when Writer is nil (defaults to stdout)
-	l, err := newSlog(Options{App: "test"})
+	l, err := newSlog(&Options{App: "test"})
 	if err != nil {
 		t.Fatalf("newSlog: %v", err)
 	}
@@ -54,7 +54,7 @@ func TestNewSlog_DefaultWriter(t *testing.T) {
 
 func TestNewSlog_CustomWriter(t *testing.T) {
 	var buf bytes.Buffer
-	l := newTestLogger(t, &buf, Options{App: "myapp", JsonFormat: true, Level: slog.LevelInfo})
+	l := newTestLogger(t, &buf, &Options{App: "myapp", JsonFormat: true, Level: slog.LevelInfo})
 
 	l.Info(context.Background(), "hello")
 
@@ -69,7 +69,7 @@ func TestNewSlog_CustomWriter(t *testing.T) {
 
 func TestNewSlog_JsonFormat(t *testing.T) {
 	var buf bytes.Buffer
-	l := newTestLogger(t, &buf, Options{App: "test", JsonFormat: true, Level: slog.LevelInfo})
+	l := newTestLogger(t, &buf, &Options{App: "test", JsonFormat: true, Level: slog.LevelInfo})
 
 	l.Info(context.Background(), "json test")
 
@@ -81,7 +81,7 @@ func TestNewSlog_JsonFormat(t *testing.T) {
 
 func TestNewSlog_TextFormat(t *testing.T) {
 	var buf bytes.Buffer
-	l := newTestLogger(t, &buf, Options{App: "test", JsonFormat: false, Level: slog.LevelInfo})
+	l := newTestLogger(t, &buf, &Options{App: "test", JsonFormat: false, Level: slog.LevelInfo})
 
 	l.Info(context.Background(), "text test")
 
@@ -94,7 +94,7 @@ func TestNewSlog_TextFormat(t *testing.T) {
 
 func TestNewSlog_DefaultMaxErrorLinks(t *testing.T) {
 	var buf bytes.Buffer
-	l := newTestLogger(t, &buf, Options{App: "test"})
+	l := newTestLogger(t, &buf, &Options{App: "test"})
 
 	if l.maxErrorLinks != 8 {
 		t.Fatalf("maxErrorLinks = %d, want 8 (default)", l.maxErrorLinks)
@@ -103,7 +103,7 @@ func TestNewSlog_DefaultMaxErrorLinks(t *testing.T) {
 
 func TestNewSlog_CustomMaxErrorLinks(t *testing.T) {
 	var buf bytes.Buffer
-	l := newTestLogger(t, &buf, Options{App: "test", MaxErrorLinks: 20})
+	l := newTestLogger(t, &buf, &Options{App: "test", MaxErrorLinks: 20})
 
 	if l.maxErrorLinks != 20 {
 		t.Fatalf("maxErrorLinks = %d, want 20", l.maxErrorLinks)
@@ -113,7 +113,7 @@ func TestNewSlog_CustomMaxErrorLinks(t *testing.T) {
 func TestNewSlog_DefaultStacktraceLevel(t *testing.T) {
 	// When StacktraceLevel is 0, it should default to slog.LevelError
 	var buf bytes.Buffer
-	_ = newTestLogger(t, &buf, Options{App: "test"})
+	_ = newTestLogger(t, &buf, &Options{App: "test"})
 	// Can't directly inspect stackHandler level, but verify it doesn't panic
 }
 
@@ -121,7 +121,7 @@ func TestNewSlog_DefaultStacktraceLevel(t *testing.T) {
 
 func TestSlogLogger_LevelFiltering(t *testing.T) {
 	var buf bytes.Buffer
-	l := newTestLogger(t, &buf, Options{App: "test", JsonFormat: true, Level: slog.LevelWarn})
+	l := newTestLogger(t, &buf, &Options{App: "test", JsonFormat: true, Level: slog.LevelWarn})
 
 	ctx := context.Background()
 
@@ -145,7 +145,7 @@ func TestSlogLogger_LevelFiltering(t *testing.T) {
 
 func TestSlogLogger_DebugLevel_AllPass(t *testing.T) {
 	var buf bytes.Buffer
-	l := newTestLogger(t, &buf, Options{App: "test", JsonFormat: true, Level: slog.LevelDebug})
+	l := newTestLogger(t, &buf, &Options{App: "test", JsonFormat: true, Level: slog.LevelDebug})
 
 	ctx := context.Background()
 	l.Debug(ctx, "d")
@@ -155,7 +155,7 @@ func TestSlogLogger_DebugLevel_AllPass(t *testing.T) {
 
 	out := buf.String()
 	for _, msg := range []string{"d", "i", "w", "e"} {
-		if !strings.Contains(out, fmt.Sprintf(`"msg":"%s"`, msg)) {
+		if !strings.Contains(out, fmt.Sprintf(`"msg":%q`, msg)) {
 			t.Errorf("message %q not found at debug level", msg)
 		}
 	}
@@ -165,7 +165,7 @@ func TestSlogLogger_DebugLevel_AllPass(t *testing.T) {
 
 func TestSlogLogger_With_AddsAttrs(t *testing.T) {
 	var buf bytes.Buffer
-	l := newTestLogger(t, &buf, Options{App: "test", JsonFormat: true, Level: slog.LevelInfo})
+	l := newTestLogger(t, &buf, &Options{App: "test", JsonFormat: true, Level: slog.LevelInfo})
 
 	child := l.With("component", "api", "version", "v1")
 	child.Info(context.Background(), "with test")
@@ -181,7 +181,7 @@ func TestSlogLogger_With_AddsAttrs(t *testing.T) {
 
 func TestSlogLogger_With_CopyOnWrite(t *testing.T) {
 	var buf bytes.Buffer
-	l := newTestLogger(t, &buf, Options{App: "test", JsonFormat: true, Level: slog.LevelInfo})
+	l := newTestLogger(t, &buf, &Options{App: "test", JsonFormat: true, Level: slog.LevelInfo})
 
 	child := l.With("child_key", "child_val")
 
@@ -204,7 +204,7 @@ func TestSlogLogger_With_CopyOnWrite(t *testing.T) {
 
 func TestSlogLogger_With_Chaining(t *testing.T) {
 	var buf bytes.Buffer
-	l := newTestLogger(t, &buf, Options{App: "test", JsonFormat: true, Level: slog.LevelInfo})
+	l := newTestLogger(t, &buf, &Options{App: "test", JsonFormat: true, Level: slog.LevelInfo})
 
 	deep := l.With("a", 1).With("b", 2).With("c", 3)
 	deep.Info(context.Background(), "deep")
@@ -218,7 +218,7 @@ func TestSlogLogger_With_Chaining(t *testing.T) {
 
 func TestSlogLogger_With_OddArgs(t *testing.T) {
 	var buf bytes.Buffer
-	l := newTestLogger(t, &buf, Options{App: "test", JsonFormat: true, Level: slog.LevelInfo})
+	l := newTestLogger(t, &buf, &Options{App: "test", JsonFormat: true, Level: slog.LevelInfo})
 
 	// Odd kv args - orphan key should be dropped, not panic
 	child := l.With("key1", "val1", "orphan")
@@ -232,7 +232,7 @@ func TestSlogLogger_With_OddArgs(t *testing.T) {
 
 func TestSlogLogger_With_NonStringKey(t *testing.T) {
 	var buf bytes.Buffer
-	l := newTestLogger(t, &buf, Options{App: "test", JsonFormat: true, Level: slog.LevelInfo})
+	l := newTestLogger(t, &buf, &Options{App: "test", JsonFormat: true, Level: slog.LevelInfo})
 
 	// Non-string key should be skipped
 	child := l.With(42, "val", "real_key", "real_val")
@@ -246,7 +246,7 @@ func TestSlogLogger_With_NonStringKey(t *testing.T) {
 
 func TestSlogLogger_With_PreservesConfig(t *testing.T) {
 	var buf bytes.Buffer
-	l := newTestLogger(t, &buf, Options{App: "test", IncludeErrorLinks: true, MaxErrorLinks: 5})
+	l := newTestLogger(t, &buf, &Options{App: "test", IncludeErrorLinks: true, MaxErrorLinks: 5})
 
 	child := l.With("k", "v").(*slogLogger)
 
@@ -262,7 +262,7 @@ func TestSlogLogger_With_PreservesConfig(t *testing.T) {
 
 func TestSlogLogger_Error_EnrichesWithType(t *testing.T) {
 	var buf bytes.Buffer
-	l := newTestLogger(t, &buf, Options{App: "test", JsonFormat: true, Level: slog.LevelError})
+	l := newTestLogger(t, &buf, &Options{App: "test", JsonFormat: true, Level: slog.LevelError})
 
 	l.Error(context.Background(), fmt.Errorf("test error"), "something failed")
 
@@ -280,7 +280,7 @@ func TestSlogLogger_Error_EnrichesWithType(t *testing.T) {
 
 func TestSlogLogger_Error_NilError(t *testing.T) {
 	var buf bytes.Buffer
-	l := newTestLogger(t, &buf, Options{App: "test", JsonFormat: true, Level: slog.LevelError})
+	l := newTestLogger(t, &buf, &Options{App: "test", JsonFormat: true, Level: slog.LevelError})
 
 	// nil error should still log but without err enrichment
 	l.Error(context.Background(), nil, "nil error msg")
@@ -296,7 +296,7 @@ func TestSlogLogger_Error_NilError(t *testing.T) {
 
 func TestSlogLogger_Error_IncludesChain(t *testing.T) {
 	var buf bytes.Buffer
-	l := newTestLogger(t, &buf, Options{App: "test", JsonFormat: true, Level: slog.LevelError})
+	l := newTestLogger(t, &buf, &Options{App: "test", JsonFormat: true, Level: slog.LevelError})
 
 	inner := fmt.Errorf("root cause")
 	wrapped := fmt.Errorf("outer: %w", inner)
@@ -320,7 +320,7 @@ func TestSlogLogger_Error_IncludesChain(t *testing.T) {
 
 func TestSlogLogger_Error_ErrorLinks_Disabled(t *testing.T) {
 	var buf bytes.Buffer
-	l := newTestLogger(t, &buf, Options{
+	l := newTestLogger(t, &buf, &Options{
 		App:               "test",
 		JsonFormat:        true,
 		Level:             slog.LevelError,
@@ -337,7 +337,7 @@ func TestSlogLogger_Error_ErrorLinks_Disabled(t *testing.T) {
 
 func TestSlogLogger_Error_ErrorLinks_Enabled(t *testing.T) {
 	var buf bytes.Buffer
-	l := newTestLogger(t, &buf, Options{
+	l := newTestLogger(t, &buf, &Options{
 		App:               "test",
 		JsonFormat:        true,
 		Level:             slog.LevelError,
@@ -355,7 +355,7 @@ func TestSlogLogger_Error_ErrorLinks_Enabled(t *testing.T) {
 
 func TestSlogLogger_Error_ExtraKV(t *testing.T) {
 	var buf bytes.Buffer
-	l := newTestLogger(t, &buf, Options{App: "test", JsonFormat: true, Level: slog.LevelError})
+	l := newTestLogger(t, &buf, &Options{App: "test", JsonFormat: true, Level: slog.LevelError})
 
 	l.Error(context.Background(), fmt.Errorf("e"), "msg", "custom_key", "custom_val")
 
@@ -369,7 +369,7 @@ func TestSlogLogger_Error_ExtraKV(t *testing.T) {
 
 func TestSlogLogger_Sync(t *testing.T) {
 	var buf bytes.Buffer
-	l := newTestLogger(t, &buf, Options{App: "test"})
+	l := newTestLogger(t, &buf, &Options{App: "test"})
 
 	if err := l.Sync(); err != nil {
 		t.Fatalf("Sync: %v", err)
@@ -380,7 +380,7 @@ func TestSlogLogger_Sync(t *testing.T) {
 
 func TestSlogLogger_Info_WithKV(t *testing.T) {
 	var buf bytes.Buffer
-	l := newTestLogger(t, &buf, Options{App: "test", JsonFormat: true, Level: slog.LevelInfo})
+	l := newTestLogger(t, &buf, &Options{App: "test", JsonFormat: true, Level: slog.LevelInfo})
 
 	l.Info(context.Background(), "test msg", "key1", "val1", "key2", 42)
 
@@ -395,7 +395,7 @@ func TestSlogLogger_Info_WithKV(t *testing.T) {
 
 func TestSlogLogger_Warn_WithKV(t *testing.T) {
 	var buf bytes.Buffer
-	l := newTestLogger(t, &buf, Options{App: "test", JsonFormat: true, Level: slog.LevelWarn})
+	l := newTestLogger(t, &buf, &Options{App: "test", JsonFormat: true, Level: slog.LevelWarn})
 
 	l.Warn(context.Background(), "warning", "severity", "high")
 
@@ -411,7 +411,7 @@ func newRecord() slog.Record {
 	return slog.NewRecord(time.Now(), slog.LevelInfo, "test", 0)
 }
 
-func countAttrs(r slog.Record) int {
+func countAttrs(r *slog.Record) int {
 	n := 0
 	r.Attrs(func(a slog.Attr) bool { n++; return true })
 	return n
@@ -421,7 +421,7 @@ func TestAddKV_Basic(t *testing.T) {
 	r := newRecord()
 	addKV(&r, []any{"k1", "v1", "k2", 99})
 
-	if c := countAttrs(r); c != 2 {
+	if c := countAttrs(&r); c != 2 {
 		t.Fatalf("attrs count = %d, want 2", c)
 	}
 
@@ -439,7 +439,7 @@ func TestAddKV_OddArgs(t *testing.T) {
 	r := newRecord()
 	addKV(&r, []any{"k1", "v1", "orphan"})
 
-	if c := countAttrs(r); c != 1 {
+	if c := countAttrs(&r); c != 1 {
 		t.Fatalf("attrs count = %d, want 1 (orphan dropped)", c)
 	}
 }
@@ -448,7 +448,7 @@ func TestAddKV_NonStringKey(t *testing.T) {
 	r := newRecord()
 	addKV(&r, []any{42, "val", "real", "val2"})
 
-	if c := countAttrs(r); c != 1 {
+	if c := countAttrs(&r); c != 1 {
 		t.Fatalf("attrs count = %d, want 1 (non-string key skipped)", c)
 	}
 }
@@ -464,7 +464,7 @@ func TestAddKV_Empty(t *testing.T) {
 
 func TestOtelHandler_AddsTraceFields(t *testing.T) {
 	var buf bytes.Buffer
-	l := newTestLogger(t, &buf, Options{App: "test", JsonFormat: true, Level: slog.LevelInfo})
+	l := newTestLogger(t, &buf, &Options{App: "test", JsonFormat: true, Level: slog.LevelInfo})
 
 	traceID, _ := trace.TraceIDFromHex("0102030405060708090a0b0c0d0e0f10")
 	spanID, _ := trace.SpanIDFromHex("0102030405060708")
@@ -488,7 +488,7 @@ func TestOtelHandler_AddsTraceFields(t *testing.T) {
 
 func TestOtelHandler_NoTrace(t *testing.T) {
 	var buf bytes.Buffer
-	l := newTestLogger(t, &buf, Options{App: "test", JsonFormat: true, Level: slog.LevelInfo})
+	l := newTestLogger(t, &buf, &Options{App: "test", JsonFormat: true, Level: slog.LevelInfo})
 
 	l.Info(context.Background(), "no trace")
 
@@ -502,7 +502,7 @@ func TestOtelHandler_NoTrace(t *testing.T) {
 
 func TestStackHandler_AddsStackAtErrorLevel(t *testing.T) {
 	var buf bytes.Buffer
-	l := newTestLogger(t, &buf, Options{
+	l := newTestLogger(t, &buf, &Options{
 		App:        "test",
 		JsonFormat: true,
 		Level:      slog.LevelError,
@@ -524,7 +524,7 @@ func TestStackHandler_AddsStackAtErrorLevel(t *testing.T) {
 
 func TestStackHandler_NoStackBelowLevel(t *testing.T) {
 	var buf bytes.Buffer
-	l := newTestLogger(t, &buf, Options{
+	l := newTestLogger(t, &buf, &Options{
 		App:             "test",
 		JsonFormat:      true,
 		Level:           slog.LevelInfo,

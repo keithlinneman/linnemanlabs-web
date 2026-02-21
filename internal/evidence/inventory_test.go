@@ -16,26 +16,26 @@ func mustJSON(t *testing.T, v any) []byte {
 	return b
 }
 
-func wantFileRef(t *testing.T, idx map[string]*EvidenceFileRef, path string, scope, category, kind, platform, sha string) {
+func wantFileRef(t *testing.T, idx map[string]*EvidenceFileRef, filePath, scope, category, kind, platform, sha string) {
 	t.Helper()
-	ref, ok := idx[path]
+	ref, ok := idx[filePath]
 	if !ok {
-		t.Fatalf("expected path %q in index, not found", path)
+		t.Fatalf("expected path %q in index, not found", filePath)
 	}
 	if ref.Scope != scope {
-		t.Fatalf("path %q: Scope = %q, want %q", path, ref.Scope, scope)
+		t.Fatalf("path %q: Scope = %q, want %q", filePath, ref.Scope, scope)
 	}
 	if ref.Category != category {
-		t.Fatalf("path %q: Category = %q, want %q", path, ref.Category, category)
+		t.Fatalf("path %q: Category = %q, want %q", filePath, ref.Category, category)
 	}
 	if ref.Kind != kind {
-		t.Fatalf("path %q: Kind = %q, want %q", path, ref.Kind, kind)
+		t.Fatalf("path %q: Kind = %q, want %q", filePath, ref.Kind, kind)
 	}
 	if ref.Platform != platform {
-		t.Fatalf("path %q: Platform = %q, want %q", path, ref.Platform, platform)
+		t.Fatalf("path %q: Platform = %q, want %q", filePath, ref.Platform, platform)
 	}
 	if ref.SHA256 != sha {
-		t.Fatalf("path %q: SHA256 = %q, want %q", path, ref.SHA256, sha)
+		t.Fatalf("path %q: SHA256 = %q, want %q", filePath, ref.SHA256, sha)
 	}
 }
 

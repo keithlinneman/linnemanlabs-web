@@ -749,7 +749,7 @@ func TestFetchS3_EmptyObject(t *testing.T) {
 // RequireSignature tests
 
 func TestNewLoader_RequireSignature_NilVerifier_ReturnsError(t *testing.T) {
-	_, err := NewLoader(t.Context(), LoaderOptions{
+	_, err := NewLoader(t.Context(), &LoaderOptions{
 		Bucket:           testBucket,
 		ReleaseID:        testReleaseID,
 		S3Client:         newFakeS3(),
@@ -765,7 +765,7 @@ func TestNewLoader_RequireSignature_NilVerifier_ReturnsError(t *testing.T) {
 }
 
 func TestNewLoader_RequireSignature_WithVerifier_Succeeds(t *testing.T) {
-	l, err := NewLoader(t.Context(), LoaderOptions{
+	l, err := NewLoader(t.Context(), &LoaderOptions{
 		Bucket:           testBucket,
 		ReleaseID:        testReleaseID,
 		S3Client:         newFakeS3(),
@@ -817,7 +817,7 @@ func TestLoad_RequireSignature_MissingSigstoreBundle_Fails(t *testing.T) {
 // NewLoader - validation
 
 func TestNewLoader_MissingS3Client(t *testing.T) {
-	_, err := NewLoader(t.Context(), LoaderOptions{
+	_, err := NewLoader(t.Context(), &LoaderOptions{
 		Bucket:    testBucket,
 		ReleaseID: testReleaseID,
 		// S3Client omitted
@@ -831,7 +831,7 @@ func TestNewLoader_MissingS3Client(t *testing.T) {
 }
 
 func TestNewLoader_MissingBucket(t *testing.T) {
-	_, err := NewLoader(t.Context(), LoaderOptions{
+	_, err := NewLoader(t.Context(), &LoaderOptions{
 		ReleaseID: testReleaseID,
 		S3Client:  newFakeS3(),
 		// Bucket omitted
@@ -845,7 +845,7 @@ func TestNewLoader_MissingBucket(t *testing.T) {
 }
 
 func TestNewLoader_MissingReleaseID(t *testing.T) {
-	_, err := NewLoader(t.Context(), LoaderOptions{
+	_, err := NewLoader(t.Context(), &LoaderOptions{
 		Bucket:   testBucket,
 		S3Client: newFakeS3(),
 		// ReleaseID omitted
@@ -859,7 +859,7 @@ func TestNewLoader_MissingReleaseID(t *testing.T) {
 }
 
 func TestNewLoader_Success(t *testing.T) {
-	l, err := NewLoader(t.Context(), LoaderOptions{
+	l, err := NewLoader(t.Context(), &LoaderOptions{
 		Logger:    log.Nop(),
 		Bucket:    testBucket,
 		Prefix:    testPrefix,
@@ -875,7 +875,7 @@ func TestNewLoader_Success(t *testing.T) {
 }
 
 func TestNewLoader_NilLoggerDefaultsToNop_ViaConstructor(t *testing.T) {
-	l, err := NewLoader(t.Context(), LoaderOptions{
+	l, err := NewLoader(t.Context(), &LoaderOptions{
 		Bucket:    testBucket,
 		ReleaseID: testReleaseID,
 		S3Client:  newFakeS3(),
@@ -895,7 +895,7 @@ func TestNewLoader_FieldsWired_LoadWorks(t *testing.T) {
 	fake := newFakeS3()
 	populateFakeS3(fake)
 
-	l, err := NewLoader(t.Context(), LoaderOptions{
+	l, err := NewLoader(t.Context(), &LoaderOptions{
 		Logger:    log.Nop(),
 		Bucket:    testBucket,
 		Prefix:    testPrefix,
@@ -924,7 +924,7 @@ func TestNewLoader_FieldsWired_FetchS3Works(t *testing.T) {
 	fake := newFakeS3()
 	fake.put("test-key", []byte("hello"))
 
-	l, err := NewLoader(t.Context(), LoaderOptions{
+	l, err := NewLoader(t.Context(), &LoaderOptions{
 		Logger:    log.Nop(),
 		Bucket:    testBucket,
 		ReleaseID: testReleaseID,

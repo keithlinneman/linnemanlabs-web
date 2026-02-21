@@ -50,7 +50,7 @@ func TestCacheControlForFile(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := cacheControlForFile(tt.file, opts)
+			got := cacheControlForFile(tt.file, &opts)
 			if got != tt.want {
 				t.Errorf("cacheControlForFile(%q) = %q, want %q", tt.file, got, tt.want)
 			}
@@ -77,7 +77,7 @@ func TestCacheControlForFile_CustomPolicies(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.file, func(t *testing.T) {
-			got := cacheControlForFile(tt.file, opts)
+			got := cacheControlForFile(tt.file, &opts)
 			if got != tt.want {
 				t.Errorf("got %q, want %q", got, tt.want)
 			}
