@@ -53,7 +53,7 @@ func doRequest(t *testing.T, h http.Handler, method, path string) *httptest.Resp
 // getFreePort finds a free TCP port.
 func getFreePort(t *testing.T) int {
 	t.Helper()
-	ln, err := net.Listen("tcp4", ":0")
+	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp4", ":0")
 	if err != nil {
 		t.Fatalf("find free port: %v", err)
 	}
@@ -704,7 +704,11 @@ func TestStart_CustomPort(t *testing.T) {
 	defer stop(ctx)
 
 	addr := fmt.Sprintf("http://127.0.0.1:%d/", port)
-	resp, err := http.Get(addr)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, addr, http.NoBody)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("GET %s: %v", addr, err)
 	}
@@ -728,7 +732,11 @@ func TestStart_GracefulShutdown(t *testing.T) {
 	}
 
 	addr := fmt.Sprintf("http://127.0.0.1:%d/", port)
-	resp, err := http.Get(addr)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, addr, http.NoBody)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("server not accepting: %v", err)
 	}
@@ -743,7 +751,11 @@ func TestStart_GracefulShutdown(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 
-	resp, err = http.Get(addr)
+	req, err = http.NewRequestWithContext(t.Context(), http.MethodGet, addr, http.NoBody)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	resp, err = http.DefaultClient.Do(req)
 	if err == nil {
 		resp.Body.Close()
 		t.Fatal("server still accepting connections after shutdown")
@@ -807,7 +819,11 @@ func TestStart_RequestID_OnLiveServer(t *testing.T) {
 	defer stop(ctx)
 
 	addr := fmt.Sprintf("http://127.0.0.1:%d/", port)
-	resp, err := http.Get(addr)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, addr, http.NoBody)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("GET: %v", err)
 	}
@@ -842,7 +858,11 @@ func TestStart_WithAPIRoutes(t *testing.T) {
 	defer stop(ctx)
 
 	addr := fmt.Sprintf("http://127.0.0.1:%d/api/health", port)
-	resp, err := http.Get(addr)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, addr, http.NoBody)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("GET: %v", err)
 	}

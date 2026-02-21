@@ -19,7 +19,7 @@ import (
 
 func getFreePort(t *testing.T) int {
 	t.Helper()
-	ln, err := net.Listen("tcp4", ":0")
+	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp4", ":0")
 	if err != nil {
 		t.Fatalf("find free port: %v", err)
 	}
@@ -45,7 +45,11 @@ func startOps(t *testing.T, opts *Options) (port int, stopFunc func(context.Cont
 func opsGet(t *testing.T, port int, path string) *http.Response {
 	t.Helper()
 	addr := fmt.Sprintf("http://127.0.0.1:%d%s", port, path)
-	resp, err := http.Get(addr)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, addr, http.NoBody)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("GET %s: %v", addr, err)
 	}
@@ -120,7 +124,11 @@ func TestStart_GracefulShutdown(t *testing.T) {
 
 	// Should no longer accept connections
 	addr := fmt.Sprintf("http://127.0.0.1:%d/healthz", port)
-	resp, err = http.Get(addr)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, addr, http.NoBody)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	resp, err = http.DefaultClient.Do(req)
 	if err == nil {
 		resp.Body.Close()
 		t.Fatal("server still accepting connections after shutdown")

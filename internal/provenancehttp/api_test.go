@@ -1094,7 +1094,7 @@ func FuzzEvidenceFilePath(f *testing.F) {
 
 		// If the URL itself is invalid (control chars), Go blocks it at the
 		// transport layer. That's fine - attacker can't reach us either.
-		req, err := http.NewRequest(http.MethodGet, safePath, http.NoBody)
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, safePath, http.NoBody)
 		if err != nil {
 			return // Go rejected the URL - transport-layer protection, not our problem
 		}

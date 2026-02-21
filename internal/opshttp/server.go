@@ -56,7 +56,7 @@ func Start(ctx context.Context, l log.Logger, opts *Options) (func(context.Conte
 		MaxHeaderBytes:    httpserver.DefaultMaxHeaderBytes,
 	}
 
-	ln, err := net.Listen("tcp4", addr)
+	ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp4", addr)
 	if err != nil {
 		return nil, xerrors.Wrapf(err, "could not listen for admin port on addr=%v", addr)
 	}
