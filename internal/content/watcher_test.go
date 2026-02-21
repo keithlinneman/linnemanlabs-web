@@ -150,10 +150,11 @@ func newWatcherFixture(t *testing.T, initialSSMValue string) *watcherFixture {
 }
 
 // seedManager loads a bundle into the manager so it has a known current hash.
-func (f *watcherFixture) seedManager(t *testing.T, algorithm, hash string, data []byte) {
+func (f *watcherFixture) seedManager(t *testing.T, hash string, data []byte) {
+	algorithm := "sha384"
 	t.Helper()
-	putBundle(f.s3, algorithm, hash, data)
-	putSigBundle(f.s3, algorithm, hash, []byte(`{"mock":"sig"}`))
+	putBundle(f.s3, hash, data)
+	putSigBundle(f.s3, hash, []byte(`{"mock":"sig"}`))
 	snap, err := f.loader.LoadHash(t.Context(), algorithm, hash)
 	if err != nil {
 		t.Fatalf("seedManager LoadHash: %v", err)
@@ -181,14 +182,14 @@ func (f *watcherFixture) newWatcher(opts ...func(*WatcherOptions)) *Watcher {
 }
 
 // storeBundle creates a valid content bundle, stores it in fakeS3, and returns
-// the raw bytes and SHA-384 hash.
-func storeBundle(t *testing.T, f *watcherFixture, files map[string]string) ([]byte, string) {
+// the SHA-384 hash.
+func storeBundle(t *testing.T, f *watcherFixture, files map[string]string) string {
 	t.Helper()
 	data := makeTarGz(t, files)
 	hash := cryptoutil.SHA384Hex(data)
-	putBundle(f.s3, "sha384", hash, data)
-	putSigBundle(f.s3, "sha384", hash, []byte(`{"mock":"sig"}`))
-	return data, hash
+	putBundle(f.s3, hash, data)
+	putSigBundle(f.s3, hash, []byte(`{"mock":"sig"}`))
+	return hash
 }
 
 // backoffDuration
@@ -267,8 +268,8 @@ func TestNewWatcher_NegativeInterval_UsesDefault(t *testing.T) {
 func TestNewWatcher_SeedsCurrentHash(t *testing.T) {
 	t.Parallel()
 	bundleData, bundleHash := buildContentBundle(t)
-	f := newWatcherFixture(t, ssmValue("sha384", bundleHash))
-	f.seedManager(t, "sha384", bundleHash, bundleData)
+	f := newWatcherFixture(t, ssmValue(bundleHash))
+	f.seedManager(t, bundleHash, bundleData)
 
 	w := f.newWatcher()
 	if w.currentHash != bundleHash {
@@ -329,8 +330,8 @@ func TestNewWatcher_CustomValidation(t *testing.T) {
 func TestCheckOnce_NoChange(t *testing.T) {
 	t.Parallel()
 	bundleData, bundleHash := buildContentBundle(t)
-	f := newWatcherFixture(t, ssmValue("sha384", bundleHash))
-	f.seedManager(t, "sha384", bundleHash, bundleData)
+	f := newWatcherFixture(t, ssmValue(bundleHash))
+	f.seedManager(t, bundleHash, bundleData)
 
 	w := f.newWatcher()
 	result := w.checkOnce(t.Context())
@@ -361,8 +362,8 @@ func TestCheckOnce_SSMError(t *testing.T) {
 func TestCheckOnce_LoadError(t *testing.T) {
 	t.Parallel()
 	bundleData, hashA := buildContentBundle(t)
-	f := newWatcherFixture(t, ssmValue("sha384", hashA))
-	f.seedManager(t, "sha384", hashA, bundleData)
+	f := newWatcherFixture(t, ssmValue(hashA))
+	f.seedManager(t, hashA, bundleData)
 
 	// point SSM at a hash that doesn't exist in S3
 	newSSM := "sha384:" + "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
@@ -386,13 +387,13 @@ func TestCheckOnce_LoadError(t *testing.T) {
 func TestCheckOnce_Swap(t *testing.T) {
 	t.Parallel()
 	bundleDataA, hashA := buildContentBundle(t)
-	f := newWatcherFixture(t, ssmValue("sha384", hashA))
-	f.seedManager(t, "sha384", hashA, bundleDataA)
+	f := newWatcherFixture(t, ssmValue(hashA))
+	f.seedManager(t, hashA, bundleDataA)
 
-	_, hashB := storeBundle(t, f, map[string]string{
+	hashB := storeBundle(t, f, map[string]string{
 		"index.html": "<html>updated</html>",
 	})
-	newSSM := ssmValue("sha384", hashB)
+	newSSM := ssmValue(hashB)
 	f.ssm.value = &newSSM
 
 	w := f.newWatcher()
@@ -432,14 +433,14 @@ func TestCheckOnce_Swap(t *testing.T) {
 func TestCheckOnce_ValidationError_NoIndexHTML(t *testing.T) {
 	t.Parallel()
 	bundleDataA, hashA := buildContentBundle(t)
-	f := newWatcherFixture(t, ssmValue("sha384", hashA))
-	f.seedManager(t, "sha384", hashA, bundleDataA)
+	f := newWatcherFixture(t, ssmValue(hashA))
+	f.seedManager(t, hashA, bundleDataA)
 
 	// new bundle has NO index.html - will fail validation
-	_, hashB := storeBundle(t, f, map[string]string{
+	hashB := storeBundle(t, f, map[string]string{
 		"about.html": "<html>no index</html>",
 	})
-	newSSM := ssmValue("sha384", hashB)
+	newSSM := ssmValue(hashB)
 	f.ssm.value = &newSSM
 
 	w := f.newWatcher()
@@ -470,8 +471,8 @@ func TestCheckOnce_ValidationError_NoIndexHTML(t *testing.T) {
 func TestCheckOnce_PollCount_Increments(t *testing.T) {
 	t.Parallel()
 	bundleData, bundleHash := buildContentBundle(t)
-	f := newWatcherFixture(t, ssmValue("sha384", bundleHash))
-	f.seedManager(t, "sha384", bundleHash, bundleData)
+	f := newWatcherFixture(t, ssmValue(bundleHash))
+	f.seedManager(t, bundleHash, bundleData)
 
 	w := f.newWatcher()
 
@@ -489,16 +490,16 @@ func TestCheckOnce_PollCount_Increments(t *testing.T) {
 func TestCheckOnce_MultipleSwaps(t *testing.T) {
 	t.Parallel()
 	bundleDataA, hashA := buildContentBundle(t)
-	f := newWatcherFixture(t, ssmValue("sha384", hashA))
-	f.seedManager(t, "sha384", hashA, bundleDataA)
+	f := newWatcherFixture(t, ssmValue(hashA))
+	f.seedManager(t, hashA, bundleDataA)
 
 	w := f.newWatcher()
 
 	// swap A → B
-	_, hashB := storeBundle(t, f, map[string]string{
+	hashB := storeBundle(t, f, map[string]string{
 		"index.html": "<html>B</html>",
 	})
-	newSSM := ssmValue("sha384", hashB)
+	newSSM := ssmValue(hashB)
 	f.ssm.value = &newSSM
 	result := w.checkOnce(t.Context())
 	if result != pollSwapped {
@@ -506,10 +507,10 @@ func TestCheckOnce_MultipleSwaps(t *testing.T) {
 	}
 
 	// swap B → C
-	_, hashC := storeBundle(t, f, map[string]string{
+	hashC := storeBundle(t, f, map[string]string{
 		"index.html": "<html>C</html>",
 	})
-	newSSM = ssmValue("sha384", hashC)
+	newSSM = ssmValue(hashC)
 	f.ssm.value = &newSSM
 	result = w.checkOnce(t.Context())
 	if result != pollSwapped {
@@ -532,13 +533,13 @@ func TestCheckOnce_MultipleSwaps(t *testing.T) {
 func TestCheckOnce_NilOnSwap(t *testing.T) {
 	t.Parallel()
 	bundleDataA, hashA := buildContentBundle(t)
-	f := newWatcherFixture(t, ssmValue("sha384", hashA))
-	f.seedManager(t, "sha384", hashA, bundleDataA)
+	f := newWatcherFixture(t, ssmValue(hashA))
+	f.seedManager(t, hashA, bundleDataA)
 
-	_, hashB := storeBundle(t, f, map[string]string{
+	hashB := storeBundle(t, f, map[string]string{
 		"index.html": "<html>B</html>",
 	})
-	newSSM := ssmValue("sha384", hashB)
+	newSSM := ssmValue(hashB)
 	f.ssm.value = &newSSM
 
 	w := f.newWatcher(func(o *WatcherOptions) {
@@ -555,8 +556,8 @@ func TestCheckOnce_NilOnSwap(t *testing.T) {
 func TestCheckOnce_Metrics_PollIncremented(t *testing.T) {
 	t.Parallel()
 	bundleData, bundleHash := buildContentBundle(t)
-	f := newWatcherFixture(t, ssmValue("sha384", bundleHash))
-	f.seedManager(t, "sha384", bundleHash, bundleData)
+	f := newWatcherFixture(t, ssmValue(bundleHash))
+	f.seedManager(t, bundleHash, bundleData)
 
 	fm := newFakeWatcherMetrics()
 	w := f.newWatcher(func(o *WatcherOptions) { o.Metrics = fm })
@@ -590,8 +591,8 @@ func TestCheckOnce_Metrics_SSMError(t *testing.T) {
 func TestCheckOnce_Metrics_NoChange_SetsLastSuccess(t *testing.T) {
 	t.Parallel()
 	bundleData, bundleHash := buildContentBundle(t)
-	f := newWatcherFixture(t, ssmValue("sha384", bundleHash))
-	f.seedManager(t, "sha384", bundleHash, bundleData)
+	f := newWatcherFixture(t, ssmValue(bundleHash))
+	f.seedManager(t, bundleHash, bundleData)
 
 	fm := newFakeWatcherMetrics()
 	w := f.newWatcher(func(o *WatcherOptions) { o.Metrics = fm })
@@ -605,13 +606,13 @@ func TestCheckOnce_Metrics_NoChange_SetsLastSuccess(t *testing.T) {
 func TestCheckOnce_Metrics_Swap(t *testing.T) {
 	t.Parallel()
 	bundleDataA, hashA := buildContentBundle(t)
-	f := newWatcherFixture(t, ssmValue("sha384", hashA))
-	f.seedManager(t, "sha384", hashA, bundleDataA)
+	f := newWatcherFixture(t, ssmValue(hashA))
+	f.seedManager(t, hashA, bundleDataA)
 
-	_, hashB := storeBundle(t, f, map[string]string{
+	hashB := storeBundle(t, f, map[string]string{
 		"index.html": "<html>B</html>",
 	})
-	newSSM := ssmValue("sha384", hashB)
+	newSSM := ssmValue(hashB)
 	f.ssm.value = &newSSM
 
 	fm := newFakeWatcherMetrics()
@@ -632,8 +633,8 @@ func TestCheckOnce_Metrics_Swap(t *testing.T) {
 func TestCheckOnce_Metrics_LoadError(t *testing.T) {
 	t.Parallel()
 	bundleData, hashA := buildContentBundle(t)
-	f := newWatcherFixture(t, ssmValue("sha384", hashA))
-	f.seedManager(t, "sha384", hashA, bundleData)
+	f := newWatcherFixture(t, ssmValue(hashA))
+	f.seedManager(t, hashA, bundleData)
 
 	newSSM := "sha384:" + "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
 	f.ssm.value = &newSSM
@@ -653,8 +654,8 @@ func TestCheckOnce_Metrics_LoadError(t *testing.T) {
 func TestCheckOnce_Metrics_NilMetrics_NoPanic(t *testing.T) {
 	t.Parallel()
 	bundleData, bundleHash := buildContentBundle(t)
-	f := newWatcherFixture(t, ssmValue("sha384", bundleHash))
-	f.seedManager(t, "sha384", bundleHash, bundleData)
+	f := newWatcherFixture(t, ssmValue(bundleHash))
+	f.seedManager(t, bundleHash, bundleData)
 
 	w := f.newWatcher(func(o *WatcherOptions) { o.Metrics = nil })
 	// should not panic
@@ -666,13 +667,13 @@ func TestCheckOnce_Metrics_NilMetrics_NoPanic(t *testing.T) {
 func TestCheckOnce_OnSwapPanic_DoesNotCrash(t *testing.T) {
 	t.Parallel()
 	bundleDataA, hashA := buildContentBundle(t)
-	f := newWatcherFixture(t, ssmValue("sha384", hashA))
-	f.seedManager(t, "sha384", hashA, bundleDataA)
+	f := newWatcherFixture(t, ssmValue(hashA))
+	f.seedManager(t, hashA, bundleDataA)
 
-	_, hashB := storeBundle(t, f, map[string]string{
+	hashB := storeBundle(t, f, map[string]string{
 		"index.html": "<html>B</html>",
 	})
-	newSSM := ssmValue("sha384", hashB)
+	newSSM := ssmValue(hashB)
 	f.ssm.value = &newSSM
 
 	w := f.newWatcher(func(o *WatcherOptions) {
@@ -731,11 +732,11 @@ func TestRun_DetectsChange(t *testing.T) {
 	permissive := &ValidationOptions{MinFiles: 1}
 
 	bundleDataA, hashA := buildContentBundle(t)
-	f := newWatcherFixture(t, ssmValue("sha384", hashA))
-	f.seedManager(t, "sha384", hashA, bundleDataA)
+	f := newWatcherFixture(t, ssmValue(hashA))
+	f.seedManager(t, hashA, bundleDataA)
 
 	// store bundle B
-	_, hashB := storeBundle(t, f, map[string]string{
+	hashB := storeBundle(t, f, map[string]string{
 		"index.html": "<html>updated</html>",
 	})
 
@@ -761,7 +762,7 @@ func TestRun_DetectsChange(t *testing.T) {
 	time.Sleep(60 * time.Millisecond)
 
 	// update SSM to point at bundle B
-	newSSM := ssmValue("sha384", hashB)
+	newSSM := ssmValue(hashB)
 	f.ssm.setValue(newSSM)
 
 	// wait for the watcher to detect and swap
@@ -788,8 +789,8 @@ func TestRun_DetectsChange(t *testing.T) {
 
 func TestRun_BacksOffOnSSMError_ThenRecovers(t *testing.T) {
 	bundleDataA, hashA := buildContentBundle(t)
-	f := newWatcherFixture(t, ssmValue("sha384", hashA))
-	f.seedManager(t, "sha384", hashA, bundleDataA)
+	f := newWatcherFixture(t, ssmValue(hashA))
+	f.seedManager(t, hashA, bundleDataA)
 
 	fm := newFakeWatcherMetrics()
 
@@ -823,7 +824,7 @@ func TestRun_BacksOffOnSSMError_ThenRecovers(t *testing.T) {
 errorsAccumulated:
 	// fix SSM - point at existing bundle (no change)
 	f.ssm.setErr(nil)
-	f.ssm.setValue(ssmValue("sha384", hashA))
+	f.ssm.setValue(ssmValue(hashA))
 
 	// wait for recovery: poll count increases with no new SSM errors
 	ssmErrsBefore := fm.getErrors("ssm")
@@ -916,14 +917,14 @@ func TestRun_StaleLogging_EmitsOnceOnTransition(t *testing.T) {
 func TestCheckOnce_Metrics_ValidationError(t *testing.T) {
 	t.Parallel()
 	bundleDataA, hashA := buildContentBundle(t)
-	f := newWatcherFixture(t, ssmValue("sha384", hashA))
-	f.seedManager(t, "sha384", hashA, bundleDataA)
+	f := newWatcherFixture(t, ssmValue(hashA))
+	f.seedManager(t, hashA, bundleDataA)
 
 	// new bundle has NO index.html - will fail validation
-	_, hashB := storeBundle(t, f, map[string]string{
+	hashB := storeBundle(t, f, map[string]string{
 		"about.html": "<html>no index</html>",
 	})
-	newSSM := ssmValue("sha384", hashB)
+	newSSM := ssmValue(hashB)
 	f.ssm.value = &newSSM
 
 	fm := newFakeWatcherMetrics()

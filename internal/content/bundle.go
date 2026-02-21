@@ -14,7 +14,6 @@ import (
 	"io/fs"
 	"os"
 	"path"
-	"path/filepath"
 	"strings"
 	"testing/fstest"
 
@@ -140,7 +139,8 @@ func extractTarGzToMem(data []byte) (fs.FS, error) {
 
 			mfs[cleanName] = &fstest.MapFile{
 				Data: content,
-				Mode: hdr.FileInfo().Mode().Perm(),
+				// all files are read-only in-mem fs, setting to 600 instead of tar permissions to avoid confusion
+				Mode: 0600,
 			}
 
 		default:
@@ -150,63 +150,6 @@ func extractTarGzToMem(data []byte) (fs.FS, error) {
 	}
 
 	return mfs, nil
-}
-
-// sanitizeTarPath prevents directory traversal attacks
-func sanitizeTarPath(dst, name string) (string, error) {
-	// clean the name
-	name = filepath.Clean(name)
-
-	// prevent empty names and . that filepath.Clean() turns into "."
-	if name == "" || name == "." {
-		return "", fmt.Errorf("empty tar entry name")
-	}
-
-	// reject absolute paths
-	if filepath.IsAbs(name) {
-		return "", xerrors.Newf("absolute path in tar: %s", name)
-	}
-
-	// reject paths with ..
-	if strings.Contains(name, "..") {
-		return "", xerrors.Newf("path traversal in tar: %s", name)
-	}
-
-	target := filepath.Join(dst, name)
-
-	// double-check the result is within dst
-	if !strings.HasPrefix(filepath.Clean(target)+string(os.PathSeparator), filepath.Clean(dst)+string(os.PathSeparator)) {
-		if filepath.Clean(target) != filepath.Clean(dst) {
-			return "", xerrors.Newf("path escapes destination: %s", name)
-		}
-	}
-
-	return target, nil
-}
-
-// writeFile writes a file from the tar reader with size limit
-func writeFile(path string, r io.Reader, mode os.FileMode) error {
-	// limit file size to prevent decompression bombs (10MB per file)
-	const maxFileSize = 10 * 1024 * 1024
-
-	// create file
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
-	if err != nil {
-		return xerrors.Wrapf(err, "create %s", path)
-	}
-	defer f.Close()
-
-	// copy with size limit
-	lr := io.LimitReader(r, maxFileSize+1)
-	n, err := io.Copy(f, lr)
-	if err != nil {
-		return xerrors.Wrapf(err, "write %s", path)
-	}
-	if n > maxFileSize {
-		return xerrors.Newf("file too large: %s (%d bytes)", path, n)
-	}
-
-	return nil
 }
 
 // ComputeFileHash computes SHA256 of a file

@@ -160,7 +160,7 @@ func emptyEvidenceStore() *evidence.Store {
 }
 
 // serveWithChi wires up a handler through chi so chi.URLParam works.
-func serveWithChi(pattern, method, url string, handler http.HandlerFunc) *httptest.ResponseRecorder {
+func serveWithChi(pattern, method, url string, handler http.HandlerFunc) *httptest.ResponseRecorder { //nolint:unparam // pattern will vary this is re-usable for future tests
 	r := chi.NewRouter()
 	switch method {
 	case "GET":
@@ -811,7 +811,7 @@ func TestHandleEvidenceFile_EmptyPath(t *testing.T) {
 		api.HandleEvidenceFile,
 	)
 
-	// Empty path -> 400 or 404 depending on chi behavior
+	// Empty path → 400 or 404 depending on chi behavior
 	if rec.Code == http.StatusOK {
 		t.Fatal("empty file path should not return 200")
 	}

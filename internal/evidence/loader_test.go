@@ -135,15 +135,15 @@ func validReleaseManifest(invHash string) ReleaseManifest {
 // emptyInventoryJSON returns valid but empty inventory JSON.
 func emptyInventoryJSON() []byte { return []byte(`{}`) }
 
-// inventoryWithFile returns inventory JSON referencing one evidence file.
-func inventoryWithFile(path, sha256 string, size int64) []byte {
+// inventoryWithFile returns inventory JSON referencing one evidence file, pulled from source/sbom.json.
+func inventoryWithFile(sha256 string, size int64) []byte {
 	inv := map[string]any{
 		"source_evidence": map[string]any{
 			"sbom": []map[string]any{
 				{
 					"format": "spdx",
 					"report": map[string]any{
-						"path":   path,
+						"path":   "source/sbom.json",
 						"hashes": map[string]string{"sha256": sha256},
 						"size":   size,
 					},
@@ -198,7 +198,7 @@ func populateWithEvidence(fake *fakeS3) {
 	evidenceHash := cryptoutil.SHA256Hex(evidenceBody)
 	fake.put(prefix+"source/sbom.json", evidenceBody)
 
-	invData := inventoryWithFile("source/sbom.json", evidenceHash, int64(len(evidenceBody)))
+	invData := inventoryWithFile(evidenceHash, int64(len(evidenceBody)))
 	invHash := cryptoutil.SHA256Hex(invData)
 	fake.put(prefix+"inventory.json", invData)
 
@@ -611,7 +611,7 @@ func TestLoad_EvidenceFile_FetchFails_ReturnsError(t *testing.T) {
 
 	evidenceBody := []byte(`{"sbom":"data"}`)
 	evidenceHash := cryptoutil.SHA256Hex(evidenceBody)
-	invData := inventoryWithFile("source/sbom.json", evidenceHash, int64(len(evidenceBody)))
+	invData := inventoryWithFile(evidenceHash, int64(len(evidenceBody)))
 	invHash := cryptoutil.SHA256Hex(invData)
 
 	fake.put(prefix+"inventory.json", invData)
@@ -634,8 +634,7 @@ func TestLoad_EvidenceFile_HashMismatch_ReturnsError(t *testing.T) {
 	fake := newFakeS3()
 	prefix := testReleasePrefix()
 
-	invData := inventoryWithFile("source/sbom.json",
-		"0000000000000000000000000000000000000000000000000000000000000000", 100)
+	invData := inventoryWithFile("0000000000000000000000000000000000000000000000000000000000000000", 100)
 	invHash := cryptoutil.SHA256Hex(invData)
 
 	fake.put(prefix+"inventory.json", invData)
@@ -658,7 +657,7 @@ func TestLoad_EvidenceFile_EmptyHash_ReturnsError(t *testing.T) {
 	fake := newFakeS3()
 	prefix := testReleasePrefix()
 
-	invData := inventoryWithFile("source/sbom.json", "", 100)
+	invData := inventoryWithFile("", 100)
 	invHash := cryptoutil.SHA256Hex(invData)
 
 	fake.put(prefix+"inventory.json", invData)

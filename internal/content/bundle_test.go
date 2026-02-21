@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -533,7 +532,7 @@ func TestExtractTarGzToMem_TotalSizeLimit(t *testing.T) {
 	}
 }
 
-func TestExtractTarGzToMem_PreservesFileMode(t *testing.T) {
+func TestExtractTarGzToMem_SetsSafeFileMode(t *testing.T) {
 	var buf bytes.Buffer
 	gw := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gw)
@@ -562,8 +561,8 @@ func TestExtractTarGzToMem_PreservesFileMode(t *testing.T) {
 	if !exists {
 		t.Fatal("script.sh not found in MapFS")
 	}
-	if entry.Mode&0755 != 0755 {
-		t.Fatalf("mode = %o, want 0755", entry.Mode)
+	if entry.Mode&0755 != 0600 {
+		t.Fatalf("mode = %o, want 0600", entry.Mode)
 	}
 }
 
@@ -698,197 +697,6 @@ func buildSeedArchiveWithLabel() []byte {
 	tw.Close()
 	gw.Close()
 	return buf.Bytes()
-}
-
-// sanitizeTarPath - still exists in bundle.go for potential reuse
-
-func TestSanitizeTarPath_Valid(t *testing.T) {
-	dst := "/tmp/extract"
-	tests := []struct {
-		name string
-		want string
-	}{
-		{"index.html", filepath.Join(dst, "index.html")},
-		{"assets/style.css", filepath.Join(dst, "assets/style.css")},
-		{"a/b/c/deep.txt", filepath.Join(dst, "a/b/c/deep.txt")},
-	}
-
-	for _, tt := range tests {
-		got, err := sanitizeTarPath(dst, tt.name)
-		if err != nil {
-			t.Fatalf("sanitizeTarPath(%q, %q) error: %v", dst, tt.name, err)
-		}
-		if got != tt.want {
-			t.Fatalf("sanitizeTarPath(%q, %q) = %q, want %q", dst, tt.name, got, tt.want)
-		}
-	}
-}
-
-func TestSanitizeTarPath_AbsolutePath(t *testing.T) {
-	_, err := sanitizeTarPath("/tmp/extract", "/etc/passwd")
-	if err == nil {
-		t.Fatal("expected error for absolute path")
-	}
-	if !strings.Contains(err.Error(), "absolute path") {
-		t.Fatalf("expected 'absolute path' in error, got: %v", err)
-	}
-}
-
-func TestSanitizeTarPath_DotDotTraversal(t *testing.T) {
-	traversals := []string{
-		"../etc/passwd",
-		"foo/../../etc/shadow",
-		"../../../root/.ssh/id_rsa",
-		"foo/../bar/../../../escape",
-	}
-
-	for _, name := range traversals {
-		_, err := sanitizeTarPath("/tmp/extract", name)
-		if err == nil {
-			t.Fatalf("expected error for path traversal %q", name)
-		}
-	}
-}
-
-func TestSanitizeTarPath_CleanedPath(t *testing.T) {
-	dst := "/tmp/extract"
-	got, err := sanitizeTarPath(dst, "foo/./bar")
-	if err != nil {
-		t.Fatalf("sanitizeTarPath for 'foo/./bar' error: %v", err)
-	}
-	if got != filepath.Join(dst, "foo/bar") {
-		t.Fatalf("got %q, want %q", got, filepath.Join(dst, "foo/bar"))
-	}
-}
-
-func TestSanitizeTarPath_NullByte(t *testing.T) {
-	_, err := sanitizeTarPath("/tmp/extract", "foo\x00bar")
-	if err == nil {
-		t.Log("sanitizeTarPath does not reject null bytes; OS syscall layer provides defense")
-	}
-}
-
-func FuzzSanitizeTarPath(f *testing.F) {
-	f.Add("index.html")
-	f.Add("../etc/passwd")
-	f.Add("/etc/passwd")
-	f.Add("foo/../../etc/shadow")
-	f.Add("foo/./bar")
-	f.Add("foo\x00/../etc/passwd")
-	f.Add("..\\windows\\system32")
-	f.Add(strings.Repeat("a/", 500) + "deep.txt")
-
-	dst := f.TempDir()
-
-	f.Fuzz(func(t *testing.T, name string) {
-		result, err := sanitizeTarPath(dst, name)
-		if err != nil {
-			return // rejected - good
-		}
-		if !strings.HasPrefix(result, dst+string(filepath.Separator)) {
-			t.Fatalf("escaped destination: sanitizeTarPath(%q, %q) = %q", dst, name, result)
-		}
-	})
-}
-
-// writeFile - still exists in bundle.go
-
-func TestWriteFile_Basic(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "test.txt")
-	content := "file content here"
-
-	err := writeFile(path, strings.NewReader(content), 0640)
-	if err != nil {
-		t.Fatalf("writeFile: %v", err)
-	}
-
-	got, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read file: %v", err)
-	}
-	if string(got) != content {
-		t.Fatalf("content = %q, want %q", string(got), content)
-	}
-}
-
-func TestWriteFile_SizeLimit(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "big.txt")
-
-	const maxFileSize = 10 * 1024 * 1024
-	bigData := strings.NewReader(strings.Repeat("x", maxFileSize+1))
-
-	err := writeFile(path, bigData, 0640)
-	if err == nil {
-		t.Fatal("expected error for oversized file")
-	}
-	if !strings.Contains(err.Error(), "file too large") {
-		t.Fatalf("expected 'file too large' in error, got: %v", err)
-	}
-}
-
-func TestWriteFile_ExactlyAtLimit(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "exact.txt")
-
-	const maxFileSize = 10 * 1024 * 1024
-	data := strings.NewReader(strings.Repeat("x", maxFileSize))
-
-	err := writeFile(path, data, 0640)
-	if err != nil {
-		t.Fatalf("writeFile at exact limit should succeed: %v", err)
-	}
-
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("stat: %v", err)
-	}
-	if info.Size() != maxFileSize {
-		t.Fatalf("size = %d, want %d", info.Size(), maxFileSize)
-	}
-}
-
-func TestWriteFile_EmptyFile(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "empty.txt")
-
-	err := writeFile(path, strings.NewReader(""), 0640)
-	if err != nil {
-		t.Fatalf("writeFile for empty: %v", err)
-	}
-
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("stat: %v", err)
-	}
-	if info.Size() != 0 {
-		t.Fatalf("size = %d, want 0", info.Size())
-	}
-}
-
-func TestWriteFile_InvalidPath(t *testing.T) {
-	err := writeFile("/nonexistent/dir/file.txt", strings.NewReader("data"), 0640)
-	if err == nil {
-		t.Fatal("expected error for invalid path")
-	}
-	if !strings.Contains(err.Error(), "create") {
-		t.Fatalf("error should mention create: %v", err)
-	}
-}
-
-func TestWriteFile_FailingReader(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "fail.txt")
-
-	src := &errReader{n: 10, err: fmt.Errorf("read timeout")}
-	err := writeFile(path, src, 0640)
-	if err == nil {
-		t.Fatal("expected error from failing reader")
-	}
-	if !strings.Contains(err.Error(), "read timeout") {
-		t.Fatalf("error should propagate: %v", err)
-	}
 }
 
 // ComputeFileHash
