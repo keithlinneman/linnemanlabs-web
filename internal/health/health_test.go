@@ -36,8 +36,8 @@ func TestHealthzHandler_Unhealthy(t *testing.T) {
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want 503", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), "database down") {
-		t.Fatalf("body = %q, want reason in response", rec.Body.String())
+	if strings.Contains(rec.Body.String(), "database down") {
+		t.Fatalf("body = %q, reason should not be printed", rec.Body.String())
 	}
 }
 

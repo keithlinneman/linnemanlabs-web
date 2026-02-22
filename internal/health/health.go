@@ -9,7 +9,7 @@ func HealthzHandler(p Probe) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if p != nil {
 			if err := p.Check(r.Context()); err != nil {
-				http.Error(w, err.Error()+"\n", http.StatusServiceUnavailable)
+				http.Error(w, "Service Unavailable\n", http.StatusServiceUnavailable)
 				return
 			}
 		}

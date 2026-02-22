@@ -131,6 +131,7 @@ func TestStart_GracefulShutdown(t *testing.T) {
 	resp, err = http.DefaultClient.Do(req)
 	if err == nil {
 		resp.Body.Close()
+
 		t.Fatal("server still accepting connections after shutdown")
 	}
 }
@@ -200,8 +201,8 @@ func TestStart_HealthzEndpoint_Unhealthy(t *testing.T) {
 	if resp.StatusCode != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want 503", resp.StatusCode)
 	}
-	if !strings.Contains(body, "something broke") {
-		t.Fatalf("body = %q, want reason", body)
+	if strings.Contains(body, "something broke") {
+		t.Fatalf("body = %q, reason should not be printed", body)
 	}
 }
 
