@@ -243,6 +243,48 @@ func main() { //nolint:gocognit // main wires everything together, splitting it 
 		L.Info(ctx, "no seed site content available to load into content manager")
 	}
 
+	// setup evidence loading (fetch build attestations from S3 at startup)
+	var evidenceStore *evidence.Store
+	if hasProvenance {
+		evidenceStore = evidence.NewStore()
+		evidenceLoader, err := evidence.NewLoader(ctx, &evidence.LoaderOptions{
+			Logger:           L,
+			Bucket:           vi.EvidenceBucket,
+			Prefix:           vi.EvidencePrefix,
+			ReleaseID:        vi.ReleaseId,
+			S3Client:         s3Client,
+			Verifier:         evidenceBlobVerifier,
+			RequireSignature: evidenceBlobVerifier != nil,
+		})
+		if err != nil {
+			// evidence is required for builds with provenance data, fail early at startup if we cant initiate loader
+			L.Error(ctx, err, "failed to create evidence loader")
+			os.Exit(1)
+		} else {
+			bundle, err := evidenceLoader.Load(ctx)
+			if err != nil {
+				// evidence is required for builds with provenance data, fail early
+				// systemd will restart, asg will terminate if we fail to start successfully
+				// will add retry logic in the future
+				L.Error(ctx, err, "failed to load evidence which is required when provenance data is present")
+				os.Exit(1)
+			} else {
+				bundle = evidence.FilterBundleByPlatform(bundle, evidence.RuntimePlatform())
+				evidenceStore.Set(bundle)
+				L.Info(ctx, "loaded build evidence",
+					"platform", evidence.RuntimePlatform(),
+					"summary", bundle.LoadSummary(),
+					"categories", bundle.Summary(),
+					"inventory_hash", bundle.InventoryHash[:12],
+				)
+			}
+		}
+	} else {
+		L.Info(ctx, "no build provenance (local build), skipping evidence fetch")
+	}
+	// setup provenance API
+	provenanceAPI := provenancehttp.NewAPI(contentMgr, evidenceStore, L)
+
 	// setup content bundle loader
 	contentLoader, err := content.NewLoader(ctx, &content.LoaderOptions{
 		Logger:    L,
@@ -289,48 +331,6 @@ func main() { //nolint:gocognit // main wires everything together, splitting it 
 		go watcher.Run(ctx)
 	}
 
-	// setup evidence loading (fetch build attestations from S3 at startup)
-	var evidenceStore *evidence.Store
-	if hasProvenance {
-		evidenceStore = evidence.NewStore()
-		evidenceLoader, err := evidence.NewLoader(ctx, &evidence.LoaderOptions{
-			Logger:           L,
-			Bucket:           vi.EvidenceBucket,
-			Prefix:           vi.EvidencePrefix,
-			ReleaseID:        vi.ReleaseId,
-			S3Client:         s3Client,
-			Verifier:         evidenceBlobVerifier,
-			RequireSignature: evidenceBlobVerifier != nil,
-		})
-		if err != nil {
-			// evidence is required for builds with provenance data, fail early at startup if we cant initiate loader
-			L.Error(ctx, err, "failed to create evidence loader")
-			os.Exit(1)
-		} else {
-			bundle, err := evidenceLoader.Load(ctx)
-			if err != nil {
-				// evidence is required for builds with provenance data, fail early
-				// systemd will restart, asg will terminate if we fail to start successfully
-				// will add retry logic in the future
-				L.Error(ctx, err, "failed to load evidence which is required when provenance data is present")
-				os.Exit(1)
-			} else {
-				bundle = evidence.FilterBundleByPlatform(bundle, evidence.RuntimePlatform())
-				evidenceStore.Set(bundle)
-				L.Info(ctx, "loaded build evidence",
-					"platform", evidence.RuntimePlatform(),
-					"summary", bundle.LoadSummary(),
-					"categories", bundle.Summary(),
-					"inventory_hash", bundle.InventoryHash[:12],
-				)
-			}
-		}
-	} else {
-		L.Info(ctx, "no build provenance (local build), skipping evidence fetch")
-	}
-	// setup provenance API
-	provenanceAPI := provenancehttp.NewAPI(contentMgr, evidenceStore, L)
-
 	// setup site handler that serves site content
 	siteHandler, err := sitehandler.New(&sitehandler.Options{
 		Logger:     L,
@@ -343,12 +343,12 @@ func main() { //nolint:gocognit // main wires everything together, splitting it 
 	}
 
 	// setup toggle for server shutdown
-	var gate health.ShutdownGate
+	var shutdownGate health.ShutdownGate
 
 	// setup readiness checks, both shutdown gate and content readiness must pass.
 	// checks that we have successfully loaded content to serve
 	readiness := health.All(
-		gate.Probe(),
+		shutdownGate.Probe(),
 		health.CheckFunc(func(ctx context.Context) error {
 			return contentMgr.ReadyErr()
 		}),
@@ -426,7 +426,7 @@ func main() { //nolint:gocognit // main wires everything together, splitting it 
 	L.Info(context.Background(), "shutdown signal received")
 
 	// fail health checks to drain connections
-	gate.Set("draining")
+	shutdownGate.Set("draining")
 	L.Info(context.Background(), "shutdown gate closed")
 
 	// Wait for in-flight requests to finish and for load balancer
