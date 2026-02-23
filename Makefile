@@ -1,4 +1,4 @@
-.PHONY: build run test fuzz cover clean release lint bench vet
+.PHONY: build run test fuzz cover clean release lint bench vet check tidy
 
 build:
 	go build -o bin/linnemanlabs-web ./cmd/server
@@ -40,6 +40,12 @@ cover:
 
 clean:
 	rm -rf bin/
+
+check: tidy vet lint cover
+
+tidy:
+	go mod tidy
+	git diff --exit-code go.mod go.sum
 
 release:
 	/build-system/build.sh --repo . --ref HEAD --track stable
