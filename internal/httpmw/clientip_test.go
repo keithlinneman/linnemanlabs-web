@@ -486,11 +486,11 @@ func TestClientIPFromContext_Missing(t *testing.T) {
 func FuzzExtractClientAddr(f *testing.F) {
 	// Seed: real-world edge cases
 	f.Add("10.0.0.1:8080", "203.0.113.50, 10.0.0.1", 1) // private remote, multiple XFF, ALB
-	f.Add("203.0.113.50:443", "192.168.1.1", 0)           // public remote, XFF, no hops
-	f.Add("garbage", "", 0)                                // malformed
-	f.Add("[::1]:8080", "2001:db8::1", 1)                  // IPv6
-	f.Add("127.0.0.1:80", "", 0)                           // loopback, no XFF
-	f.Add("10.0.0.1:1234", "a, b, c", 2)                   // multi-hop with garbage
+	f.Add("203.0.113.50:443", "192.168.1.1", 0)         // public remote, XFF, no hops
+	f.Add("garbage", "", 0)                             // malformed
+	f.Add("[::1]:8080", "2001:db8::1", 1)               // IPv6
+	f.Add("127.0.0.1:80", "", 0)                        // loopback, no XFF
+	f.Add("10.0.0.1:1234", "a, b, c", 2)                // multi-hop with garbage
 	f.Fuzz(func(t *testing.T, remoteAddr, xff string, hops int) {
 		if hops < 0 || hops > 10 {
 			return
