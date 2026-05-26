@@ -364,7 +364,7 @@ func classifyTypes(err error) (surface, root string) {
 			continue
 		}
 		u := t
-		for u.Kind() == reflect.Ptr {
+		for u.Kind() == reflect.Pointer {
 			u = u.Elem()
 		}
 		pkg := u.PkgPath()

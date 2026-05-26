@@ -42,6 +42,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// handle redirects if returned by resolver
 	if redirectTo != "" {
 		// use 308 redirect to keep method even though we only use GET/HEAD
+		//nolint:gosec // G710: redirect target is from resolvePath normalization, not raw user input
 		http.Redirect(w, r, redirectTo, http.StatusPermanentRedirect)
 		return
 	}
@@ -57,6 +58,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// serve the actual file from the active content FS
+	//nolint:gosec // G703: FS, path cannot escape root
 	http.ServeFileFS(w, r, snap.FS, file)
 }
 

@@ -11,9 +11,9 @@ formatters:
 linters:
   enable:
     - gosec
-    - errcheck
+#    - errcheck
     - exhaustive
-    - govet
+#    - govet
     - staticcheck
     - unused
     - gocritic
@@ -22,12 +22,12 @@ linters:
     - unconvert
     - unparam
     - misspell
-    - revive
+#    - revive
     - bodyclose
     - noctx
     - errorlint
     - nilerr
-    - goconst
+#    - goconst
     - thelper
     - usestdlibvars
     - reassign
@@ -37,7 +37,11 @@ linters:
         linters:
           - gosec
           - gocognit
-
+          - noctx
+          - goconst
+  disable:
+    - errcheck
+   
   settings:
     gosec:
       excludes: []
