@@ -162,10 +162,10 @@ func (l *Loader) Load(ctx context.Context) (*Bundle, error) {
 	)
 
 	// attempt to fetch release.json sigstore bundle
-	sigstoreBundleKey := prefix + "release.json.bundle.sigstore.json"
+	sigstoreBundleKey := prefix + "release.json.kms.bundle.sigstore.json"
 	sigstoreBundleRaw, err := l.fetchS3(ctx, sigstoreBundleKey, MaxManifestSize)
 	if err != nil {
-		return nil, xerrors.Wrap(err, "failed to fetch release.json.bundle.sigstore.json")
+		return nil, xerrors.Wrap(err, "failed to fetch release.json.kms.bundle.sigstore.json")
 	}
 
 	// fail-closed: if signature is required but bundle is missing, reject
