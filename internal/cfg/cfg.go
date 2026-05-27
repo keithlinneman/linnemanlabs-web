@@ -56,7 +56,7 @@ func Register(fs *flag.FlagSet, c *App) {
 	fs.StringVar(&c.PyroTenantID, "pyro-tenant", "", "tenant (x-scope-orgid) to use for pyro-server")
 	fs.StringVar(&c.OTLPEndpoint, "otlp-endpoint", "", "OTLP endpoint to push to (gRPC) (host:port)")
 	fs.StringVar(&c.ContentSSMParam, "content-ssm-param", "/app/linnemanlabs-web/server/content/stable/release/id", "ssm parameter name to get content bundle hash from")
-	fs.StringVar(&c.ContentS3Bucket, "content-s3-bucket", "phxi-build-prod-use2-deployment-artifacts", "s3 bucket name to get content bundle from")
+	fs.StringVar(&c.ContentS3Bucket, "content-s3-bucket", "phxi-prod-use2-build-deployment-artifacts", "s3 bucket name to get content bundle from")
 	fs.StringVar(&c.ContentS3Prefix, "content-s3-prefix", "apps/linnemanlabs-web/server/content/bundles", "s3 prefix (key) to get content bundle from")
 	fs.StringVar(&c.ContentSigningKeyARN, "content-signing-key-arn", "", "KMS key ARN for content bundle signature verification")
 	fs.StringVar(&c.EvidenceSigningKeyARN, "evidence-signing-key-arn", "", "KMS key ARN for evidence signature verification")
