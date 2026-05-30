@@ -137,10 +137,50 @@ func (api *API) HandleAppProvenance(w http.ResponseWriter, r *http.Request) {
 	resp.Signatures = bundle.Signatures
 	resp.TrustedRootURL = cryptoutil.TrustedRootURL()
 
+	// build-system signing claims + runtime-verified reconciliation. The
+	// embedded release.summary.signing reflects build-time claims and is left
+	// untouched; this top-level block is what the frontend should read for
+	// "did we verify a signature" semantics.
+	resp.Signing = buildAppSigning(bundle.Release, bundle)
+
 	// build-pipeline toolchain from inventory.json's tooling block.
 	resp.Tooling = bundle.Tooling
 
 	api.writeJSON(r.Context(), w, http.StatusOK, resp)
+}
+
+// buildAppSigning projects release.json's summary.signing block onto the API
+// shape and reconciles the runtime-verified fields. ReleaseSigned is true
+// when any signature bundle was verified at startup.
+// Returns nil if nothing would be set.
+func buildAppSigning(rel *evidence.ReleaseManifest, bundle *evidence.Bundle) *AppSummarySigning {
+	out := &AppSummarySigning{}
+	hasClaim := false
+	if rel != nil && rel.Summary != nil {
+		if sg := rel.Summary.Signing; sg != nil {
+			out.Method = sg.Method
+			out.KeyRef = sg.KeyRef
+			out.ArtifactsAttested = sg.ArtifactsAttested
+			out.IndexAttested = sg.IndexAttested
+			out.InventorySigned = sg.InventorySigned
+			out.ReleaseSigned = sg.ReleaseSigned
+			hasClaim = true
+		}
+	}
+	if bundle != nil {
+		if bundle.HasReleaseKMSBundle() || bundle.HasReleaseKeylessBundle() {
+			out.ReleaseSigned = true
+			hasClaim = true
+		}
+		if bundle.HasReleaseKMSBundle() {
+			out.ReleaseSigstoreBundled = true
+			hasClaim = true
+		}
+	}
+	if !hasClaim {
+		return nil
+	}
+	return out
 }
 
 // HandleAppSummary serves the lightweight app build summary for frontend consumption
@@ -236,17 +276,6 @@ func (api *API) HandleAppSummary(w http.ResponseWriter, r *http.Request) {
 				UniqueLicenses:      l.UniqueLicenses,
 				DeniedFound:         l.DeniedFound,
 				WithoutLicenseCount: l.WithoutLicenseCount,
-			}
-		}
-
-		if sg := s.Signing; sg != nil {
-			resp.Signing = &AppSummarySigning{
-				Method:            sg.Method,
-				KeyRef:            sg.KeyRef,
-				ArtifactsAttested: sg.ArtifactsAttested,
-				IndexAttested:     sg.IndexAttested,
-				InventorySigned:   sg.InventorySigned,
-				ReleaseSigned:     sg.ReleaseSigned,
 			}
 		}
 
@@ -351,14 +380,8 @@ func (api *API) HandleAppSummary(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// either bundle's presence proves release.json was signed, will expand
-	// on this in the future or entirely exit the process at the actual validation steps earlier.
-	if bundle.HasReleaseKMSBundle() || bundle.HasReleaseKeylessBundle() {
-		if resp.Signing == nil {
-			resp.Signing = &AppSummarySigning{}
-		}
-		resp.Signing.ReleaseSigned = true
-	}
+	// build-system signing claims + runtime-verified reconciliation.
+	resp.Signing = buildAppSigning(rel, bundle)
 
 	// signature evidence (keyless + KMS) extracted at verification time.
 	resp.Signatures = bundle.Signatures

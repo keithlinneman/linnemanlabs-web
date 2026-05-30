@@ -70,6 +70,12 @@ type AppProvenanceResponse struct {
 	// Enriched license data with per-license counts (derived from evidence files)
 	Licenses *AppProvenanceLicenses `json:"licenses,omitempty"`
 
+	// Signing is the build-system's signing claims (from release.json's
+	// summary.signing block) reconciled with what the runtime actually
+	// verified. ReleaseSigned / ReleaseSigstoreBundled reflect runtime state;
+	// the embedded Release.Summary.Signing reflects build-time claims.
+	Signing *AppSummarySigning `json:"signing,omitempty"`
+
 	// Signatures aggregates the keyless (Fulcio) + KMS signature evidence
 	// for release.json. Either half may be nil.
 	Signatures *cryptoutil.SignaturesInfo `json:"signatures,omitempty"`
@@ -305,18 +311,21 @@ type AppSummaryLicenses struct {
 	WithoutLicenseCount int      `json:"without_license_count"`
 }
 
-// AppSummarySigning is the build-system's release.json summary.signing block:
-// what the build pipeline claims about signing (method, key ref, what was
-// attested). Runtime-verified signature evidence lives in the top-level
-// Signatures field instead - that's where the frontend looks for "did our
-// runtime actually verify a signature, and from whom?"
+// AppSummarySigning carries the build-system's release.json summary.signing
+// block (Method, KeyRef, *Attested, InventorySigned) plus two
+// runtime-reconciled fields: ReleaseSigned is true when our runtime verified
+// at least one sigstore bundle (the build system can't claim its own
+// signature in its own summary); ReleaseSigstoreBundled is true when a KMS
+// sigstore bundle specifically was loaded. The richer per-signature evidence
+// (cert identity, Rekor entry, etc.) lives in the top-level Signatures field.
 type AppSummarySigning struct {
-	Method            string `json:"method"`
-	KeyRef            string `json:"key_ref,omitempty"`
-	ArtifactsAttested bool   `json:"artifacts_attested"`
-	IndexAttested     bool   `json:"index_attested"`
-	InventorySigned   bool   `json:"inventory_signed"`
-	ReleaseSigned     bool   `json:"release_signed"`
+	Method                 string `json:"method"`
+	KeyRef                 string `json:"key_ref,omitempty"`
+	ArtifactsAttested      bool   `json:"artifacts_attested"`
+	IndexAttested          bool   `json:"index_attested"`
+	InventorySigned        bool   `json:"inventory_signed"`
+	ReleaseSigned          bool   `json:"release_signed"`
+	ReleaseSigstoreBundled bool   `json:"release_sigstore_bundled,omitempty"`
 }
 
 type AppSummarySLSA struct {

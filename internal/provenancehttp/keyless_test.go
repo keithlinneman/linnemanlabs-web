@@ -87,6 +87,31 @@ func evidenceStoreWithKeyless(t *testing.T) *evidence.Store {
 	return s
 }
 
+// evidenceStoreWithKMSAndKeyless returns a store whose bundle carries both
+// KMS and keyless sigstore bundles plus a release.summary.signing block with
+// build-time claims.
+func evidenceStoreWithKMSAndKeyless(t *testing.T) *evidence.Store {
+	t.Helper()
+	b := testBundle()
+	b.ReleaseKMSBundle = []byte(`{"mock":"kms-sig"}`)
+	b.ReleaseKeylessBundle = buildKeylessBundleJSON(t)
+	b.Release.Summary = &evidence.ReleaseSummary{
+		Signing: &evidence.SigningSummary{
+			Method:            "aws-kms",
+			KeyRef:            "awskms:///arn:aws:kms:us-east-2:1234:alias/test",
+			ArtifactsAttested: true,
+			IndexAttested:     true,
+			InventorySigned:   true,
+			// note: ReleaseSigned is FALSE in release.json (build can't claim
+			// its own signature). Runtime must reconcile it to true.
+			ReleaseSigned: false,
+		},
+	}
+	s := evidence.NewStore()
+	s.Set(b)
+	return s
+}
+
 // contentProviderWithCert returns content whose Meta carries a keyless
 // signature block with cert identity (used to assert API surfacing of
 // signatures.keyless.certificate).
@@ -279,5 +304,67 @@ func TestHandleContentSummary_NoSignaturesWhenAbsent(t *testing.T) {
 	// trusted_root_url still surfaces (it's a constant, not from the bundle)
 	if got, _ := m["trusted_root_url"].(string); got == "" {
 		t.Fatal("trusted_root_url should always be present")
+	}
+}
+
+func TestHandleAppProvenance_IncludesSigning(t *testing.T) {
+	api := NewAPI(noContentProvider(), evidenceStoreWithKMSAndKeyless(t), log.Nop())
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/provenance/app", http.NoBody)
+	api.HandleAppProvenance(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	m := parseJSON(t, rec)
+	signing := nestedMap(t, m, "signing")
+
+	// runtime-reconciled fields - both must be true now
+	if signed, _ := signing["release_signed"].(bool); !signed {
+		t.Fatalf("signing.release_signed should be true when bundles present, got %v", signing["release_signed"])
+	}
+	if bundled, _ := signing["release_sigstore_bundled"].(bool); !bundled {
+		t.Fatalf("signing.release_sigstore_bundled should be true when KMS bundle present, got %v", signing["release_sigstore_bundled"])
+	}
+	// build-time claims carried through from release.summary.signing
+	if signing["method"] != "aws-kms" {
+		t.Fatalf("signing.method = %v, want aws-kms", signing["method"])
+	}
+	if attested, _ := signing["artifacts_attested"].(bool); !attested {
+		t.Fatalf("signing.artifacts_attested should be true")
+	}
+	if attested, _ := signing["index_attested"].(bool); !attested {
+		t.Fatalf("signing.index_attested should be true")
+	}
+	if signed, _ := signing["inventory_signed"].(bool); !signed {
+		t.Fatalf("signing.inventory_signed should be true")
+	}
+
+	// embedded release.summary.signing.release_signed stays as-is (false
+	// from release.json) - it's the build-time claim, not the runtime view.
+	relSigning := nestedMap(t, m, "release", "summary", "signing")
+	if signed, ok := relSigning["release_signed"].(bool); ok && signed {
+		t.Fatalf("embedded release.summary.signing.release_signed should not be mutated; got %v", signed)
+	}
+}
+
+func TestHandleAppSummary_IncludesReleaseSigstoreBundled(t *testing.T) {
+	api := NewAPI(noContentProvider(), evidenceStoreWithKMSAndKeyless(t), log.Nop())
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/provenance/app/summary", http.NoBody)
+	api.HandleAppSummary(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	m := parseJSON(t, rec)
+	signing := nestedMap(t, m, "signing")
+	if bundled, _ := signing["release_sigstore_bundled"].(bool); !bundled {
+		t.Fatalf("signing.release_sigstore_bundled should be true when KMS bundle present, got %v", signing["release_sigstore_bundled"])
+	}
+	if signed, _ := signing["release_signed"].(bool); !signed {
+		t.Fatalf("signing.release_signed should be true, got %v", signing["release_signed"])
 	}
 }
