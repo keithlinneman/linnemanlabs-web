@@ -8,7 +8,7 @@ import (
 	"github.com/keithlinneman/linnemanlabs-web/internal/xerrors"
 )
 
-// Provenance contains all the info from provenance.json manifest
+// Provenance contains all the info from the release.json content manifest.
 type Provenance struct {
 	Schema      string            `json:"schema"`
 	Type        string            `json:"type"`
@@ -33,11 +33,17 @@ type ProvenanceSource struct {
 	Dirty       bool      `json:"dirty"`
 }
 
-// ProvenanceBuild contains build environment information
+// ProvenanceBuild contains build environment + attribution information
+// emitted by the content build pipeline.
 type ProvenanceBuild struct {
-	Host      string    `json:"host"`
-	User      string    `json:"user"`
-	Timestamp time.Time `json:"timestamp"`
+	System          string    `json:"system,omitempty"`
+	Actor           string    `json:"actor,omitempty"`
+	BuilderIdentity string    `json:"builder_identity,omitempty"`
+	Host            string    `json:"host,omitempty"`
+	User            string    `json:"user,omitempty"`
+	Timestamp       time.Time `json:"timestamp,omitempty"`
+	RunID           string    `json:"run_id,omitempty"`
+	RunURL          string    `json:"run_url,omitempty"`
 }
 
 // ProvenanceSummary contains aggregate statistics
@@ -71,10 +77,12 @@ type ToolInfo struct {
 	SHA256  string `json:"sha256,omitempty"`
 }
 
-// ProvenanceFilePath is the expected location of provenance.json in the bundle
-const ProvenanceFilePath = "provenance.json"
+// ProvenanceFilePath is the expected location of the content release manifest
+// inside the bundle.
+const ProvenanceFilePath = "release.json"
 
-// LoadProvenance reads and parses provenance.json from the given filesystem
+// LoadProvenance reads and parses the content release manifest from the given
+// filesystem.
 func LoadProvenance(fsys fs.FS) (*Provenance, error) {
 	data, err := fs.ReadFile(fsys, ProvenanceFilePath)
 	if err != nil {
@@ -90,9 +98,9 @@ func LoadProvenance(fsys fs.FS) (*Provenance, error) {
 }
 
 // ProvenanceResponse is the enriched response served at /api/provenance/content
-// It includes runtime information in addition to the bundle provenance
+// It includes runtime information in addition to the bundle provenance.
 type ProvenanceResponse struct {
-	// Bundle provenance (from provenance.json)
+	// Bundle provenance (from release.json)
 	Bundle *Provenance `json:"bundle"`
 
 	// Runtime information added by the server

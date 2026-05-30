@@ -102,12 +102,19 @@ func (v *KMSVerifier) VerifySignature(ctx context.Context, message, signature []
 	if err != nil {
 		return err
 	}
+	return verifyWithPublicKey(pub, message, signature, v.AllowPKCS1v15)
+}
 
+// verifyWithPublicKey verifies a signature against an already-resolved public
+// key. Shared by the KMS verifier (key fetched from KMS) and the keyless
+// verifier (key extracted from a Fulcio leaf certificate). Supports ECDSA
+// (P-256/P-384) and RSA (PSS-only unless allowPKCS1v15 is set).
+func verifyWithPublicKey(pub crypto.PublicKey, message, signature []byte, allowPKCS1v15 bool) error {
 	switch key := pub.(type) {
 	case *ecdsa.PublicKey:
 		return verifyECDSA(key, message, signature)
 	case *rsa.PublicKey:
-		return verifyRSA(key, message, signature, v.AllowPKCS1v15)
+		return verifyRSA(key, message, signature, allowPKCS1v15)
 	default:
 		return xerrors.Newf("unsupported public key type: %T", pub)
 	}

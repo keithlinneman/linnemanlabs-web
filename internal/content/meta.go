@@ -1,6 +1,10 @@
 package content
 
-import "time"
+import (
+	"time"
+
+	"github.com/keithlinneman/linnemanlabs-web/internal/cryptoutil"
+)
 
 type Source string
 
@@ -12,11 +16,6 @@ const (
 	SourceS3      Source = "s3"
 )
 
-type Signature struct {
-	Role  string `json:"role,omitempty"`
-	KeyID string `json:"keyid,omitempty"`
-}
-
 type Meta struct {
 	Version       string    `json:"version,omitempty"`
 	Hash          string    `json:"hash,omitempty"`
@@ -25,5 +24,9 @@ type Meta struct {
 	VerifiedAt    time.Time `json:"verified_at,omitempty"`
 	Source        Source    `json:"source,omitempty"`
 
-	Signatures []Signature `json:"signatures,omitempty"`
+	// Signatures aggregates the keyless (Fulcio) + KMS signature evidence
+	// extracted from the two sigstore bundles at load time. Either half may
+	// be nil when its bundle was not loaded; both populated for verified
+	// dual-signed releases.
+	Signatures *cryptoutil.SignaturesInfo `json:"signatures,omitempty"`
 }

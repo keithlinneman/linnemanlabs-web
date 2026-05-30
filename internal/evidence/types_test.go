@@ -370,32 +370,55 @@ func TestBundle_Attestations_NilFileIndex(t *testing.T) {
 	}
 }
 
-// Bundle.HasReleaseSigstoreBundle
+// Bundle.HasReleaseKMSBundle
 
-func TestBundle_HasReleaseSigstoreBundle_True(t *testing.T) {
-	b := &Bundle{ReleaseSigstoreBundle: []byte(`{"mediaType":"application/vnd.dev.sigstore.bundle.v0.3+json"}`)}
-	if !b.HasReleaseSigstoreBundle() {
+func TestBundle_HasReleaseKMSBundle_True(t *testing.T) {
+	b := &Bundle{ReleaseKMSBundle: []byte(`{"mediaType":"application/vnd.dev.sigstore.bundle.v0.3+json"}`)}
+	if !b.HasReleaseKMSBundle() {
 		t.Fatal("expected true")
 	}
 }
 
-func TestBundle_HasReleaseSigstoreBundle_Empty(t *testing.T) {
-	b := &Bundle{ReleaseSigstoreBundle: []byte{}}
-	if b.HasReleaseSigstoreBundle() {
+func TestBundle_HasReleaseKMSBundle_Empty(t *testing.T) {
+	b := &Bundle{ReleaseKMSBundle: []byte{}}
+	if b.HasReleaseKMSBundle() {
 		t.Fatal("expected false for empty bytes")
 	}
 }
 
-func TestBundle_HasReleaseSigstoreBundle_Nil(t *testing.T) {
-	b := &Bundle{ReleaseSigstoreBundle: nil}
-	if b.HasReleaseSigstoreBundle() {
+func TestBundle_HasReleaseKMSBundle_Nil(t *testing.T) {
+	b := &Bundle{ReleaseKMSBundle: nil}
+	if b.HasReleaseKMSBundle() {
 		t.Fatal("expected false for nil")
 	}
 }
 
-func TestBundle_HasReleaseSigstoreBundle_NilBundle(t *testing.T) {
+func TestBundle_HasReleaseKMSBundle_NilBundle(t *testing.T) {
 	var b *Bundle
-	if b.HasReleaseSigstoreBundle() {
+	if b.HasReleaseKMSBundle() {
+		t.Fatal("expected false for nil bundle")
+	}
+}
+
+// Bundle.HasReleaseKeylessBundle
+
+func TestBundle_HasReleaseKeylessBundle_True(t *testing.T) {
+	b := &Bundle{ReleaseKeylessBundle: []byte(`{"mediaType":"application/vnd.dev.sigstore.bundle.v0.3+json"}`)}
+	if !b.HasReleaseKeylessBundle() {
+		t.Fatal("expected true")
+	}
+}
+
+func TestBundle_HasReleaseKeylessBundle_Empty(t *testing.T) {
+	b := &Bundle{ReleaseKeylessBundle: []byte{}}
+	if b.HasReleaseKeylessBundle() {
+		t.Fatal("expected false for empty bytes")
+	}
+}
+
+func TestBundle_HasReleaseKeylessBundle_NilBundle(t *testing.T) {
+	var b *Bundle
+	if b.HasReleaseKeylessBundle() {
 		t.Fatal("expected false for nil bundle")
 	}
 }

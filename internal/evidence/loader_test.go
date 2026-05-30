@@ -155,20 +155,29 @@ func inventoryWithFile(sha256 string, size int64) []byte {
 	return data
 }
 
-// newTestLoader creates a Loader wired to a fakeS3 with no AWS dependency.
+// newTestLoader creates a Loader wired to a fakeS3 with no AWS dependency. The
+// same verifier is used for both the KMS and keyless signature checks.
 func newTestLoader(fake *fakeS3, verifier BlobVerifier) *Loader {
 	return &Loader{
 		opts: LoaderOptions{
-			Logger:    log.Nop(),
-			Bucket:    testBucket,
-			Prefix:    testPrefix,
-			ReleaseID: testReleaseID,
-			S3Client:  fake,
-			Verifier:  verifier,
+			Logger:          log.Nop(),
+			Bucket:          testBucket,
+			Prefix:          testPrefix,
+			ReleaseID:       testReleaseID,
+			S3Client:        fake,
+			Verifier:        verifier,
+			KeylessVerifier: verifier,
 		},
 		s3Client: fake,
 		logger:   log.Nop(),
 	}
+}
+
+// putReleaseSigBundles stores both the KMS and keyless release.json sigstore
+// bundles (identical mock content) at their expected keys.
+func putReleaseSigBundles(fake *fakeS3, prefix string, data []byte) {
+	fake.put(prefix+"release.json.kms.bundle.sigstore.json", data)
+	fake.put(prefix+"release.json.keyless.bundle.sigstore.json", data)
 }
 
 // populateFakeS3 sets up a fully valid S3 state (release + sigstore bundle +
@@ -183,8 +192,8 @@ func populateFakeS3(fake *fakeS3) []byte {
 	rel := validReleaseManifest(invHash)
 	releaseRaw := fake.putJSON(prefix+"release.json", rel)
 
-	// sigstore bundle must exist (Load always fetches it)
-	fake.put(prefix+"release.json.bundle.sigstore.json", []byte(`{"mock":"sigstore-bundle"}`))
+	// sigstore bundles must exist (Load always fetches both)
+	putReleaseSigBundles(fake, prefix, []byte(`{"mock":"sigstore-bundle"}`))
 
 	return releaseRaw
 }
@@ -204,7 +213,7 @@ func populateWithEvidence(fake *fakeS3) {
 
 	rel := validReleaseManifest(invHash)
 	fake.putJSON(prefix+"release.json", rel)
-	fake.put(prefix+"release.json.bundle.sigstore.json", []byte(`{"mock":"sigstore"}`))
+	putReleaseSigBundles(fake, prefix, []byte(`{"mock":"sigstore"}`))
 }
 
 // NewLoader - additional coverage
@@ -286,7 +295,7 @@ func TestLoad_SigstoreBundle_FetchFails(t *testing.T) {
 	invHash := cryptoutil.SHA256Hex(invData)
 	fake.put(prefix+"inventory.json", invData)
 	fake.putJSON(prefix+"release.json", validReleaseManifest(invHash))
-	fake.failOn(prefix+"release.json.bundle.sigstore.json", fmt.Errorf("network timeout"))
+	fake.failOn(prefix+"release.json.kms.bundle.sigstore.json", fmt.Errorf("network timeout"))
 
 	l := newTestLoader(fake, passVerifier())
 	_, err := l.Load(t.Context())
@@ -339,7 +348,7 @@ func TestLoad_SigstoreVerification_ReceivesCorrectArgs(t *testing.T) {
 	fake := newFakeS3()
 	releaseRaw := populateFakeS3(fake)
 	prefix := testReleasePrefix()
-	sigstoreData := fake.objects[prefix+"release.json.bundle.sigstore.json"]
+	sigstoreData := fake.objects[prefix+"release.json.kms.bundle.sigstore.json"]
 
 	v := passVerifier()
 	l := newTestLoader(fake, v)
@@ -384,7 +393,7 @@ func TestLoad_NoInventoryEntry(t *testing.T) {
 		Files:     map[string]FileRef{},
 	}
 	fake.putJSON(prefix+"release.json", rel)
-	fake.put(prefix+"release.json.bundle.sigstore.json", []byte(`{}`))
+	putReleaseSigBundles(fake, prefix, []byte(`{}`))
 
 	l := newTestLoader(fake, passVerifier())
 	_, err := l.Load(t.Context())
@@ -409,7 +418,7 @@ func TestLoad_InventoryEntry_NoSHA256(t *testing.T) {
 		},
 	}
 	fake.putJSON(prefix+"release.json", rel)
-	fake.put(prefix+"release.json.bundle.sigstore.json", []byte(`{}`))
+	putReleaseSigBundles(fake, prefix, []byte(`{}`))
 
 	l := newTestLoader(fake, passVerifier())
 	_, err := l.Load(t.Context())
@@ -427,7 +436,7 @@ func TestLoad_FetchInventory_Fails(t *testing.T) {
 	prefix := testReleasePrefix()
 
 	fake.putJSON(prefix+"release.json", validReleaseManifest("deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"))
-	fake.put(prefix+"release.json.bundle.sigstore.json", []byte(`{}`))
+	putReleaseSigBundles(fake, prefix, []byte(`{}`))
 	fake.failOn(prefix+"inventory.json", fmt.Errorf("throttled"))
 
 	l := newTestLoader(fake, passVerifier())
@@ -449,7 +458,7 @@ func TestLoad_InventoryHashMismatch(t *testing.T) {
 	fake.putJSON(prefix+"release.json", validReleaseManifest(
 		"0000000000000000000000000000000000000000000000000000000000000000",
 	))
-	fake.put(prefix+"release.json.bundle.sigstore.json", []byte(`{}`))
+	putReleaseSigBundles(fake, prefix, []byte(`{}`))
 
 	l := newTestLoader(fake, passVerifier())
 	_, err := l.Load(t.Context())
@@ -470,7 +479,7 @@ func TestLoad_InventoryJSON_Invalid(t *testing.T) {
 	invHash := cryptoutil.SHA256Hex(invData)
 	fake.put(prefix+"inventory.json", invData)
 	fake.putJSON(prefix+"release.json", validReleaseManifest(invHash))
-	fake.put(prefix+"release.json.bundle.sigstore.json", []byte(`{}`))
+	putReleaseSigBundles(fake, prefix, []byte(`{}`))
 
 	l := newTestLoader(fake, passVerifier())
 	_, err := l.Load(t.Context())
@@ -534,11 +543,14 @@ func TestLoad_Success_SigstoreBundlePreserved(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if bundle.ReleaseSigstoreBundle == nil {
-		t.Fatal("ReleaseSigstoreBundle should be preserved")
+	if bundle.ReleaseKMSBundle == nil {
+		t.Fatal("ReleaseKMSBundle should be preserved")
 	}
-	if !bytes.Contains(bundle.ReleaseSigstoreBundle, []byte("sigstore")) {
+	if !bytes.Contains(bundle.ReleaseKMSBundle, []byte("sigstore")) {
 		t.Fatal("sigstore bundle content should be preserved")
+	}
+	if !bundle.HasReleaseKeylessBundle() {
+		t.Fatal("ReleaseKeylessBundle should be preserved")
 	}
 }
 
@@ -590,7 +602,7 @@ func TestLoad_Success_InventoryHashVerified(t *testing.T) {
 	invHash := cryptoutil.SHA256Hex(invData)
 	fake.put(prefix+"inventory.json", invData)
 	fake.putJSON(prefix+"release.json", validReleaseManifest(invHash))
-	fake.put(prefix+"release.json.bundle.sigstore.json", []byte(`{}`))
+	putReleaseSigBundles(fake, prefix, []byte(`{}`))
 
 	l := newTestLoader(fake, passVerifier())
 	bundle, err := l.Load(t.Context())
@@ -616,7 +628,7 @@ func TestLoad_EvidenceFile_FetchFails_ReturnsError(t *testing.T) {
 
 	fake.put(prefix+"inventory.json", invData)
 	fake.putJSON(prefix+"release.json", validReleaseManifest(invHash))
-	fake.put(prefix+"release.json.bundle.sigstore.json", []byte(`{}`))
+	putReleaseSigBundles(fake, prefix, []byte(`{}`))
 	fake.failOn(prefix+"source/sbom.json", fmt.Errorf("S3 throttle"))
 
 	l := newTestLoader(fake, passVerifier())
@@ -639,7 +651,7 @@ func TestLoad_EvidenceFile_HashMismatch_ReturnsError(t *testing.T) {
 
 	fake.put(prefix+"inventory.json", invData)
 	fake.putJSON(prefix+"release.json", validReleaseManifest(invHash))
-	fake.put(prefix+"release.json.bundle.sigstore.json", []byte(`{}`))
+	putReleaseSigBundles(fake, prefix, []byte(`{}`))
 	fake.put(prefix+"source/sbom.json", []byte(`{"tampered":"data"}`))
 
 	l := newTestLoader(fake, passVerifier())
@@ -662,7 +674,7 @@ func TestLoad_EvidenceFile_EmptyHash_ReturnsError(t *testing.T) {
 
 	fake.put(prefix+"inventory.json", invData)
 	fake.putJSON(prefix+"release.json", validReleaseManifest(invHash))
-	fake.put(prefix+"release.json.bundle.sigstore.json", []byte(`{}`))
+	putReleaseSigBundles(fake, prefix, []byte(`{}`))
 	fake.put(prefix+"source/sbom.json", []byte(`{"any":"content"}`))
 
 	l := newTestLoader(fake, passVerifier())
@@ -764,12 +776,30 @@ func TestNewLoader_RequireSignature_NilVerifier_ReturnsError(t *testing.T) {
 	}
 }
 
+func TestNewLoader_RequireSignature_NilKeylessVerifier_ReturnsError(t *testing.T) {
+	_, err := NewLoader(t.Context(), &LoaderOptions{
+		Bucket:           testBucket,
+		ReleaseID:        testReleaseID,
+		S3Client:         newFakeS3(),
+		Verifier:         passVerifier(),
+		RequireSignature: true,
+		// KeylessVerifier omitted
+	})
+	if err == nil {
+		t.Fatal("expected error for RequireSignature with nil KeylessVerifier")
+	}
+	if !strings.Contains(err.Error(), "KeylessVerifier is required") {
+		t.Fatalf("error should mention KeylessVerifier requirement: %v", err)
+	}
+}
+
 func TestNewLoader_RequireSignature_WithVerifier_Succeeds(t *testing.T) {
 	l, err := NewLoader(t.Context(), &LoaderOptions{
 		Bucket:           testBucket,
 		ReleaseID:        testReleaseID,
 		S3Client:         newFakeS3(),
 		Verifier:         passVerifier(),
+		KeylessVerifier:  passVerifier(),
 		RequireSignature: true,
 	})
 	if err != nil {
@@ -896,12 +926,13 @@ func TestNewLoader_FieldsWired_LoadWorks(t *testing.T) {
 	populateFakeS3(fake)
 
 	l, err := NewLoader(t.Context(), &LoaderOptions{
-		Logger:    log.Nop(),
-		Bucket:    testBucket,
-		Prefix:    testPrefix,
-		ReleaseID: testReleaseID,
-		S3Client:  fake,
-		Verifier:  passVerifier(),
+		Logger:          log.Nop(),
+		Bucket:          testBucket,
+		Prefix:          testPrefix,
+		ReleaseID:       testReleaseID,
+		S3Client:        fake,
+		Verifier:        passVerifier(),
+		KeylessVerifier: passVerifier(),
 	})
 	if err != nil {
 		t.Fatalf("NewLoader: %v", err)

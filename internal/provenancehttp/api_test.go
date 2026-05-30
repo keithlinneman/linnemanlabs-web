@@ -92,14 +92,43 @@ func testBundle() *evidence.Bundle {
 				CommitShort:    "abc123",
 			},
 			Builder: evidence.ReleaseBuilder{
-				Repo:        "https://github.com/test/build",
-				Branch:      "main",
-				Commit:      "build789",
-				CommitShort: "build78",
+				System:          "github-actions",
+				Host:            "runner-vm-abc",
+				Actor:           "keithlinneman",
+				BuilderIdentity: "arn:aws:sts::1234:assumed-role/app-build/GitHubActions",
+				User:            "runner",
+				RunID:           "26662693047",
+				RunURL:          "https://github.com/keithlinneman/linnemanlabs-web/actions/runs/26662693047",
+				Repo:            "https://github.com/test/build",
+				Branch:          "main",
+				Commit:          "build789",
+				CommitShort:     "build78",
 			},
 		},
 		ReleaseRaw:   []byte(`{"release_id":"rel-20250115-abc123"}`),
 		InventoryRaw: []byte(`{"files":{}}`),
+		Tooling: &evidence.InventoryTooling{
+			Go:     &evidence.ToolInfo{Version: "go1.25.10", Category: "toolchain"},
+			Cosign: &evidence.ToolInfo{Version: "v3.0.6", Category: "signing-tool"},
+			Syft:   &evidence.ToolInfo{Version: "1.44.0", Category: "sbom-generator", Commit: "8cb78ce40ced6a731fb83f2a491a67444f541bf1"},
+			CyclonedxGomod: &evidence.ToolInfo{
+				Version:  "v1.10.0",
+				Category: "sbom-generator",
+				Modsum:   "h1:9Vy3zcC+lJLgcR4xYQvwPGU6L2Rij/Ld47lyucYjVI0=",
+			},
+			Grype: &evidence.ToolInfo{
+				Version:  "0.112.0",
+				Category: "vuln-scanner",
+				DB: &evidence.ToolDB{
+					CheckedAt:          time.Date(2026, 5, 29, 7, 42, 4, 0, time.UTC),
+					Source:             "https://grype.anchore.io/databases/v6/...",
+					UpstreamModifiedAt: time.Date(2026, 5, 29, 0, 53, 54, 0, time.UTC),
+				},
+			},
+			Govulncheck: &evidence.ToolInfo{Version: "v1.1.4", Category: "vuln-scanner"},
+			Oras:        &evidence.ToolInfo{Version: "1.3.2", Category: "artifact-uploader"},
+			Trivy:       &evidence.ToolInfo{Version: "0.69.3", Category: "vuln-scanner"},
+		},
 		FileIndex: map[string]*evidence.EvidenceFileRef{
 			"source/sbom/report.json": {
 				Path:     "source/sbom/report.json",
@@ -422,6 +451,124 @@ func TestHandleAppSummary_WithEvidence(t *testing.T) {
 	}
 }
 
+func TestHandleAppSummary_BuilderHasBuildAttribution(t *testing.T) {
+	api := NewAPI(noContentProvider(), evidenceStore(), log.Nop())
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/provenance/app/summary", http.NoBody)
+	api.HandleAppSummary(rec, req)
+
+	m := parseJSON(t, rec)
+	builder, ok := m["builder"].(map[string]any)
+	if !ok {
+		t.Fatalf("response missing builder block: %v", m)
+	}
+	// build environment + attribution fields from release.json's enriched
+	// builder block now surface on the summary instead of as top-level fields.
+	for _, k := range []string{"system", "actor", "builder_identity", "user", "run_id", "run_url", "host"} {
+		if builder[k] == nil || builder[k] == "" {
+			t.Fatalf("builder.%s missing or empty: %v", k, builder[k])
+		}
+	}
+	if builder["system"] != "github-actions" {
+		t.Fatalf("builder.system = %v", builder["system"])
+	}
+	if builder["run_id"] != "26662693047" {
+		t.Fatalf("builder.run_id = %v", builder["run_id"])
+	}
+	// build-system source repo state is still in the same block.
+	if builder["repository"] != "https://github.com/test/build" {
+		t.Fatalf("builder.repository = %v", builder["repository"])
+	}
+	// scattered top-level fields are dropped - they're all in builder now.
+	for _, k := range []string{"build_actor", "build_system", "build_run_url", "builder_identity"} {
+		if _, present := m[k]; present {
+			t.Fatalf("%s should not be present at top level: %v", k, m[k])
+		}
+	}
+}
+
+func TestHandleAppSummary_IncludesTooling(t *testing.T) {
+	api := NewAPI(noContentProvider(), evidenceStore(), log.Nop())
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/provenance/app/summary", http.NoBody)
+	api.HandleAppSummary(rec, req)
+
+	m := parseJSON(t, rec)
+	tooling, ok := m["tooling"].(map[string]any)
+	if !ok {
+		t.Fatalf("response missing tooling block: %v", m)
+	}
+	// every tool from inventory.json surfaces with version+category
+	cases := []struct {
+		key, version, category string
+	}{
+		{"go", "go1.25.10", "toolchain"},
+		{"cosign", "v3.0.6", "signing-tool"},
+		{"syft", "1.44.0", "sbom-generator"},
+		{"cyclonedx_gomod", "v1.10.0", "sbom-generator"},
+		{"grype", "0.112.0", "vuln-scanner"},
+		{"govulncheck", "v1.1.4", "vuln-scanner"},
+		{"oras", "1.3.2", "artifact-uploader"},
+		{"trivy", "0.69.3", "vuln-scanner"},
+	}
+	for _, c := range cases {
+		tool, ok := tooling[c.key].(map[string]any)
+		if !ok {
+			t.Fatalf("tooling.%s missing: %v", c.key, tooling)
+		}
+		if tool["version"] != c.version {
+			t.Fatalf("tooling.%s.version = %v, want %v", c.key, tool["version"], c.version)
+		}
+		if tool["category"] != c.category {
+			t.Fatalf("tooling.%s.category = %v, want %v", c.key, tool["category"], c.category)
+		}
+	}
+
+	// richer per-tool fields surface where present
+	syft, _ := tooling["syft"].(map[string]any)
+	if syft["commit"] != "8cb78ce40ced6a731fb83f2a491a67444f541bf1" {
+		t.Fatalf("tooling.syft.commit = %v", syft["commit"])
+	}
+	cdx, _ := tooling["cyclonedx_gomod"].(map[string]any)
+	if cdx["modsum"] != "h1:9Vy3zcC+lJLgcR4xYQvwPGU6L2Rij/Ld47lyucYjVI0=" {
+		t.Fatalf("tooling.cyclonedx_gomod.modsum = %v", cdx["modsum"])
+	}
+	grype, _ := tooling["grype"].(map[string]any)
+	db, ok := grype["db"].(map[string]any)
+	if !ok {
+		t.Fatalf("tooling.grype.db missing: %v", grype)
+	}
+	if db["source"] != "https://grype.anchore.io/databases/v6/..." {
+		t.Fatalf("tooling.grype.db.source = %v", db["source"])
+	}
+}
+
+func TestHandleAppProvenance_IncludesTooling(t *testing.T) {
+	api := NewAPI(noContentProvider(), evidenceStore(), log.Nop())
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/provenance/app", http.NoBody)
+	api.HandleAppProvenance(rec, req)
+
+	m := parseJSON(t, rec)
+	tooling, ok := m["tooling"].(map[string]any)
+	if !ok {
+		t.Fatalf("response missing top-level tooling block: %v", m)
+	}
+	goTool, ok := tooling["go"].(map[string]any)
+	if !ok {
+		t.Fatalf("tooling.go missing: %v", tooling)
+	}
+	if goTool["version"] != "go1.25.10" {
+		t.Fatalf("tooling.go.version = %v", goTool["version"])
+	}
+	if goTool["category"] != "toolchain" {
+		t.Fatalf("tooling.go.category = %v", goTool["category"])
+	}
+}
+
 func TestHandleAppSummary_AlwaysHasLinks(t *testing.T) {
 	api := NewAPI(noContentProvider(), nil, log.Nop())
 
@@ -526,6 +673,71 @@ func TestHandleContentSummary_WithProvenance(t *testing.T) {
 	}
 	if m["commit_short"] != "abc123" {
 		t.Fatalf("commit_short = %v", m["commit_short"])
+	}
+}
+
+func TestHandleContentSummary_IncludesBuildAndTooling(t *testing.T) {
+	cp := &stubSnapshotProvider{
+		snap: &content.Snapshot{
+			Meta: content.Meta{Hash: "abc", Source: content.SourceS3},
+			Provenance: &content.Provenance{
+				Version: "v1.2.3",
+				Build: content.ProvenanceBuild{
+					System:          "github-actions",
+					Actor:           "keithlinneman",
+					BuilderIdentity: "arn:aws:sts::1234:assumed-role/app-content/GitHubActions",
+					Host:            "runnervm3jyl0",
+					User:            "runner",
+					RunID:           "26598160229",
+					RunURL:          "https://github.com/keithlinneman/linnemanlabs-site/actions/runs/26598160229",
+				},
+				Tooling: content.ProvenanceTooling{
+					Hugo: &content.ToolInfo{Version: "v0.160.1", SHA256: "38b179a7"},
+					Git:  &content.ToolInfo{Version: "2.54.0", SHA256: "f54a87f6"},
+					Bash: &content.ToolInfo{Version: "5.2.21", SHA256: "bc5945fe"},
+				},
+			},
+			LoadedAt: time.Date(2026, 5, 28, 19, 46, 20, 0, time.UTC),
+		},
+		ok: true,
+	}
+	api := NewAPI(cp, nil, log.Nop())
+
+	rec := httptest.NewRecorder()
+	api.HandleContentSummary(rec, httptest.NewRequest(http.MethodGet, "/api/provenance/content/summary", http.NoBody))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	m := parseJSON(t, rec)
+
+	build, ok := m["build"].(map[string]any)
+	if !ok {
+		t.Fatalf("response missing build block: %v", m)
+	}
+	if build["system"] != "github-actions" {
+		t.Fatalf("build.system = %v", build["system"])
+	}
+	if build["actor"] != "keithlinneman" {
+		t.Fatalf("build.actor = %v", build["actor"])
+	}
+	if build["run_id"] != "26598160229" {
+		t.Fatalf("build.run_id = %v", build["run_id"])
+	}
+
+	tooling, ok := m["tooling"].(map[string]any)
+	if !ok {
+		t.Fatalf("response missing tooling block: %v", m)
+	}
+	hugo, _ := tooling["hugo"].(map[string]any)
+	if hugo == nil || hugo["version"] != "v0.160.1" {
+		t.Fatalf("tooling.hugo = %v", tooling["hugo"])
+	}
+	if _, ok := tooling["git"].(map[string]any); !ok {
+		t.Fatalf("tooling.git missing: %v", tooling)
+	}
+	if _, ok := tooling["bash"].(map[string]any); !ok {
+		t.Fatalf("tooling.bash missing: %v", tooling)
 	}
 }
 

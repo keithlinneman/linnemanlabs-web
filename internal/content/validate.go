@@ -17,9 +17,8 @@ type ValidationOptions struct {
 	// 0 disables the check.
 	MinFiles int
 
-	// RequireProvenance fails validation if provenance.json is missing
-	// or unparseable. When false, missing provenance is a warning, not
-	// an error.
+	// RequireProvenance fails validation if release.json is missing or
+	// unparseable. When false, missing provenance is a warning, not an error.
 	RequireProvenance bool
 }
 
@@ -63,7 +62,7 @@ func ValidateSnapshot(snap *Snapshot, opts ValidationOptions) error {
 
 	// provenance checks
 	if snap.Provenance == nil && opts.RequireProvenance {
-		return xerrors.New("validate: provenance.json is required but missing")
+		return xerrors.New("validate: release.json is required but missing")
 	}
 
 	return nil

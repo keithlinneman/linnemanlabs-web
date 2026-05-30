@@ -10,8 +10,8 @@ import (
 // ProvenanceFilePath constant
 
 func TestProvenanceFilePath(t *testing.T) {
-	if ProvenanceFilePath != "provenance.json" {
-		t.Fatalf("ProvenanceFilePath = %q, want provenance.json", ProvenanceFilePath)
+	if ProvenanceFilePath != "release.json" {
+		t.Fatalf("ProvenanceFilePath = %q, want release.json", ProvenanceFilePath)
 	}
 }
 
@@ -19,7 +19,7 @@ func TestProvenanceFilePath(t *testing.T) {
 
 func TestLoadProvenance_Valid(t *testing.T) {
 	fs := fstest.MapFS{
-		"provenance.json": &fstest.MapFile{
+		"release.json": &fstest.MapFile{
 			Data: []byte(`{
 				"schema": "llabs.content.provenance.v1",
 				"type": "content-bundle",
@@ -36,9 +36,14 @@ func TestLoadProvenance_Valid(t *testing.T) {
 					"dirty": false
 				},
 				"build": {
+					"system": "github-actions",
+					"actor": "keithlinneman",
+					"builder_identity": "arn:aws:sts::1234:assumed-role/app-builder/GitHubActions",
 					"host": "runner-1",
 					"user": "ci",
-					"timestamp": "2026-02-10T15:00:00Z"
+					"timestamp": "2026-02-10T15:00:00Z",
+					"run_id": "26598160229",
+					"run_url": "https://github.com/test/repo/actions/runs/26598160229"
 				},
 				"summary": {
 					"total_files": 42,
@@ -107,6 +112,15 @@ func TestLoadProvenance_Valid(t *testing.T) {
 	}
 
 	// build
+	if p.Build.System != "github-actions" {
+		t.Fatalf("Build.System = %q", p.Build.System)
+	}
+	if p.Build.Actor != "keithlinneman" {
+		t.Fatalf("Build.Actor = %q", p.Build.Actor)
+	}
+	if p.Build.BuilderIdentity != "arn:aws:sts::1234:assumed-role/app-builder/GitHubActions" {
+		t.Fatalf("Build.BuilderIdentity = %q", p.Build.BuilderIdentity)
+	}
 	if p.Build.Host != "runner-1" {
 		t.Fatalf("Build.Host = %q", p.Build.Host)
 	}
@@ -116,6 +130,12 @@ func TestLoadProvenance_Valid(t *testing.T) {
 	wantBuildTime := time.Date(2026, 2, 10, 15, 0, 0, 0, time.UTC)
 	if !p.Build.Timestamp.Equal(wantBuildTime) {
 		t.Fatalf("Build.Timestamp = %v, want %v", p.Build.Timestamp, wantBuildTime)
+	}
+	if p.Build.RunID != "26598160229" {
+		t.Fatalf("Build.RunID = %q", p.Build.RunID)
+	}
+	if p.Build.RunURL != "https://github.com/test/repo/actions/runs/26598160229" {
+		t.Fatalf("Build.RunURL = %q", p.Build.RunURL)
 	}
 
 	// summary
@@ -184,13 +204,13 @@ func TestLoadProvenance_MissingFile(t *testing.T) {
 	fs := fstest.MapFS{}
 	_, err := LoadProvenance(fs)
 	if err == nil {
-		t.Fatal("expected error when provenance.json missing")
+		t.Fatal("expected error when release.json missing")
 	}
 }
 
 func TestLoadProvenance_InvalidJSON(t *testing.T) {
 	fs := fstest.MapFS{
-		"provenance.json": &fstest.MapFile{Data: []byte(`{not valid json`)},
+		"release.json": &fstest.MapFile{Data: []byte(`{not valid json`)},
 	}
 	_, err := LoadProvenance(fs)
 	if err == nil {
@@ -200,7 +220,7 @@ func TestLoadProvenance_InvalidJSON(t *testing.T) {
 
 func TestLoadProvenance_EmptyJSON(t *testing.T) {
 	fs := fstest.MapFS{
-		"provenance.json": &fstest.MapFile{Data: []byte(`{}`)},
+		"release.json": &fstest.MapFile{Data: []byte(`{}`)},
 	}
 	p, err := LoadProvenance(fs)
 	if err != nil {
@@ -219,7 +239,7 @@ func TestLoadProvenance_EmptyJSON(t *testing.T) {
 
 func TestLoadProvenance_EmptyFile(t *testing.T) {
 	fs := fstest.MapFS{
-		"provenance.json": &fstest.MapFile{Data: []byte("")},
+		"release.json": &fstest.MapFile{Data: []byte("")},
 	}
 	_, err := LoadProvenance(fs)
 	if err == nil {
@@ -229,7 +249,7 @@ func TestLoadProvenance_EmptyFile(t *testing.T) {
 
 func TestLoadProvenance_DirtySource(t *testing.T) {
 	fs := fstest.MapFS{
-		"provenance.json": &fstest.MapFile{
+		"release.json": &fstest.MapFile{
 			Data: []byte(`{
 				"source": {"dirty": true, "branch": "feature/wip", "commit_short": "abc1234"}
 			}`),
@@ -249,7 +269,7 @@ func TestLoadProvenance_DirtySource(t *testing.T) {
 
 func TestLoadProvenance_AllTooling(t *testing.T) {
 	fs := fstest.MapFS{
-		"provenance.json": &fstest.MapFile{
+		"release.json": &fstest.MapFile{
 			Data: []byte(`{
 				"tooling": {
 					"hugo": {"version": "0.121.1"},
@@ -284,7 +304,7 @@ func TestLoadProvenance_AllTooling(t *testing.T) {
 
 func TestLoadProvenance_FileModifiedTime(t *testing.T) {
 	fs := fstest.MapFS{
-		"provenance.json": &fstest.MapFile{
+		"release.json": &fstest.MapFile{
 			Data: []byte(`{
 				"files": [
 					{"path": "page.html", "sha256": "aaa", "size": 100, "type": "html", "modified": "2026-01-15T08:30:00Z"}

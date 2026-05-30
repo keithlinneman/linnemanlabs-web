@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/keithlinneman/linnemanlabs-web/internal/content"
+	"github.com/keithlinneman/linnemanlabs-web/internal/cryptoutil"
 	"github.com/keithlinneman/linnemanlabs-web/internal/evidence"
 	"github.com/keithlinneman/linnemanlabs-web/internal/log"
 	v "github.com/keithlinneman/linnemanlabs-web/internal/version"
@@ -69,6 +70,16 @@ type AppProvenanceResponse struct {
 	// Enriched license data with per-license counts (derived from evidence files)
 	Licenses *AppProvenanceLicenses `json:"licenses,omitempty"`
 
+	// Signatures aggregates the keyless (Fulcio) + KMS signature evidence
+	// for release.json. Either half may be nil.
+	Signatures *cryptoutil.SignaturesInfo `json:"signatures,omitempty"`
+
+	// TrustedRootURL to the core trusted_root.json for LinnemanLabs trust stack.
+	TrustedRootURL string `json:"trusted_root_url,omitempty"`
+
+	// Tooling is the build-pipeline toolchain parsed from inventory.json
+	Tooling *evidence.InventoryTooling `json:"tooling,omitempty"`
+
 	// Full package list with license status evaluated against build policy
 	Packages []evidence.PackageInfo `json:"packages,omitempty"`
 
@@ -107,7 +118,15 @@ type AppProvenanceEvidence struct {
 type ContentProvenanceResponse struct {
 	Bundle  *content.Provenance `json:"bundle,omitempty"`
 	Runtime RuntimeInfo         `json:"runtime"`
-	Error   string              `json:"error,omitempty"`
+
+	// Signatures aggregates the keyless + KMS signature evidence for the
+	// loaded content bundle, captured at verification time.
+	Signatures *cryptoutil.SignaturesInfo `json:"signatures,omitempty"`
+
+	// TrustedRootURL to the core trusted_root.json for LinnemanLabs trust stack.
+	TrustedRootURL string `json:"trusted_root_url,omitempty"`
+
+	Error string `json:"error,omitempty"`
 }
 
 // RuntimeInfo contains server-side runtime information
@@ -129,6 +148,22 @@ type ContentSummaryResponse struct {
 	TotalSize   int64     `json:"total_size"`
 	Source      string    `json:"source"`
 	LoadedAt    time.Time `json:"loaded_at"`
+
+	// Build is the content build attribution (system/actor/builder identity,
+	// host/user/timestamp, GHA run ID + URL) from the bundle's release.json.
+	Build *content.ProvenanceBuild `json:"build,omitempty"`
+
+	// Tooling is the version + sha256 of each tool used to build the bundle
+	// (hugo, tailwindcss, tidy, git, bash). Omitted when no provenance.
+	Tooling *content.ProvenanceTooling `json:"tooling,omitempty"`
+
+	// Signatures aggregates the keyless + KMS signature evidence for the
+	// loaded content bundle.
+	Signatures *cryptoutil.SignaturesInfo `json:"signatures,omitempty"`
+
+	// TrustedRootURL points to the operator's aggregate sigstore
+	// trusted_root.json so the frontend can link to canonical trust anchors.
+	TrustedRootURL string `json:"trusted_root_url,omitempty"`
 }
 
 // EvidenceManifestResponse is the browsable manifest of all available evidence
@@ -170,12 +205,12 @@ type AppSummaryResponse struct {
 	CreatedAt time.Time `json:"created_at,omitempty"`
 	FetchedAt time.Time `json:"fetched_at,omitempty"`
 
-	// build context - who/how/where (from binary ldflags)
-	BuildActor      string `json:"build_actor,omitempty"`
-	BuildSystem     string `json:"build_system,omitempty"`
-	BuildRunURL     string `json:"build_run_url,omitempty"`
-	BuilderIdentity string `json:"builder_identity,omitempty"`
-	GoVersion       string `json:"go_version,omitempty"`
+	// GoVersion is binary-only attribution (compiled-in, not in release.json).
+	// All other build context (system, actor, builder_identity, run_id,
+	// run_url, host, user, timestamp) lives on Builder, populated from
+	// release.json's builder block. May use compiled-in vars in future instead,
+	// many build-system related vars are built-in at compile time.
+	GoVersion string `json:"go_version,omitempty"`
 
 	Source  *AppSummarySource  `json:"source,omitempty"`
 	Builder *AppSummaryBuilder `json:"builder,omitempty"`
@@ -191,6 +226,18 @@ type AppSummaryResponse struct {
 	Evidence         *AppSummaryEvidence         `json:"evidence,omitempty"`
 	Components       []AppSummaryComponent       `json:"components,omitempty"`
 
+	// Signatures aggregates the keyless + KMS signature evidence for
+	// release.json. Either half may be nil.
+	Signatures *cryptoutil.SignaturesInfo `json:"signatures,omitempty"`
+
+	// TrustedRootURL points to the operator's aggregate sigstore
+	// trusted_root.json so the frontend can link to canonical trust anchors.
+	TrustedRootURL string `json:"trusted_root_url,omitempty"`
+
+	// The build-pipeline toolchain (go, cosign, syft, grype,
+	// govulncheck, trivy, etc.) parsed from inventory.json
+	Tooling *evidence.InventoryTooling `json:"tooling,omitempty"`
+
 	// Links to detailed endpoints for drill-down
 	Links map[string]string `json:"_links,omitempty"`
 }
@@ -205,7 +252,19 @@ type AppSummarySource struct {
 	Dirty       bool      `json:"dirty"`
 }
 
+// AppSummaryBuilder mirrors release.json's builder block
 type AppSummaryBuilder struct {
+	// build environment + attribution
+	System          string    `json:"system,omitempty"`
+	Host            string    `json:"host,omitempty"`
+	Timestamp       time.Time `json:"timestamp,omitempty"`
+	Actor           string    `json:"actor,omitempty"`
+	BuilderIdentity string    `json:"builder_identity,omitempty"`
+	User            string    `json:"user,omitempty"`
+	RunID           string    `json:"run_id,omitempty"`
+	RunURL          string    `json:"run_url,omitempty"`
+
+	// build-system source
 	Repository  string    `json:"repository"`
 	Branch      string    `json:"branch,omitempty"`
 	Commit      string    `json:"commit"`
@@ -246,14 +305,18 @@ type AppSummaryLicenses struct {
 	WithoutLicenseCount int      `json:"without_license_count"`
 }
 
+// AppSummarySigning is the build-system's release.json summary.signing block:
+// what the build pipeline claims about signing (method, key ref, what was
+// attested). Runtime-verified signature evidence lives in the top-level
+// Signatures field instead - that's where the frontend looks for "did our
+// runtime actually verify a signature, and from whom?"
 type AppSummarySigning struct {
-	Method                 string `json:"method"`
-	KeyRef                 string `json:"key_ref,omitempty"`
-	ArtifactsAttested      bool   `json:"artifacts_attested"`
-	IndexAttested          bool   `json:"index_attested"`
-	InventorySigned        bool   `json:"inventory_signed"`
-	ReleaseSigned          bool   `json:"release_signed"`
-	ReleaseSigstoreBundled bool   `json:"release_sigstore_bundled"`
+	Method            string `json:"method"`
+	KeyRef            string `json:"key_ref,omitempty"`
+	ArtifactsAttested bool   `json:"artifacts_attested"`
+	IndexAttested     bool   `json:"index_attested"`
+	InventorySigned   bool   `json:"inventory_signed"`
+	ReleaseSigned     bool   `json:"release_signed"`
 }
 
 type AppSummarySLSA struct {

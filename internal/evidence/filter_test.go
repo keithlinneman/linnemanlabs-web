@@ -389,15 +389,15 @@ func multiPlatformBundle() *Bundle {
 				{OS: "linux", Arch: "arm64", Binary: BinaryRef{SHA256: "bbb", Size: 2000}},
 			},
 		},
-		ReleaseRaw:            releaseRaw,
-		ReleaseSigstoreBundle: []byte(`{"sigstore": true}`),
-		InventoryRaw:          inventoryRaw,
-		InventoryHash:         "inv_hash_123",
-		FileIndex:             refs,
-		Files:                 files,
-		Bucket:                "test-bucket",
-		ReleasePrefix:         "apps/test/",
-		FetchedAt:             time.Now().UTC(),
+		ReleaseRaw:       releaseRaw,
+		ReleaseKMSBundle: []byte(`{"sigstore": true}`),
+		InventoryRaw:     inventoryRaw,
+		InventoryHash:    "inv_hash_123",
+		FileIndex:        refs,
+		Files:            files,
+		Bucket:           "test-bucket",
+		ReleasePrefix:    "apps/test/",
+		FetchedAt:        time.Now().UTC(),
 	}
 }
 
@@ -489,8 +489,8 @@ func TestFilterBundleByPlatform_PreservesMetadata(t *testing.T) {
 	if !filtered.FetchedAt.Equal(b.FetchedAt) {
 		t.Fatalf("FetchedAt mismatch")
 	}
-	if !bytes.Equal(filtered.ReleaseSigstoreBundle, b.ReleaseSigstoreBundle) {
-		t.Fatal("ReleaseSigstoreBundle should be preserved")
+	if !bytes.Equal(filtered.ReleaseKMSBundle, b.ReleaseKMSBundle) {
+		t.Fatal("ReleaseKMSBundle should be preserved")
 	}
 }
 

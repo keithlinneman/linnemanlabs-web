@@ -126,13 +126,14 @@ func newWatcherFixture(t *testing.T, initialSSMValue string) *watcherFixture {
 
 	loader := &Loader{
 		opts: LoaderOptions{
-			Logger:    log.Nop(),
-			SSMParam:  testSSMParam,
-			S3Bucket:  testBucket,
-			S3Prefix:  testS3Prefix,
-			S3Client:  s3fake,
-			SSMClient: ssmFake,
-			Verifier:  passVerifier(),
+			Logger:          log.Nop(),
+			SSMParam:        testSSMParam,
+			S3Bucket:        testBucket,
+			S3Prefix:        testS3Prefix,
+			S3Client:        s3fake,
+			SSMClient:       ssmFake,
+			Verifier:        passVerifier(),
+			KeylessVerifier: passVerifier(),
 		},
 		s3Client:  s3fake,
 		ssmClient: ssmFake,

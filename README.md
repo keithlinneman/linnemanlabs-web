@@ -205,7 +205,7 @@ make release
 
 Local builds automatically detect the absence of ldflags-injected provenance and skip evidence fetching. The server serves embedded fallback content until a content bundle is loaded.
 
-Configuration is via flags or environment variables (`LINNEMANLABS_WEB_` prefix, e.g. `LINNEMANLABS_WEB_HTTP_PORT=8080`). Flag values take precedence over environment variables.
+Configuration is via flags or environment variables (`LMLABS_` prefix, e.g. `LMLABS_HTTP_PORT=8080`). Flag values take precedence over environment variables.
 
 ---
 

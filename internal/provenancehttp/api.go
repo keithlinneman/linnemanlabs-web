@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/keithlinneman/linnemanlabs-web/internal/cryptoutil"
 	"github.com/keithlinneman/linnemanlabs-web/internal/evidence"
 	"github.com/keithlinneman/linnemanlabs-web/internal/log"
 	"github.com/keithlinneman/linnemanlabs-web/internal/pathutil"
@@ -131,6 +132,14 @@ func (api *API) HandleAppProvenance(w http.ResponseWriter, r *http.Request) {
 		resp.Packages = packages
 	}
 
+	// signature evidence (keyless + KMS) extracted from the two sigstore
+	// bundles at load time. Either half may be nil for unsigned local builds.
+	resp.Signatures = bundle.Signatures
+	resp.TrustedRootURL = cryptoutil.TrustedRootURL()
+
+	// build-pipeline toolchain from inventory.json's tooling block.
+	resp.Tooling = bundle.Tooling
+
 	api.writeJSON(r.Context(), w, http.StatusOK, resp)
 }
 
@@ -169,26 +178,29 @@ func (api *API) HandleAppSummary(w http.ResponseWriter, r *http.Request) {
 		CreatedAt:   rel.CreatedAt,
 		FetchedAt:   bundle.FetchedAt,
 		Links:       appSummaryLinks(),
-
-		// build context - who/how/where (from compile-time ldflags)
-		BuildActor:      bi.BuildActor,
-		BuildSystem:     bi.BuildSystem,
-		BuildRunURL:     bi.BuildRunURL,
-		BuilderIdentity: bi.BuilderIdentity,
-		GoVersion:       bi.GoVersion,
+		GoVersion:   bi.GoVersion,
 	}
 
 	// source
 	resp.Source = buildAppSummarySource(&rel.Source)
 
-	// builder
+	// build environment + attribution (system / actor / OIDC identity / runner / GHA run) plus
+	// the build-system source repo state, from release.json
 	resp.Builder = &AppSummaryBuilder{
-		Repository:  rel.Builder.Repo,
-		Branch:      rel.Builder.Branch,
-		Commit:      rel.Builder.Commit,
-		CommitShort: rel.Builder.CommitShort,
-		CommitDate:  rel.Builder.CommitDate,
-		Dirty:       rel.Builder.Dirty,
+		System:          rel.Builder.System,
+		Host:            rel.Builder.Host,
+		Timestamp:       rel.Builder.Timestamp,
+		Actor:           rel.Builder.Actor,
+		BuilderIdentity: rel.Builder.BuilderIdentity,
+		User:            rel.Builder.User,
+		RunID:           rel.Builder.RunID,
+		RunURL:          rel.Builder.RunURL,
+		Repository:      rel.Builder.Repo,
+		Branch:          rel.Builder.Branch,
+		Commit:          rel.Builder.Commit,
+		CommitShort:     rel.Builder.CommitShort,
+		CommitDate:      rel.Builder.CommitDate,
+		Dirty:           rel.Builder.Dirty,
 	}
 
 	// project summary block
@@ -236,11 +248,6 @@ func (api *API) HandleAppSummary(w http.ResponseWriter, r *http.Request) {
 				InventorySigned:   sg.InventorySigned,
 				ReleaseSigned:     sg.ReleaseSigned,
 			}
-		}
-
-		// sigstore bundle proves release.json is signed - build-system cant sign and then include the fact its signed in the same release.json
-		if resp.Signing != nil && bundle.HasReleaseSigstoreBundle() {
-			resp.Signing.ReleaseSigned = true
 		}
 
 		if sl := s.SLSA; sl != nil {
@@ -324,7 +331,7 @@ func (api *API) HandleAppSummary(w http.ResponseWriter, r *http.Request) {
 			compliance.VulnGateResult = resp.Vulnerabilities.GateResult
 		}
 
-		if bundle.HasReleaseSigstoreBundle() {
+		if bundle.HasReleaseKMSBundle() {
 			compliance.SigningSatisfied = true
 		}
 
@@ -344,10 +351,22 @@ func (api *API) HandleAppSummary(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if bundle.HasReleaseSigstoreBundle() {
-		// either fold into attestations or add to signing
-		resp.Signing.ReleaseSigstoreBundled = true
+	// either bundle's presence proves release.json was signed, will expand
+	// on this in the future or entirely exit the process at the actual validation steps earlier.
+	if bundle.HasReleaseKMSBundle() || bundle.HasReleaseKeylessBundle() {
+		if resp.Signing == nil {
+			resp.Signing = &AppSummarySigning{}
+		}
+		resp.Signing.ReleaseSigned = true
 	}
+
+	// signature evidence (keyless + KMS) extracted at verification time.
+	resp.Signatures = bundle.Signatures
+	resp.TrustedRootURL = cryptoutil.TrustedRootURL()
+
+	// build-pipeline toolchain (go, cosign, sbom/scan tools) parsed from
+	// inventory.json's tooling block.
+	resp.Tooling = bundle.Tooling
 
 	// components: merge per-platform artifacts with oci info
 	resp.Components = buildAppSummaryComponents(rel)
@@ -461,6 +480,8 @@ func (api *API) HandleContentProvenance(w http.ResponseWriter, r *http.Request) 
 			Hash:       snap.Meta.Hash,
 			Version:    snap.Meta.Version,
 		},
+		Signatures:     snap.Meta.Signatures,
+		TrustedRootURL: cryptoutil.TrustedRootURL(),
 	}
 
 	if snap.Provenance == nil {
@@ -481,8 +502,10 @@ func (api *API) HandleContentSummary(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := ContentSummaryResponse{
-		Source:   string(snap.Meta.Source),
-		LoadedAt: snap.LoadedAt.Truncate(time.Second),
+		Source:         string(snap.Meta.Source),
+		LoadedAt:       snap.LoadedAt.Truncate(time.Second),
+		Signatures:     snap.Meta.Signatures,
+		TrustedRootURL: cryptoutil.TrustedRootURL(),
 	}
 
 	if p := snap.Provenance; p != nil {
@@ -492,6 +515,8 @@ func (api *API) HandleContentSummary(w http.ResponseWriter, r *http.Request) {
 		resp.CreatedAt = p.CreatedAt
 		resp.TotalFiles = p.Summary.TotalFiles
 		resp.TotalSize = p.Summary.TotalSize
+		resp.Build = &p.Build
+		resp.Tooling = &p.Tooling
 	} else {
 		resp.Version = snap.Meta.Version
 		resp.ContentHash = snap.Meta.Hash

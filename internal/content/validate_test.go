@@ -162,8 +162,8 @@ func TestValidateSnapshot_RequireProvenance_Missing(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for missing provenance when required")
 	}
-	if !strings.Contains(err.Error(), "provenance") {
-		t.Fatalf("error should mention provenance: %v", err)
+	if !strings.Contains(err.Error(), "release.json") {
+		t.Fatalf("error should mention release.json: %v", err)
 	}
 }
 
@@ -219,7 +219,7 @@ func TestValidateSnapshot_DefaultOpts_ValidBundle(t *testing.T) {
 			"img/logo.png":     &fstest.MapFile{Data: []byte("png")},
 			"img/favicon.ico":  &fstest.MapFile{Data: []byte("ico")},
 			"about/index.html": &fstest.MapFile{Data: []byte("<html>about</html>")},
-			"provenance.json":  &fstest.MapFile{Data: []byte("{}")},
+			"release.json":     &fstest.MapFile{Data: []byte("{}")},
 			"robots.txt":       &fstest.MapFile{Data: []byte("User-agent: *")},
 		},
 		Meta:       Meta{Hash: "abc123"},

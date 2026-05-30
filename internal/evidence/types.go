@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/keithlinneman/linnemanlabs-web/internal/cryptoutil"
 )
 
 type ReleaseManifest struct {
@@ -32,6 +34,38 @@ type ReleaseManifest struct {
 	Policy json.RawMessage `json:"policy,omitempty"`
 }
 
+// ToolInfo is one entry in the inventory.json tooling block.
+// Only Version is always present, other fields are for tool-specific metadata
+type ToolInfo struct {
+	Version  string  `json:"version"`
+	Category string  `json:"category,omitempty"`
+	Commit   string  `json:"commit,omitempty"`
+	Modsum   string  `json:"modsum,omitempty"`
+	DB       *ToolDB `json:"db,omitempty"`
+}
+
+// ToolDB is a vuln-scanner's DB freshness record (govulncheck, grype, trivy).
+// Shows when the DB was last checked and how stale the upstream is.
+type ToolDB struct {
+	CheckedAt          time.Time `json:"checked_at,omitempty"`
+	Source             string    `json:"source,omitempty"`
+	UpstreamModifiedAt time.Time `json:"upstream_modified_at,omitempty"`
+}
+
+// InventoryTooling identifies the toolchain used by the build pipeline,
+// parsed from inventory.json's top-level "tooling" block. Each entry is
+// optional and missing tools are omitted from the JSON.
+type InventoryTooling struct {
+	Cosign         *ToolInfo `json:"cosign,omitempty"`
+	CyclonedxGomod *ToolInfo `json:"cyclonedx_gomod,omitempty"`
+	Go             *ToolInfo `json:"go,omitempty"`
+	Govulncheck    *ToolInfo `json:"govulncheck,omitempty"`
+	Grype          *ToolInfo `json:"grype,omitempty"`
+	Oras           *ToolInfo `json:"oras,omitempty"`
+	Syft           *ToolInfo `json:"syft,omitempty"`
+	Trivy          *ToolInfo `json:"trivy,omitempty"`
+}
+
 // ReleaseSource is the git source info from release.json
 type ReleaseSource struct {
 	Repo            string    `json:"repo"`
@@ -46,8 +80,21 @@ type ReleaseSource struct {
 	Dirty           bool      `json:"dirty"`
 }
 
-// ReleaseBuilder is the build system source info
+// ReleaseBuilder describes both the build environment (system / actor / OIDC
+// identity / runner host / GHA run pointer) and the build-system source
+// (repo / branch / commit).
 type ReleaseBuilder struct {
+	// build environment + attribution
+	System          string    `json:"system,omitempty"`
+	Host            string    `json:"host,omitempty"`
+	Timestamp       time.Time `json:"timestamp,omitempty"`
+	Actor           string    `json:"actor,omitempty"`
+	BuilderIdentity string    `json:"builder_identity,omitempty"`
+	User            string    `json:"user,omitempty"`
+	RunID           string    `json:"run_id,omitempty"`
+	RunURL          string    `json:"run_url,omitempty"`
+
+	// build-system source (the keithlinneman/build-system repo state)
 	Repo        string    `json:"repo"`
 	Branch      string    `json:"branch"`
 	Commit      string    `json:"commit"`
@@ -303,8 +350,16 @@ type Bundle struct {
 	// parsed release.json
 	Release *ReleaseManifest
 
-	// sigstore bundle for release.json
-	ReleaseSigstoreBundle []byte
+	// KMS sigstore bundle for release.json
+	ReleaseKMSBundle []byte
+
+	// keyless (Fulcio) sigstore bundle for release.json
+	ReleaseKeylessBundle []byte
+
+	// Signatures aggregates the keyless + KMS signature evidence extracted
+	// from the two sigstore bundles at verification time. Surfaced through
+	// the provenance API. nil when no signature verification was performed.
+	Signatures *cryptoutil.SignaturesInfo
 
 	// raw bytes for serving as-is
 	ReleaseRaw   []byte
@@ -318,6 +373,10 @@ type Bundle struct {
 
 	// fetched evidence files: inventory path -> verified bytes
 	Files map[string]*EvidenceFile
+
+	// Tooling is the build-pipeline toolchain (go, cosign, sbom/scan tools)
+	// parsed from inventory.json's top-level "tooling" block.
+	Tooling *InventoryTooling
 
 	// where this bundle was loaded from
 	Bucket        string
@@ -461,7 +520,12 @@ func ParsePolicy(raw json.RawMessage) (*ReleasePolicy, error) {
 	}, nil
 }
 
-// HasReleaseSigstoreBundle returns true if a sigstore bundle exists for release.json
-func (b *Bundle) HasReleaseSigstoreBundle() bool {
-	return b != nil && len(b.ReleaseSigstoreBundle) > 0
+// HasReleaseKMSBundle returns true if a KMS sigstore bundle exists for release.json
+func (b *Bundle) HasReleaseKMSBundle() bool {
+	return b != nil && len(b.ReleaseKMSBundle) > 0
+}
+
+// HasReleaseKeylessBundle returns true if a keyless (Fulcio) sigstore bundle exists for release.json
+func (b *Bundle) HasReleaseKeylessBundle() bool {
+	return b != nil && len(b.ReleaseKeylessBundle) > 0
 }

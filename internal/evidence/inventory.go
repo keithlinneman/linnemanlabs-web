@@ -54,6 +54,21 @@ type inventoryFile struct {
 	Size   int64             `json:"size"`
 }
 
+// ParseInventoryTooling extracts the top-level "tooling" block from
+// inventory.json. Returns nil with no error when the block is absent.
+// Best-effort: callers can log-and-continue since tooling is display-only
+// metadata (the inventory hash and file index are the integrity-critical
+// parts, verified separately).
+func ParseInventoryTooling(raw []byte) (*InventoryTooling, error) {
+	var doc struct {
+		Tooling *InventoryTooling `json:"tooling"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return nil, err
+	}
+	return doc.Tooling, nil
+}
+
 func BuildFileIndex(raw []byte) (map[string]*EvidenceFileRef, error) {
 	var inv inventoryRoot
 	if err := json.Unmarshal(raw, &inv); err != nil {

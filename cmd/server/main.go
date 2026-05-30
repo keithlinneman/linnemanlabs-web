@@ -203,6 +203,33 @@ func main() { //nolint:gocognit // main wires everything together, splitting it 
 		contentBlobVerifier = contentVerifier
 	}
 
+	// keyless (Fulcio) verifiers for the second, parallel signature. Both
+	// release.json and content bundles are dual-signed; whenever KMS signing is
+	// configured, the keyless signature is also required and verified. The
+	// keyless verifier needs no AWS config; certificate-identity filters are
+	// applied via its Identity policy (not yet configured).
+	// max age between the TSA-attested signing time and now. Bundles signed
+	// longer ago than this are rejected, bounding replay of stale artifacts.
+	const keylessMaxSigningAge = 365 * 24 * time.Hour
+
+	var evidenceKeylessVerifier evidence.BlobVerifier
+	if evidenceVerifier != nil {
+		kv := cryptoutil.NewKeylessVerifier()
+		// enforce the trusted release-signing certificate identity for release.json
+		kv.Identity = cryptoutil.EvidenceCertIdentity()
+		kv.MaxSigningAge = keylessMaxSigningAge
+		evidenceKeylessVerifier = kv
+	}
+	var contentKeylessVerifier content.BlobVerifier
+	if contentVerifier != nil {
+		kv := cryptoutil.NewKeylessVerifier()
+		// enforce the trusted content-signing certificate identity (issuer,
+		// workflow SAN, trigger/repo/name)
+		kv.Identity = cryptoutil.ContentCertIdentity()
+		kv.MaxSigningAge = keylessMaxSigningAge
+		contentKeylessVerifier = kv
+	}
+
 	// Startup content loading strategy:
 	//
 	// Content loads synchronously before HTTP servers bind their ports.
@@ -254,6 +281,7 @@ func main() { //nolint:gocognit // main wires everything together, splitting it 
 			ReleaseID:        vi.ReleaseId,
 			S3Client:         s3Client,
 			Verifier:         evidenceBlobVerifier,
+			KeylessVerifier:  evidenceKeylessVerifier,
 			RequireSignature: evidenceBlobVerifier != nil,
 		})
 		if err != nil {
@@ -287,13 +315,14 @@ func main() { //nolint:gocognit // main wires everything together, splitting it 
 
 	// setup content bundle loader
 	contentLoader, err := content.NewLoader(ctx, &content.LoaderOptions{
-		Logger:    L,
-		SSMParam:  conf.ContentSSMParam,
-		S3Bucket:  conf.ContentS3Bucket,
-		S3Prefix:  conf.ContentS3Prefix,
-		S3Client:  s3Client,
-		SSMClient: ssmClient,
-		Verifier:  contentBlobVerifier,
+		Logger:          L,
+		SSMParam:        conf.ContentSSMParam,
+		S3Bucket:        conf.ContentS3Bucket,
+		S3Prefix:        conf.ContentS3Prefix,
+		S3Client:        s3Client,
+		SSMClient:       ssmClient,
+		Verifier:        contentBlobVerifier,
+		KeylessVerifier: contentKeylessVerifier,
 	})
 	if err != nil {
 		L.Error(ctx, err, "failed to create content loader, content updates will be disabled")

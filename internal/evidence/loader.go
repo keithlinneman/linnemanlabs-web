@@ -57,12 +57,17 @@ type LoaderOptions struct {
 	// ReleaseID to fetch evidence for (compiled into the binary via ldflags)
 	ReleaseID string
 
-	// ReleaseVerifier verifies the sigstore bundle for release.json
+	// Verifier verifies the KMS sigstore bundle for release.json.
 	Verifier BlobVerifier
 
+	// KeylessVerifier verifies the keyless (Fulcio) sigstore bundle for
+	// release.json. release.json is dual-signed: both signatures are required
+	// whenever RequireSignature is true.
+	KeylessVerifier BlobVerifier
+
 	// RequireSignature makes signature verification mandatory. When true,
-	// NewLoader validates that Verifier is non-nil, and Load fails if the
-	// sigstore bundle is missing.
+	// NewLoader validates that both verifiers are non-nil, and Load fails if
+	// either sigstore bundle is missing.
 	RequireSignature bool
 
 	// S3Client allows injecting a custom S3 implementation for testing
@@ -103,6 +108,9 @@ func NewLoader(ctx context.Context, opts *LoaderOptions) (*Loader, error) {
 	}
 	if opts.RequireSignature && opts.Verifier == nil {
 		return nil, xerrors.New("evidence: Verifier is required when RequireSignature is true")
+	}
+	if opts.RequireSignature && opts.KeylessVerifier == nil {
+		return nil, xerrors.New("evidence: KeylessVerifier is required when RequireSignature is true")
 	}
 	if opts.Logger == nil {
 		opts.Logger = log.Nop()
@@ -161,25 +169,49 @@ func (l *Loader) Load(ctx context.Context) (*Bundle, error) {
 		"component", release.Component,
 	)
 
-	// attempt to fetch release.json sigstore bundle
-	sigstoreBundleKey := prefix + "release.json.kms.bundle.sigstore.json"
-	sigstoreBundleRaw, err := l.fetchS3(ctx, sigstoreBundleKey, MaxManifestSize)
+	// attempt to fetch release.json KMS sigstore bundle
+	kmsBundleKey := prefix + "release.json.kms.bundle.sigstore.json"
+	kmsBundleRaw, err := l.fetchS3(ctx, kmsBundleKey, MaxManifestSize)
 	if err != nil {
 		return nil, xerrors.Wrap(err, "failed to fetch release.json.kms.bundle.sigstore.json")
 	}
 
 	// fail-closed: if signature is required but bundle is missing, reject
-	if sigstoreBundleRaw == nil && l.opts.RequireSignature {
-		return nil, xerrors.New("release.json sigstore bundle is missing but RequireSignature is true")
+	if kmsBundleRaw == nil && l.opts.RequireSignature {
+		return nil, xerrors.New("release.json kms sigstore bundle is missing but RequireSignature is true")
 	}
 
 	// verify bundle against release.json if a verifier is configured
-	if sigstoreBundleRaw != nil && l.opts.Verifier != nil {
-		if err := l.opts.Verifier.VerifyBlob(ctx, sigstoreBundleRaw, releaseRaw); err != nil {
+	if kmsBundleRaw != nil && l.opts.Verifier != nil {
+		if err := l.opts.Verifier.VerifyBlob(ctx, kmsBundleRaw, releaseRaw); err != nil {
 			return nil, xerrors.Wrap(err, "release.json signature verification failed")
 		}
-		l.logger.Info(ctx, "release.json signature verified")
+		l.logger.Info(ctx, "release.json kms signature verified")
 	}
+
+	// attempt to fetch release.json keyless (Fulcio) sigstore bundle
+	keylessBundleKey := prefix + "release.json.keyless.bundle.sigstore.json"
+	keylessBundleRaw, err := l.fetchS3(ctx, keylessBundleKey, MaxManifestSize)
+	if err != nil {
+		return nil, xerrors.Wrap(err, "failed to fetch release.json.keyless.bundle.sigstore.json")
+	}
+
+	// fail-closed: if signature is required but bundle is missing, reject
+	if keylessBundleRaw == nil && l.opts.RequireSignature {
+		return nil, xerrors.New("release.json keyless sigstore bundle is missing but RequireSignature is true")
+	}
+
+	// verify keyless bundle against release.json if a verifier is configured
+	if keylessBundleRaw != nil && l.opts.KeylessVerifier != nil {
+		if err := l.opts.KeylessVerifier.VerifyBlob(ctx, keylessBundleRaw, releaseRaw); err != nil {
+			return nil, xerrors.Wrap(err, "release.json keyless signature verification failed")
+		}
+		l.logger.Info(ctx, "release.json keyless signature verified")
+	}
+
+	// surface per-signature display data for the provenance API. Non-fatal:
+	// both signatures already verified above; we only extract display info.
+	signatures := buildSignaturesInfo(ctx, l.logger, keylessBundleRaw, kmsBundleRaw)
 
 	// fetch and verify inventory.json
 	invRef, ok := release.Files["inventory"]
@@ -225,6 +257,12 @@ func (l *Loader) Load(ctx context.Context) (*Bundle, error) {
 		"total_files", len(fileIndex),
 	)
 
+	// parse build-pipeline toolchain from inventory.json's tooling block.
+	tooling, err := ParseInventoryTooling(inventoryRaw)
+	if err != nil {
+		l.logger.Warn(ctx, "failed to parse inventory tooling", "error", err)
+	}
+
 	// fetch all evidence files in parallel
 	files, fetched, totalBytes, err := l.fetchAllFiles(ctx, prefix, fileIndex)
 	if err != nil {
@@ -240,17 +278,45 @@ func (l *Loader) Load(ctx context.Context) (*Bundle, error) {
 	)
 
 	return &Bundle{
-		Release:               &release,
-		ReleaseRaw:            releaseRaw,
-		ReleaseSigstoreBundle: sigstoreBundleRaw,
-		InventoryRaw:          inventoryRaw,
-		InventoryHash:         actualInvHash,
-		FileIndex:             fileIndex,
-		Files:                 files,
-		Bucket:                l.opts.Bucket,
-		ReleasePrefix:         prefix,
-		FetchedAt:             time.Now().UTC(),
+		Release:              &release,
+		ReleaseRaw:           releaseRaw,
+		ReleaseKMSBundle:     kmsBundleRaw,
+		ReleaseKeylessBundle: keylessBundleRaw,
+		Signatures:           signatures,
+		InventoryRaw:         inventoryRaw,
+		InventoryHash:        actualInvHash,
+		FileIndex:            fileIndex,
+		Files:                files,
+		Tooling:              tooling,
+		Bucket:               l.opts.Bucket,
+		ReleasePrefix:        prefix,
+		FetchedAt:            time.Now().UTC(),
 	}, nil
+}
+
+// buildSignaturesInfo extracts the keyless + KMS signature display data from
+// the two sigstore bundles. Returns nil if neither bundle is present, so the
+// API can omit the block entirely for unsigned local builds.
+func buildSignaturesInfo(ctx context.Context, logger log.Logger, keylessRaw, kmsRaw []byte) *cryptoutil.SignaturesInfo {
+	if keylessRaw == nil && kmsRaw == nil {
+		return nil
+	}
+	out := &cryptoutil.SignaturesInfo{}
+	if keylessRaw != nil {
+		if keyless, err := cryptoutil.KeylessSignatureFromBundle(keylessRaw); err != nil {
+			logger.Warn(ctx, "failed to extract keyless signature info", "error", err)
+		} else {
+			out.Keyless = keyless
+		}
+	}
+	if kmsRaw != nil {
+		if kms, err := cryptoutil.KMSSignatureFromBundle(kmsRaw); err != nil {
+			logger.Warn(ctx, "failed to extract kms signature info", "error", err)
+		} else {
+			out.KMS = kms
+		}
+	}
+	return out
 }
 
 // fetchAllFiles downloads all evidence files using a bounded worker pool.

@@ -21,12 +21,86 @@ type SigstoreBundle struct {
 	MessageSignature     *MessageSignature    `json:"messageSignature,omitempty"`
 }
 
+// TimestampVerificationData carries RFC3161 signed timestamps that bind the
+// signing time to the artifact's signature.
+type TimestampVerificationData struct {
+	RFC3161Timestamps []RFC3161Timestamp `json:"rfc3161Timestamps"`
+}
+
+// RFC3161Timestamp is a base64-encoded DER CMS SignedData TimeStampToken
+// (RFC 3161 §2.4.2).
+type RFC3161Timestamp struct {
+	SignedTimestamp string `json:"signedTimestamp"`
+}
+
 type VerificationMaterial struct {
+	// PublicKey is set for keyed bundles (e.g. cosign sign-blob with a KMS key).
 	PublicKey PublicKeyRef `json:"publicKey"`
+
+	// Certificate / X509CertificateChain are set for keyless (Fulcio) bundles.
+	// A bundle carries one or the other - newer cosign emits a single
+	// certificate, older output a chain. Both hold base64 DER.
+	Certificate          *CertificateRef       `json:"certificate,omitempty"`
+	X509CertificateChain *X509CertificateChain `json:"x509CertificateChain,omitempty"`
+
+	// TlogEntries are the Rekor transparency-log inclusion proofs.
+	TlogEntries []RekorTlogEntry `json:"tlogEntries,omitempty"`
+
+	// TimestampVerificationData carries the RFC3161 signed timestamps that bind
+	// the artifact signature to a trusted signing time.
+	TimestampVerificationData *TimestampVerificationData `json:"timestampVerificationData,omitempty"`
+}
+
+// RekorTlogEntry is one entry from a Rekor transparency log. Int fields are
+// protobuf-JSON strings.
+type RekorTlogEntry struct {
+	LogIndex          string               `json:"logIndex"`
+	LogID             RekorLogID           `json:"logId"`
+	KindVersion       RekorKindVersion     `json:"kindVersion"`
+	InclusionProof    *RekorInclusionProof `json:"inclusionProof,omitempty"`
+	CanonicalizedBody string               `json:"canonicalizedBody"` // base64 of the canonical JSON body
+}
+
+// RekorLogID identifies a Rekor log via SHA-256 of its public key SPKI (base64).
+type RekorLogID struct {
+	KeyID string `json:"keyId"`
+}
+
+// RekorKindVersion identifies the kind/version of the entry body
+// (e.g. hashedrekord 0.0.2).
+type RekorKindVersion struct {
+	Kind    string `json:"kind"`
+	Version string `json:"version"`
+}
+
+// RekorInclusionProof carries the Merkle inclusion proof + signed checkpoint
+// that proves a Rekor entry is in the log.
+type RekorInclusionProof struct {
+	LogIndex   string          `json:"logIndex"`
+	RootHash   string          `json:"rootHash"` // base64
+	TreeSize   string          `json:"treeSize"`
+	Hashes     []string        `json:"hashes"` // base64 each
+	Checkpoint RekorCheckpoint `json:"checkpoint"`
+}
+
+// RekorCheckpoint is the signed-note envelope (Trillian/sumdb format) used by
+// Rekor to commit to a tree state.
+type RekorCheckpoint struct {
+	Envelope string `json:"envelope"`
 }
 
 type PublicKeyRef struct {
 	Hint string `json:"hint"`
+}
+
+// CertificateRef holds a base64-encoded DER certificate (sigstore "certificate").
+type CertificateRef struct {
+	RawBytes string `json:"rawBytes"`
+}
+
+// X509CertificateChain holds an ordered cert chain (leaf first), base64 DER each.
+type X509CertificateChain struct {
+	Certificates []CertificateRef `json:"certificates"`
 }
 
 type DSSEEnvelope struct {
@@ -213,12 +287,21 @@ func VerifyReleaseDSSE(ctx context.Context, v *KMSVerifier, bundleJSON, artifact
 // VerifyBlobSignature verifies a cosign sign-blob bundle against
 // the original artifact bytes using a KMSVerifier.
 func VerifyBlobSignature(ctx context.Context, v *KMSVerifier, bundleJSON, artifact []byte) (*BlobVerifyResult, error) {
-	// parse bundle
 	bundle, err := ParseBundle(bundleJSON)
 	if err != nil {
 		return nil, err
 	}
+	return verifyBlobBundle(bundle, artifact, func(message, sig []byte) error {
+		return v.VerifySignature(ctx, message, sig)
+	})
+}
 
+// verifyBlobBundle verifies a parsed blob (messageSignature) bundle against the
+// artifact bytes. The signature step is delegated to verifySig so the same
+// logic serves both the KMS path (key fetched from KMS) and the keyless path
+// (key from a Fulcio leaf certificate). It also cross-checks the bundle's
+// embedded digest against the artifact.
+func verifyBlobBundle(bundle *SigstoreBundle, artifact []byte, verifySig func(message, sig []byte) error) (*BlobVerifyResult, error) {
 	if bundle.MessageSignature == nil {
 		return nil, xerrors.New("bundle is not a blob signature (no messageSignature)")
 	}
@@ -230,12 +313,12 @@ func VerifyBlobSignature(ctx context.Context, v *KMSVerifier, bundleJSON, artifa
 	}
 
 	// verify signature over raw artifact bytes
-	if err := v.VerifySignature(ctx, artifact, sig); err != nil {
+	if err := verifySig(artifact, sig); err != nil {
 		return nil, xerrors.Wrap(err, "blob signature verification failed")
 	}
 
 	// cross-check: bundle's embedded digest must match artifact
-	// cosign always includes the digest when signing with KMS keys;
+	// cosign always includes the digest when signing;
 	// empty means the bundle is malformed or tampered
 	if bundle.MessageSignature.MessageDigest.Digest == "" {
 		return nil, xerrors.New("bundle messageDigest.digest is empty, expected non-empty digest from cosign")

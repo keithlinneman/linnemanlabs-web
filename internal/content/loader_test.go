@@ -135,18 +135,20 @@ func newTestLoader(t *testing.T, s3fake *fakeS3, ssmFake *fakeSSM) *Loader {
 	return newTestLoaderWithVerifier(t, s3fake, ssmFake, passVerifier())
 }
 
-// newTestLoaderWithVerifier constructs a Loader with a custom verifier.
+// newTestLoaderWithVerifier constructs a Loader with a custom verifier used for
+// both the KMS and keyless signature checks.
 func newTestLoaderWithVerifier(t *testing.T, s3fake *fakeS3, ssmFake *fakeSSM, verifier BlobVerifier) *Loader {
 	t.Helper()
 	return &Loader{
 		opts: LoaderOptions{
-			Logger:    log.Nop(),
-			SSMParam:  testSSMParam,
-			S3Bucket:  testBucket,
-			S3Prefix:  testS3Prefix,
-			S3Client:  s3fake,
-			SSMClient: ssmFake,
-			Verifier:  verifier,
+			Logger:          log.Nop(),
+			SSMParam:        testSSMParam,
+			S3Bucket:        testBucket,
+			S3Prefix:        testS3Prefix,
+			S3Client:        s3fake,
+			SSMClient:       ssmFake,
+			Verifier:        verifier,
+			KeylessVerifier: verifier,
 		},
 		s3Client:  s3fake,
 		ssmClient: ssmFake,
@@ -166,12 +168,12 @@ func buildContentBundle(t *testing.T) (content []byte, contentHash string) {
 }
 
 // buildContentBundleWithProvenance creates a tar.gz containing index.html
-// and a provenance.json file. Returns the raw bytes and their SHA-384 hash.
+// and a release.json file. Returns the raw bytes and their SHA-384 hash.
 func buildContentBundleWithProvenance(t *testing.T) (content []byte, contentHash string) {
 	t.Helper()
 	data := makeTarGz(t, map[string]string{
-		"index.html":      "<html><body>hello</body></html>",
-		"provenance.json": `{"version":"1.0.0","content_hash":"test","summary":{"total_files":2},"source":{"commit_short":"abc1234"}}`,
+		"index.html":   "<html><body>hello</body></html>",
+		"release.json": `{"version":"1.0.0","content_hash":"test","summary":{"total_files":2},"source":{"commit_short":"abc1234"}}`,
 	})
 	hash := cryptoutil.SHA384Hex(data)
 	return data, hash
@@ -184,11 +186,14 @@ func putBundle(fake *fakeS3, hash string, data []byte) {
 	fake.put(key, data)
 }
 
-// putSigBundle stores a sigstore bundle in fakeS3 at the expected key.
+// putSigBundle stores both the KMS and keyless sigstore bundles in fakeS3 at
+// their expected keys. Content bundles are dual-signed, so the loader fetches
+// both on every load.
 func putSigBundle(fake *fakeS3, hash string, data []byte) {
 	algorithm := "sha384"
-	key := fmt.Sprintf("%s/%s/%s.tar.gz.sigstore.json", testS3Prefix, algorithm, hash)
-	fake.put(key, data)
+	base := fmt.Sprintf("%s/%s/%s.tar.gz", testS3Prefix, algorithm, hash)
+	fake.put(base+".kms.bundle.sigstore.json", data)
+	fake.put(base+".keyless.bundle.sigstore.json", data)
 }
 
 // ssmValue formats an algorithm:hash SSM parameter value.
@@ -254,13 +259,27 @@ func TestNewLoader_RequiresVerifier(t *testing.T) {
 	}
 }
 
-func TestNewLoader_DefaultsLogger(t *testing.T) {
-	l, err := NewLoader(t.Context(), &LoaderOptions{
+func TestNewLoader_RequiresKeylessVerifier(t *testing.T) {
+	_, err := NewLoader(t.Context(), &LoaderOptions{
 		SSMParam:  testSSMParam,
 		S3Bucket:  testBucket,
 		S3Client:  newFakeS3(),
 		SSMClient: ssmWithValue("x"),
 		Verifier:  passVerifier(),
+	})
+	if err == nil {
+		t.Fatal("expected error when KeylessVerifier is nil")
+	}
+}
+
+func TestNewLoader_DefaultsLogger(t *testing.T) {
+	l, err := NewLoader(t.Context(), &LoaderOptions{
+		SSMParam:        testSSMParam,
+		S3Bucket:        testBucket,
+		S3Client:        newFakeS3(),
+		SSMClient:       ssmWithValue("x"),
+		Verifier:        passVerifier(),
+		KeylessVerifier: passVerifier(),
 	})
 	if err != nil {
 		t.Fatalf("NewLoader: %v", err)
@@ -397,23 +416,43 @@ func TestS3Key_SHA256(t *testing.T) {
 	}
 }
 
-// sigBundleKey
+// kmsBundleKey / keylessBundleKey
 
-func TestSigBundleKey_WithPrefix(t *testing.T) {
+func TestKMSBundleKey_WithPrefix(t *testing.T) {
 	l := newTestLoader(t, newFakeS3(), ssmWithValue("x"))
 
-	key := l.sigBundleKey("sha384", "abc123")
-	want := "content/bundles/sha384/abc123.tar.gz.sigstore.json"
+	key := l.kmsBundleKey("sha384", "abc123")
+	want := "content/bundles/sha384/abc123.tar.gz.kms.bundle.sigstore.json"
 	if key != want {
 		t.Fatalf("key = %q, want %q", key, want)
 	}
 }
 
-func TestSigBundleKey_WithoutPrefix(t *testing.T) {
+func TestKMSBundleKey_WithoutPrefix(t *testing.T) {
 	l := &Loader{opts: LoaderOptions{S3Prefix: ""}}
 
-	key := l.sigBundleKey("sha384", "abc123")
-	want := "sha384/abc123.tar.gz.sigstore.json"
+	key := l.kmsBundleKey("sha384", "abc123")
+	want := "sha384/abc123.tar.gz.kms.bundle.sigstore.json"
+	if key != want {
+		t.Fatalf("key = %q, want %q", key, want)
+	}
+}
+
+func TestKeylessBundleKey_WithPrefix(t *testing.T) {
+	l := newTestLoader(t, newFakeS3(), ssmWithValue("x"))
+
+	key := l.keylessBundleKey("sha384", "abc123")
+	want := "content/bundles/sha384/abc123.tar.gz.keyless.bundle.sigstore.json"
+	if key != want {
+		t.Fatalf("key = %q, want %q", key, want)
+	}
+}
+
+func TestKeylessBundleKey_WithoutPrefix(t *testing.T) {
+	l := &Loader{opts: LoaderOptions{S3Prefix: ""}}
+
+	key := l.keylessBundleKey("sha384", "abc123")
+	want := "sha384/abc123.tar.gz.keyless.bundle.sigstore.json"
 	if key != want {
 		t.Fatalf("key = %q, want %q", key, want)
 	}
@@ -560,6 +599,48 @@ func TestLoadHash_WithVerifier_SignatureFails(t *testing.T) {
 	}
 }
 
+func TestLoadHash_RecordsBothSignatures(t *testing.T) {
+	fake := newFakeS3()
+	bundleData, bundleHash := buildContentBundle(t)
+	putBundle(fake, bundleHash, bundleData)
+	putSigBundle(fake, bundleHash, []byte(`{"mock":"sig"}`))
+
+	l := newTestLoader(t, fake, ssmWithValue(ssmValue(bundleHash)))
+
+	snap, err := l.LoadHash(t.Context(), "sha384", bundleHash)
+	if err != nil {
+		t.Fatalf("LoadHash: %v", err)
+	}
+	// Sub-blocks come back nil because the mock sigstore JSON `{"mock":"sig"}`
+	// is not a parseable sigstore bundle - extraction logs a warning and
+	// stores nil. What we're asserting here is that loader attempts both
+	// extractions and produces a non-nil Signatures container so the API
+	// shape is stable. Real-bundle extraction is covered in cryptoutil tests.
+	if snap.Meta.Signatures == nil {
+		t.Fatal("expected Signatures container to be non-nil")
+	}
+}
+
+func TestLoadHash_MissingKeylessBundle(t *testing.T) {
+	fake := newFakeS3()
+	bundleData, bundleHash := buildContentBundle(t)
+	putBundle(fake, bundleHash, bundleData)
+	// Only the KMS bundle is present; the keyless bundle is missing.
+	algorithm := "sha384"
+	base := fmt.Sprintf("%s/%s/%s.tar.gz", testS3Prefix, algorithm, bundleHash)
+	fake.put(base+".kms.bundle.sigstore.json", []byte(`{"mock":"sig"}`))
+
+	l := newTestLoader(t, fake, ssmWithValue(ssmValue(bundleHash)))
+
+	_, err := l.LoadHash(t.Context(), "sha384", bundleHash)
+	if err == nil {
+		t.Fatal("expected error when keyless sigstore bundle is missing")
+	}
+	if !strings.Contains(err.Error(), "fetch keyless sigstore bundle") {
+		t.Fatalf("error should mention fetching keyless bundle: %v", err)
+	}
+}
+
 func TestLoadHash_DownloadFails(t *testing.T) {
 	fake := newFakeS3()
 	l := newTestLoader(t, fake, ssmWithValue("sha384:abc123"))
@@ -658,7 +739,7 @@ func TestLoadHash_WithoutProvenance(t *testing.T) {
 		t.Fatalf("LoadHash: %v", err)
 	}
 	if snap.Provenance != nil {
-		t.Fatal("expected nil provenance when provenance.json is missing")
+		t.Fatal("expected nil provenance when release.json is missing")
 	}
 	if snap.Meta.Version != "" {
 		t.Fatalf("Meta.Version = %q, want empty when no provenance", snap.Meta.Version)

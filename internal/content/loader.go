@@ -33,8 +33,13 @@ type LoaderOptions struct {
 	S3Bucket string
 	S3Prefix string
 
-	// Verifier for bundle hash signatures
+	// Verifier verifies the KMS sigstore bundle for the content bundle.
 	Verifier BlobVerifier
+
+	// KeylessVerifier verifies the keyless (Fulcio) sigstore bundle for the
+	// content bundle. Content bundles are dual-signed: both signatures are
+	// verified on every load.
+	KeylessVerifier BlobVerifier
 
 	// S3Client allows injecting a custom S3 implementation for testing.
 	// If nil, a real client is created from AWSConfig.
@@ -88,6 +93,9 @@ func NewLoader(ctx context.Context, opts *LoaderOptions) (*Loader, error) {
 	if opts.Verifier == nil {
 		return nil, xerrors.New("Verifier is required")
 	}
+	if opts.KeylessVerifier == nil {
+		return nil, xerrors.New("KeylessVerifier is required")
+	}
 	if opts.Logger == nil {
 		opts.Logger = log.Nop()
 	}
@@ -135,10 +143,16 @@ func (l *Loader) s3Key(algorithm, hash string) string {
 	return fmt.Sprintf("%s/%s.tar.gz", algorithm, hash)
 }
 
-// sigBundleKey returns the S3 object key for the sigstore bundle
+// kmsBundleKey returns the S3 object key for the KMS sigstore bundle
 // for a given content bundle hash.
-func (l *Loader) sigBundleKey(algorithm, hash string) string {
-	return l.s3Key(algorithm, hash) + ".sigstore.json"
+func (l *Loader) kmsBundleKey(algorithm, hash string) string {
+	return l.s3Key(algorithm, hash) + ".kms.bundle.sigstore.json"
+}
+
+// keylessBundleKey returns the S3 object key for the keyless (Fulcio) sigstore
+// bundle for a given content bundle hash, stored alongside the KMS bundle.
+func (l *Loader) keylessBundleKey(algorithm, hash string) string {
+	return l.s3Key(algorithm, hash) + ".keyless.bundle.sigstore.json"
 }
 
 // fetchS3 fetches an S3 object and returns its contents, limited to maxSize.
@@ -220,15 +234,38 @@ func (l *Loader) LoadHash(ctx context.Context, algorithm, hash string) (*Snapsho
 		return nil, xerrors.Newf("checksum mismatch: expected %s, got %s", hash, actualHash)
 	}
 
-	// fetch the sigstore bundle for this content bundle
-	sigKey := l.sigBundleKey(algorithm, hash)
-	bundleJSON, err := l.fetchS3(ctx, sigKey, maxSigBundleSize)
+	// fetch and verify the KMS sigstore bundle for this content bundle
+	kmsKey := l.kmsBundleKey(algorithm, hash)
+	kmsBundleJSON, err := l.fetchS3(ctx, kmsKey, maxSigBundleSize)
 	if err != nil {
-		return nil, xerrors.Wrap(err, "fetch sigstore bundle")
+		return nil, xerrors.Wrap(err, "fetch kms sigstore bundle")
 	}
-	// verify the content bundle signature using the sigstore bundle and trusted key
-	if err := l.opts.Verifier.VerifyBlob(ctx, bundleJSON, data); err != nil {
-		return nil, xerrors.Wrap(err, "content bundle signature verification failed")
+	if err := l.opts.Verifier.VerifyBlob(ctx, kmsBundleJSON, data); err != nil {
+		return nil, xerrors.Wrap(err, "content bundle kms signature verification failed")
+	}
+
+	// fetch and verify the keyless (Fulcio) sigstore bundle. Content bundles
+	// are dual-signed, both signatures are required.
+	keylessKey := l.keylessBundleKey(algorithm, hash)
+	keylessBundleJSON, err := l.fetchS3(ctx, keylessKey, maxSigBundleSize)
+	if err != nil {
+		return nil, xerrors.Wrap(err, "fetch keyless sigstore bundle")
+	}
+	if err := l.opts.KeylessVerifier.VerifyBlob(ctx, keylessBundleJSON, data); err != nil {
+		return nil, xerrors.Wrap(err, "content bundle keyless signature verification failed")
+	}
+
+	// extract per-signature display data for the provenance API.
+	signatures := &cryptoutil.SignaturesInfo{}
+	if keyless, err := cryptoutil.KeylessSignatureFromBundle(keylessBundleJSON); err != nil {
+		l.logger.Warn(ctx, "failed to extract keyless signature info", "hash", hash, "error", err)
+	} else {
+		signatures.Keyless = keyless
+	}
+	if kms, err := cryptoutil.KMSSignatureFromBundle(kmsBundleJSON); err != nil {
+		l.logger.Warn(ctx, "failed to extract kms signature info", "hash", hash, "error", err)
+	} else {
+		signatures.KMS = kms
 	}
 
 	// extract to in-memory filesystem
@@ -245,7 +282,7 @@ func (l *Loader) LoadHash(ctx context.Context, algorithm, hash string) (*Snapsho
 	var provenance *Provenance
 	prov, err := LoadProvenance(contentFS)
 	if err != nil {
-		l.logger.Warn(ctx, "failed to load provenance.json, continuing without provenance data",
+		l.logger.Warn(ctx, "failed to load release.json, continuing without provenance data",
 			"hash", hash,
 			"error", err,
 		)
@@ -266,6 +303,7 @@ func (l *Loader) LoadHash(ctx context.Context, algorithm, hash string) (*Snapsho
 			Source:        SourceS3,
 			VerifiedAt:    time.Now().UTC(),
 			Version:       provenanceVersion(provenance),
+			Signatures:    signatures,
 		},
 		Provenance: provenance,
 		LoadedAt:   loadedAt,

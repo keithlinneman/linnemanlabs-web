@@ -884,3 +884,65 @@ func TestBuildFileIndex_ZeroSizeFile(t *testing.T) {
 		t.Fatalf("Size = %d, want 0", ref.Size)
 	}
 }
+
+// ParseInventoryTooling tests
+
+func TestParseInventoryTooling_RealShape(t *testing.T) {
+	// shape mirrors the prod inventory.json: top-level "tooling" sibling
+	// to "build", "oci", etc. with version + category + optional fields.
+	raw := []byte(`{
+		"app": "linnemanlabs-web",
+		"build": {"system": "github-actions"},
+		"tooling": {
+			"cosign":          {"category": "signing-tool",     "version": "v3.0.6"},
+			"cyclonedx_gomod": {"category": "sbom-generator",   "version": "v1.10.0", "modsum": "h1:abc="},
+			"go":              {"category": "toolchain",        "version": "go1.25.10"},
+			"govulncheck":     {"category": "vuln-scanner",     "version": "v1.1.4",
+				"db": {"checked_at": "2026-05-29T21:26:35Z", "source": "https://vuln.go.dev", "upstream_modified_at": "2026-05-29T19:17:56Z"}},
+			"grype":           {"category": "vuln-scanner",     "version": "0.112.0"},
+			"oras":            {"category": "artifact-uploader","version": "1.3.2"},
+			"syft":            {"category": "sbom-generator",   "version": "1.44.0", "commit": "8cb78ce"},
+			"trivy":           {"category": "vuln-scanner",     "version": "0.69.3"}
+		}
+	}`)
+
+	tooling, err := ParseInventoryTooling(raw)
+	if err != nil {
+		t.Fatalf("ParseInventoryTooling: %v", err)
+	}
+	if tooling == nil {
+		t.Fatal("expected non-nil tooling")
+	}
+	if tooling.Go == nil || tooling.Go.Version != "go1.25.10" || tooling.Go.Category != "toolchain" {
+		t.Fatalf("Go = %+v", tooling.Go)
+	}
+	if tooling.Syft == nil || tooling.Syft.Commit != "8cb78ce" {
+		t.Fatalf("Syft = %+v", tooling.Syft)
+	}
+	if tooling.CyclonedxGomod == nil || tooling.CyclonedxGomod.Modsum != "h1:abc=" {
+		t.Fatalf("CyclonedxGomod = %+v", tooling.CyclonedxGomod)
+	}
+	if tooling.Govulncheck == nil || tooling.Govulncheck.DB == nil {
+		t.Fatalf("Govulncheck.DB = nil")
+	}
+	if tooling.Govulncheck.DB.Source != "https://vuln.go.dev" {
+		t.Fatalf("Govulncheck.DB.Source = %q", tooling.Govulncheck.DB.Source)
+	}
+}
+
+func TestParseInventoryTooling_NoBlock(t *testing.T) {
+	// inventory.json without a tooling block - returns nil, no error.
+	tooling, err := ParseInventoryTooling([]byte(`{"app":"x"}`))
+	if err != nil {
+		t.Fatalf("ParseInventoryTooling: %v", err)
+	}
+	if tooling != nil {
+		t.Fatalf("expected nil tooling, got %+v", tooling)
+	}
+}
+
+func TestParseInventoryTooling_InvalidJSON(t *testing.T) {
+	if _, err := ParseInventoryTooling([]byte(`not json`)); err == nil {
+		t.Fatal("expected error for invalid JSON")
+	}
+}
