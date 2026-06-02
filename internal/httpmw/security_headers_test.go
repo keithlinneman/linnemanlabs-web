@@ -98,6 +98,33 @@ func TestSecurityHeaders_HandlerCalled(t *testing.T) {
 	}
 }
 
+func TestSecurityHeaders_CORP_OGCardCrossOrigin(t *testing.T) {
+	cases := []struct {
+		path string
+		want string
+	}{
+		// OG card paths get relaxed CORP so third-party link previews work
+		{"/img/og/home.png", "cross-origin"},
+		{"/img/og/blog/post-slug.webp", "cross-origin"},
+		{"/img/og/", "cross-origin"},
+		// Everything else keeps the locked-down default
+		{"/", "same-origin"},
+		{"/img/og", "same-origin"},
+		{"/img/other/photo.png", "same-origin"},
+		{"/api/provenance/app", "same-origin"},
+	}
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
+	for _, c := range cases {
+		rec := httptest.NewRecorder()
+		SecurityHeaders(handler).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, c.path, http.NoBody))
+
+		if got := rec.Header().Get("Cross-Origin-Resource-Policy"); got != c.want {
+			t.Errorf("path: %q: CORP = %q, want %q", c.path, got, c.want)
+		}
+	}
+}
+
 func TestSecurityHeaders_HeadersSetBeforeHandler(t *testing.T) {
 	// Verify headers are available to the handler (set before ServeHTTP)
 	var hstsInHandler string

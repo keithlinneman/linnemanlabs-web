@@ -1,9 +1,17 @@
 package httpmw
 
-import "net/http"
+import (
+	"net/http"
+	"strings"
+)
 
 // Security note: CSRF protection is not implemented because it is not applicable.
 // This API is stateless (no cookies, no sessions, no authentication) and read-only (GET only).
+
+// ogCardPathPrefix is served with relaxed Cross-Origin-Resource-Policy so
+// 3rd-party sites can fetch our preview images. Most probably use crawlers
+// but the whole point is sharing these images.
+const ogCardPathPrefix = "/img/og/"
 
 // SecurityHeaders is middleware that adds common security headers to HTTP responses
 func SecurityHeaders(next http.Handler) http.Handler {
@@ -36,7 +44,12 @@ func SecurityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
 
 		// Cross-Origin-Resource-Policy to restrict resource.. "sharing"
-		w.Header().Set("Cross-Origin-Resource-Policy", "same-origin")
+		// Allowing og cards to be shared only
+		corp := "same-origin"
+		if strings.HasPrefix(r.URL.Path, ogCardPathPrefix) {
+			corp = "cross-origin"
+		}
+		w.Header().Set("Cross-Origin-Resource-Policy", corp)
 
 		next.ServeHTTP(w, r)
 	})
