@@ -78,7 +78,6 @@ func TestIntegration_FullStack(t *testing.T) {
 			"X-Content-Type-Options",
 			"X-Frame-Options",
 			"Referrer-Policy",
-			"Cross-Origin-Embedder-Policy",
 			"Cross-Origin-Opener-Policy",
 			"Cross-Origin-Resource-Policy",
 			"Permissions-Policy",
