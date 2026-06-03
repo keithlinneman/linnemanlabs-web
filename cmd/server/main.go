@@ -323,6 +323,7 @@ func main() { //nolint:gocognit // main wires everything together, splitting it 
 		SSMClient:       ssmClient,
 		Verifier:        contentBlobVerifier,
 		KeylessVerifier: contentKeylessVerifier,
+		Inliner:         provenanceAPI.Inliner(),
 	})
 	if err != nil {
 		L.Error(ctx, err, "failed to create content loader, content updates will be disabled")

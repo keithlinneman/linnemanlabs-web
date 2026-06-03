@@ -41,6 +41,11 @@ type LoaderOptions struct {
 	// verified on every load.
 	KeylessVerifier BlobVerifier
 
+	// Inliner, when non-nil, fills the bundle's provenance data islands with the
+	// JSON served by /api/provenance/{content,app} at load time. nil disables
+	// injection (local/dev builds without a provenance API, and tests).
+	Inliner ProvenanceInliner
+
 	// S3Client allows injecting a custom S3 implementation for testing.
 	// If nil, a real client is created from AWSConfig.
 	S3Client s3Getter
@@ -55,6 +60,7 @@ type Loader struct {
 	ssmClient ssmGetter
 	s3Client  s3Getter
 	logger    log.Logger
+	inliner   ProvenanceInliner
 }
 
 // s3Getter is the subset of the S3 API the loader needs.
@@ -105,6 +111,7 @@ func NewLoader(ctx context.Context, opts *LoaderOptions) (*Loader, error) {
 		s3Client:  opts.S3Client,
 		ssmClient: opts.SSMClient,
 		logger:    opts.Logger,
+		inliner:   opts.Inliner,
 	}, nil
 }
 
@@ -295,7 +302,7 @@ func (l *Loader) LoadHash(ctx context.Context, algorithm, hash string) (*Snapsho
 		)
 	}
 
-	return &Snapshot{
+	snap := &Snapshot{
 		FS: contentFS,
 		Meta: Meta{
 			Hash:          hash,
@@ -307,7 +314,14 @@ func (l *Loader) LoadHash(ctx context.Context, algorithm, hash string) (*Snapsho
 		},
 		Provenance: provenance,
 		LoadedAt:   loadedAt,
-	}, nil
+	}
+
+	// fill the bundle's provenance data islands in-memory before the snapshot is
+	// published (no-op when no inliner is configured). Safe to mutate here: the
+	// extracted MapFS is single-owner until the swap.
+	l.inlineProvenance(ctx, snap)
+
+	return snap, nil
 }
 
 // provenanceVersion extracts version from provenance or returns empty string

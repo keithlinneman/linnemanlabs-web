@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/keithlinneman/linnemanlabs-web/internal/content"
 	"github.com/keithlinneman/linnemanlabs-web/internal/cryptoutil"
 	"github.com/keithlinneman/linnemanlabs-web/internal/evidence"
 	"github.com/keithlinneman/linnemanlabs-web/internal/log"
@@ -18,12 +19,12 @@ import (
 
 // NewAPI creates a new provenance API handler
 // evidenceStore may be nil for local builds without provenance
-func NewAPI(content SnapshotProvider, evidenceStore *evidence.Store, logger log.Logger) *API {
+func NewAPI(contentProvider SnapshotProvider, evidenceStore *evidence.Store, logger log.Logger) *API {
 	if logger == nil {
 		logger = log.Nop()
 	}
 	return &API{
-		content:  content,
+		content:  contentProvider,
 		evidence: evidenceStore,
 		logger:   logger,
 	}
@@ -48,10 +49,16 @@ func (api *API) RegisterRoutes(r chi.Router) {
 	r.Get("/api/provenance/evidence/files/*", api.HandleEvidenceFile)
 }
 
-// HandleAppProvenance serves the comprehensive app provenance: build info + full release
-// manifest + parsed policy + attestation details + complete evidence file index
-// This is the "give me everything" endpoint - the summary abbreviates from this
 func (api *API) HandleAppProvenance(w http.ResponseWriter, r *http.Request) {
+	api.writeJSON(r.Context(), w, http.StatusOK, api.buildAppProvenance(r.Context()))
+}
+
+// buildAppProvenance assembles the comprehensive app provenance response. It is
+// shared by HandleAppProvenance and the data-island Inliner so the inlined JSON
+// stays byte-for-byte identical to the live endpoint. For local builds (nil
+// evidence store) or before evidence loads it returns just build info + links.
+func (api *API) buildAppProvenance(ctx context.Context) AppProvenanceResponse {
+
 	resp := AppProvenanceResponse{
 		Build: v.Get(),
 		Links: map[string]string{
@@ -64,14 +71,12 @@ func (api *API) HandleAppProvenance(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if api.evidence == nil {
-		api.writeJSON(r.Context(), w, http.StatusOK, resp)
-		return
+		return resp
 	}
 
 	bundle, ok := api.evidence.Get()
 	if !ok {
-		api.writeJSON(r.Context(), w, http.StatusOK, resp)
-		return
+		return resp
 	}
 
 	resp.Release = bundle.Release
@@ -81,7 +86,7 @@ func (api *API) HandleAppProvenance(w http.ResponseWriter, r *http.Request) {
 	if bundle.Release != nil {
 		pol, err := evidence.ParsePolicy(bundle.Release.Policy)
 		if err != nil {
-			api.logger.Warn(r.Context(), "parse policy", "error", err)
+			api.logger.Warn(ctx, "parse policy", "error", err)
 		}
 		if pol != nil {
 			resp.Policy = pol
@@ -146,7 +151,7 @@ func (api *API) HandleAppProvenance(w http.ResponseWriter, r *http.Request) {
 	// build-pipeline toolchain from inventory.json's tooling block.
 	resp.Tooling = bundle.Tooling
 
-	api.writeJSON(r.Context(), w, http.StatusOK, resp)
+	return resp
 }
 
 // buildAppSigning projects release.json's summary.signing block onto the API
@@ -494,11 +499,21 @@ func (api *API) HandleContentProvenance(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	api.writeJSON(ctx, w, http.StatusOK, buildContentResponse(snap, time.Now().UTC()))
+}
+
+// buildContentResponse assembles the full content provenance response for a
+// loaded snapshot. It is shared by HandleContentProvenance and the data-island
+// Inliner so the inlined JSON stays identical to the live endpoint; the Inliner
+// passes the snapshot being loaded (not yet published to the Manager), and a
+// serverTime of its own choosing.
+func buildContentResponse(snap *content.Snapshot, serverTime time.Time) ContentProvenanceResponse {
+
 	resp := ContentProvenanceResponse{
 		Bundle: snap.Provenance,
 		Runtime: RuntimeInfo{
 			LoadedAt:   snap.LoadedAt.Truncate(time.Second),
-			ServerTime: time.Now().UTC().Truncate(time.Second),
+			ServerTime: serverTime.Truncate(time.Second),
 			Source:     snap.Meta.Source,
 			Hash:       snap.Meta.Hash,
 			Version:    snap.Meta.Version,
@@ -511,7 +526,7 @@ func (api *API) HandleContentProvenance(w http.ResponseWriter, r *http.Request) 
 		resp.Error = "provenance data not available for this bundle"
 	}
 
-	api.writeJSON(ctx, w, http.StatusOK, resp)
+	return resp
 }
 
 // HandleContentSummary serves a lightweight summary for UI display
