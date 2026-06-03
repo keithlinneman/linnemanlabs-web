@@ -1,14 +1,14 @@
 // internal/content/island.go
 //
-// Provenance data-island injection. A content-bundle page ships an empty
-// placeholder element:
+// Provenance data-island injection. A content-bundle page ships a <script> data
+// island whose content is a fixed sentinel string:
 //
-//	<script type="application/json" id="provenance-content-data"></script>
+//	<script type="application/json" id="provenance-content-data">"__PROVENANCE_CONTENT_DATA__"</script>
 //
-// and another for id="provenance-app-data". At bundle-load time the loader
-// fills these in-memory with the same JSON served by /api/provenance/content
-// and /api/provenance/app, so the provenance is inline and machine-readable
-// without a follow-up request to the API.
+// and another carrying "__PROVENANCE_APP_DATA__". At bundle-load time the loader
+// replaces each sentinel in-memory with the JSON served by
+// /api/provenance/content and /api/provenance/app, so the provenance is inline
+// and machine-readable without a follow-up request to the API.
 package content
 
 import (
@@ -29,27 +29,33 @@ import (
 type ProvenanceInliner interface {
 	// AppDataIsland returns the JSON to embed in the app provenance island. It
 	// mirrors GET /api/provenance/app and is stable for the life of the process
+	// (derived from build evidence, not the bundle).
 	AppDataIsland(ctx context.Context) ([]byte, error)
 
 	// ContentDataIsland returns the JSON to embed in the content provenance
 	// island for the given just-loaded snapshot. It mirrors
-	// GET /api/provenance/content
+	// GET /api/provenance/content. snap is fully populated but not yet published
+	// to the Manager.
 	ContentDataIsland(ctx context.Context, snap *Snapshot) ([]byte, error)
 }
 
-// Data-island element IDs, matched against the bundle's HTML at load time.
+// Data-island
 const (
 	contentDataIslandID = "provenance-content-data"
 	appDataIslandID     = "provenance-app-data"
+
+	contentDataSentinel = `"__PROVENANCE_CONTENT_DATA__"`
+	appDataSentinel     = `"__PROVENANCE_APP_DATA__"`
 )
 
-// islandInjectionCounts reports how many HTML files received each island.
+// islandInjectionCounts reports how many sentinel occurrences were replaced for
+// each island across the bundle.
 type islandInjectionCounts struct {
 	content int
 	app     int
 }
 
-// inlineProvenance fills the bundle's provenance data islands in place, before
+// inlineProvenance replaces the bundle's provenance sentinels in place, before
 // the snapshot is published to the Manager. It is a no-op when no inliner is
 // configured (local/dev builds, tests) or when the FS is not a mutable MapFS.
 //
@@ -73,12 +79,12 @@ func (l *Loader) inlineProvenance(ctx context.Context, snap *Snapshot) {
 
 	contentJSON, err := l.inliner.ContentDataIsland(ctx, snap)
 	if err != nil {
-		l.logger.Warn(ctx, "build content provenance island failed; leaving placeholder empty", "error", err)
+		l.logger.Warn(ctx, "build content provenance island failed; leaving sentinel unreplaced", "error", err)
 		contentJSON = nil
 	}
 	appJSON, err := l.inliner.AppDataIsland(ctx)
 	if err != nil {
-		l.logger.Warn(ctx, "build app provenance island failed; leaving placeholder empty", "error", err)
+		l.logger.Warn(ctx, "build app provenance island failed; leaving sentinel unreplaced", "error", err)
 		appJSON = nil
 	}
 	if contentJSON == nil && appJSON == nil {
@@ -87,12 +93,12 @@ func (l *Loader) inlineProvenance(ctx context.Context, snap *Snapshot) {
 
 	counts, modified := injectDataIslands(mfs, contentJSON, appJSON)
 
-	// A configured island whose placeholder is in no page
+	// A configured island whose sentinel appears in no page
 	if contentJSON != nil && counts.content == 0 {
-		l.logger.Warn(ctx, "content provenance island placeholder not found in any page", "island_id", contentDataIslandID)
+		l.logger.Warn(ctx, "content provenance island sentinel not found in any page", "island_id", contentDataIslandID)
 	}
 	if appJSON != nil && counts.app == 0 {
-		l.logger.Warn(ctx, "app provenance island placeholder not found in any page", "island_id", appDataIslandID)
+		l.logger.Warn(ctx, "app provenance island sentinel not found in any page", "island_id", appDataIslandID)
 	}
 	if len(modified) > 0 {
 		l.logger.Info(ctx, "inlined provenance data islands",
@@ -103,10 +109,12 @@ func (l *Loader) inlineProvenance(ctx context.Context, snap *Snapshot) {
 	}
 }
 
-// injectDataIslands fills the provenance data islands in every HTML file of the
-// in-memory bundle. A nil payload skips that island.
+// injectDataIslands replaces each provenance sentinel with its JSON payload in
+// every HTML file of the in-memory bundle. A nil payload skips that island.
 func injectDataIslands(mfs fstest.MapFS, contentJSON, appJSON []byte) (counts islandInjectionCounts, modified []string) {
 	modified = make([]string, 0, len(mfs))
+	contentTok := []byte(contentDataSentinel)
+	appTok := []byte(appDataSentinel)
 
 	for name, file := range mfs {
 		if file == nil || !isHTMLFile(name) {
@@ -117,17 +125,17 @@ func injectDataIslands(mfs fstest.MapFS, contentJSON, appJSON []byte) (counts is
 		changed := false
 
 		if contentJSON != nil {
-			if out, ok := injectIsland(data, contentDataIslandID, contentJSON); ok {
-				data = out
+			if n := bytes.Count(data, contentTok); n > 0 {
+				data = bytes.ReplaceAll(data, contentTok, contentJSON)
+				counts.content += n
 				changed = true
-				counts.content++
 			}
 		}
 		if appJSON != nil {
-			if out, ok := injectIsland(data, appDataIslandID, appJSON); ok {
-				data = out
+			if n := bytes.Count(data, appTok); n > 0 {
+				data = bytes.ReplaceAll(data, appTok, appJSON)
+				counts.app += n
 				changed = true
-				counts.app++
 			}
 		}
 
@@ -141,58 +149,8 @@ func injectDataIslands(mfs fstest.MapFS, contentJSON, appJSON []byte) (counts is
 	return counts, modified
 }
 
-// injectIsland fills a single empty data-island <script> element identified by
-// its id attribute with payload, returning the rewritten HTML and true when an
-// update happened.
-func injectIsland(html []byte, id string, payload []byte) ([]byte, bool) {
-	marker := []byte(`id="` + id + `"`)
-
-	searchFrom := 0
-	for {
-		rel := bytes.Index(html[searchFrom:], marker)
-		if rel < 0 {
-			return html, false
-		}
-		idPos := searchFrom + rel
-
-		// The id must live inside a "<script ...>" open tag: the nearest
-		// preceding "<script" with no intervening '>'.
-		openStart := bytes.LastIndex(html[:idPos], []byte("<script"))
-		if openStart < 0 || bytes.IndexByte(html[openStart:idPos], '>') >= 0 {
-			// id is not inside a script open tag - keep looking.
-			searchFrom = idPos + len(marker)
-			continue
-		}
-
-		// End of the open tag. (Assumes no '>' inside attribute values, which
-		// holds for the simple quoted placeholder.)
-		gtRel := bytes.IndexByte(html[idPos:], '>')
-		if gtRel < 0 {
-			return html, false
-		}
-		openEnd := idPos + gtRel // index of '>'
-
-		closeRel := bytes.Index(html[openEnd+1:], []byte("</script>"))
-		if closeRel < 0 {
-			return html, false
-		}
-		closeStart := openEnd + 1 + closeRel
-
-		// Idempotent: do not overwrite an already-populated island.
-		if len(bytes.TrimSpace(html[openEnd+1:closeStart])) != 0 {
-			return html, false
-		}
-
-		out := make([]byte, 0, len(html)+len(payload))
-		out = append(out, html[:openEnd+1]...)
-		out = append(out, payload...)
-		out = append(out, html[closeStart:]...)
-		return out, true
-	}
-}
-
 // isHTMLFile reports whether name has an HTML extension. Injection is limited to
-// HTML so a coincidental marker substring in a .json/.js asset is never touched.
+// HTML so a coincidental sentinel substring in a .json/.js asset is never touched.
 func isHTMLFile(name string) bool {
 	switch strings.ToLower(path.Ext(name)) {
 	case ".html", ".htm":
